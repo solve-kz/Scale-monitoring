@@ -1,6 +1,8 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Scalemon.Common;
 using Scalemon.DataAccess;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
@@ -30,11 +32,32 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IConfiguration>(config);
 
         // добавление обработчиков
-        services.AddSingleton<IScaleProcessor, ScaleProcessor>();
-        services.AddSingleton<IStateMachine, StateMachine>();
+        services.AddSingleton<IScaleProcessor, ScaleProcessor>();        
         services.AddSingleton<IDataAccess, DataAccess>();
         services.AddSingleton<ISignalBus, SignalBus>();
+        services.AddSingleton<IScaleStateMachine>(sp =>
+        new ScaleStateMachine(
+        sp.GetRequiredService<IConfiguration>(),                    // config
+        sp.GetRequiredService<ILogger<ScaleStateMachine>>(),       // logger
+        onConnected: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.LinkOn ),
+        onDisconnected: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.LinkOff),
+        onUnstable: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Unstuble ),        
+        onResetToZero: () => sp.GetRequiredService<ScaleProcessor>().ResetToZero(),
+        onZeroState: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Idle ),
+        onInvalidWeight: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.ComplitedSmall ),
+        onError: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.SystemAlarm ),
+        onRecord: raw =>
+        {
+            // 1) Запись в БД
+            sp.GetRequiredService<IDataAccess>()
+              .SaveWeighing(raw, DateTime.Now);
 
+            // 2) Отправка сигнала на Arduino
+            sp.GetRequiredService<ISignalBus>()
+              .Send(ArduinoSignalCode.Complited);
+        }
+    )
+);
         services.AddHostedService<ScalemonService>();
     })
     .Build();

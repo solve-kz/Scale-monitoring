@@ -57,13 +57,13 @@ Public Class SignalBus
         Public Event ConnectionLost() Implements ISignalBus.ConnectionLost
         Public Event ButtonPressed() Implements ISignalBus.ButtonPressed
 
-        Public Sub SendCommand(cmd As ArduinoSignalCode) Implements ISignalBus.Send
-            If _serialPort.IsOpen Then
-                _serialPort.Write(New Byte() {CByte(cmd)}, 0, 1)
-            End If
-        End Sub
+    Public Sub Send(cmd As ArduinoSignalCode) Implements ISignalBus.Send
+        If _serialPort.IsOpen Then
+            _serialPort.Write(New Byte() {CByte(cmd)}, 0, 1)
+        End If
+    End Sub
 
-        Public Sub Start() Implements ISignalBus.Start
+    Public Sub Start() Implements ISignalBus.Start
         _portName = _config("PLCSettigs:PortName")
         _baudRate = _config("PLCSettigs:BaudRate")
         _reconnectIntervalMs = _config("PLCSettigs:ReconnectIntervalMs")

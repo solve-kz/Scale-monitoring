@@ -91,8 +91,8 @@ Public Class ScaleDriver100
         Public ReadOnly Property isScaleAlarm As Boolean Implements IScaleDriver.isScaleAlarm
             Get
                 Select Case _response
-                    Case 0, 1, 2, 23
-                        Return False
+                Case 0, 1, 23
+                    Return False
                     Case Else
                         Return True
                 End Select
