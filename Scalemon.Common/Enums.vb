@@ -1,6 +1,3 @@
-
-
-
 Public Enum ArduinoSignalCode As Byte
     LinkOn = &H10 ' Включается индикатор связи с весами
     LinkOff = &H11 ' Выключаются все четыре индикатора

@@ -26,6 +26,7 @@ Public Interface IScaleStateMachine
     ''' <summary>Вызывается при стабилизации весов на 0).</summary>
     Sub OnZeroState()
 
+
     ''' <summary>
     ''' Вызывается при получении нового значения веса.
     ''' <paramref name="raw"/> — необработанное значение веса.

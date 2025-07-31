@@ -2,13 +2,16 @@
 Public Interface IDataAccess
     Inherits IDisposable
 
-    Property ConnectionString As String
-    Property TableName As String
-
-    Function OpenAsync() As Task
+    ''' <summary>
+    ''' Сохраняет значение веса и отметку времени в базу.
+    ''' </summary>
     Function SaveWeighingAsync(weight As Decimal, timestamp As DateTime) As Task
+
+    ''' <summary>
+    ''' Удаляет последнюю запись (при необходимости отката).
+    ''' </summary>
     Function DeleteLastWeighingAsync() As Task
-    Function FlushAsync() As Task
+
 End Interface
 
 

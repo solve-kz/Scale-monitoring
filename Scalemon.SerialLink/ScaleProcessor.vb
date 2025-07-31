@@ -1,10 +1,7 @@
-
 Imports System.Threading
 Imports Microsoft.Extensions.Configuration
 Imports Microsoft.Extensions.Logging
 Imports Scalemon.MassaKInterop
-
-
 
 Public Class ScaleProcessor
     Implements IScaleProcessor
@@ -31,14 +28,14 @@ Public Class ScaleProcessor
 
     Public Sub Start() Implements IScaleProcessor.Start
         ' Реализация запуска драйвера весов
-        _driver.PortConnection = _config("PortForScale")
+        _driver.PortConnection = _config("PLCSettings:PortName")
         _driver.OpenConnection()
         If _driver.isConnected Then
             RaiseEvent ConnectionEstablished()
         Else
             RaiseEvent ConnectionLost()
         End If
-        Timer.Interval = Integer.Parse(_config("PollingIntervalMs"))
+        Timer.Interval = Integer.Parse(_config("ScaleSettings:PollingIntervalMs"))
         Timer.Start()
 
     End Sub
@@ -56,13 +53,13 @@ Public Class ScaleProcessor
                         If _driver.Stable Then
                             _stableCount += 1
                             _unstableCount = 0
-                            If _stableCount = _config("StableThreshold") Then
+                            If _stableCount = _config("ScaleSettings:StableThreshold") Then
                                 RaiseEvent WeightReceived(_driver.Weight)
                             End If
                         Else
                             _unstableCount += 1
                             _stableCount = 0
-                            If _unstableCount = _config("UnstableThreshold") Then
+                            If _unstableCount = _config("ScaleSettings:UnstableThreshold") Then
                                 RaiseEvent Unstable()
                             End If
                         End If

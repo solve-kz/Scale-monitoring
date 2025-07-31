@@ -32,8 +32,12 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IConfiguration>(config);
 
         // добавление обработчиков
-        services.AddSingleton<IScaleProcessor, ScaleProcessor>();        
-        services.AddSingleton<IDataAccess, SqlDataAccess>();
+        services.AddSingleton<IScaleProcessor, ScaleProcessor>();
+        services.AddSingleton<IDataAccess>(sp =>
+                                            new SqlDataAccess(
+                                            sp.GetRequiredService<IConfiguration>()["ConnectionStrings:ScaleDb"],
+                                            sp.GetRequiredService<IConfiguration>()["ScaleSettings:TableName"]
+                                            ));
         services.AddSingleton<ISignalBus, SignalBus>();
         services.AddSingleton<IScaleStateMachine>(sp =>
         new ScaleStateMachine(
@@ -46,13 +50,23 @@ IHost host = Host.CreateDefaultBuilder(args)
         onZeroState: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Idle ),
         onInvalidWeight: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.YellowRedOn  ),
         onError: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.RedOn  ),
+        onResetAlarm: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode .AlarmOff ),
         onRecord: raw =>
         {
-            // 1) Запись в БД
-            sp.GetRequiredService<IDataAccess>()
-              .SaveWeighingAsync(raw, DateTime.Now);
+            var dbLogger = sp.GetRequiredService<ILogger<Program>>();
+            try
+            {
+                // Синхронно дожидаемся завершения асинхронной вставки
+                sp.GetRequiredService<IDataAccess>()
+                  .SaveWeighingAsync(raw, DateTime.Now)
+                  .GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                dbLogger.LogError(ex, "Не удалось записать взвешивание");
+            }
 
-            // 2) Отправка сигнала на Arduino
+            // После записи отправляем сигнал на Arduino
             sp.GetRequiredService<ISignalBus>()
               .Send(ArduinoSignalCode.Complited);
         }
