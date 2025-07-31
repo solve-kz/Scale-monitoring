@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Scalemon.DataAccess\Scalemon.DataAccess.vbproj" />
+    <ProjectReference Include="..\Scalemon.DataAccess\Scalemon.SqlDataAccess.vbproj" />
     <ProjectReference Include="..\Scalemon.FSM\Scalemon.FSM.vbproj" />
     <ProjectReference Include="..\Scalemon.SerialLink\Scalemon.SerialLink.vbproj" />
     <ProjectReference Include="..\Scalemon.SignalBus\Scalemon.SignalBus.vbproj" />

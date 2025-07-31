@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
-using Scalemon.DataAccess;
+using Scalemon.SqlDataAccess;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;

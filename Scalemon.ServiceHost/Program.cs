@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
-using Scalemon.DataAccess;
+using Scalemon.SqlDataAccess;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
@@ -33,7 +33,7 @@ IHost host = Host.CreateDefaultBuilder(args)
 
         // добавление обработчиков
         services.AddSingleton<IScaleProcessor, ScaleProcessor>();        
-        services.AddSingleton<IDataAccess, DataAccess>();
+        services.AddSingleton<IDataAccess, SqlDataAccess>();
         services.AddSingleton<ISignalBus, SignalBus>();
         services.AddSingleton<IScaleStateMachine>(sp =>
         new ScaleStateMachine(
@@ -44,13 +44,13 @@ IHost host = Host.CreateDefaultBuilder(args)
         onUnstable: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Unstuble ),        
         onResetToZero: () => sp.GetRequiredService<ScaleProcessor>().ResetToZero(),
         onZeroState: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Idle ),
-        onInvalidWeight: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.ComplitedSmall ),
-        onError: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.SystemAlarm ),
+        onInvalidWeight: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.YellowRedOn  ),
+        onError: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.RedOn  ),
         onRecord: raw =>
         {
             // 1) Запись в БД
             sp.GetRequiredService<IDataAccess>()
-              .SaveWeighing(raw, DateTime.Now);
+              .SaveWeighingAsync(raw, DateTime.Now);
 
             // 2) Отправка сигнала на Arduino
             sp.GetRequiredService<ISignalBus>()

@@ -7,10 +7,9 @@ Public Enum ArduinoSignalCode As Byte
     Idle = &H12 ' Включается зеленая лампа
     Unstuble = &H13 ' Выключаются зеленая и желтая лампы
     Complited = &H14 ' Включается желтая лампа
-    ComplitedSmall = &H15 ' Включаются желтая и красная лампы
-    ScaleAlarm = &H16 ' Красная лампа включается на 1 секунду, затем выключается
-    SystemAlarm = &H17 ' Включается красная лампа
-    AlarmOff = &H18 ' Выключается красная лампа
+    YellowRedOn = &H15 ' Включаются желтая и красная лампы
+    RedOn = &H16 ' Включается красная лампа
+    AlarmOff = &H17 ' Выключается красная лампа
 End Enum
 
 Public Enum ScalesState
