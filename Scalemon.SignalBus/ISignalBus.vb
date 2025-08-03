@@ -12,13 +12,14 @@ Public Interface ISignalBus
         ' События
         Event ConnectionEstablished()
         Event ConnectionLost()
-        Event ButtonPressed()
+    Sub SubscribeButtonPressed(handler As Func(Of Task))
+    Sub UnsubscribeButtonPressed(handler As Func(Of Task))
 
-        ' Метод отправки команды
-        Sub Send(command As ArduinoSignalCode)
+    ' Метод отправки команды
+    Function SendAsync(cmd As ArduinoSignalCode) As Task
 
-        ' Управление подключением
-        Sub Start()
+    ' Управление подключением
+    Sub Start()
         Sub [Stop]()
     End Interface
 

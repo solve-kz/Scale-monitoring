@@ -34,14 +34,17 @@ public class ScalemonService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // 1. Подписываемся на события весов
-        _scale.ConnectionEstablished += _fsm.OnScaleConnected;
-        _scale.ConnectionLost += _fsm .OnScaleDisconnected ;
-        _scale.WeightReceived += raw => _fsm.OnWeightReceived (raw);
-        _scale.Unstable += _fsm .OnScaleUnstable ;
-        _scale.ScaleAlarm += _fsm .OnScaleAlarm ;
+
+        _scale.SubscribeConnectionEstablished(_fsm.OnScaleConnectedAsync);
+        _scale.SubscribeConnectionLost(_fsm.OnScaleDisconnectedAsync);
+        _scale.SubscribeUnstable(_fsm.OnScaleUnstableAsync);
+        _scale.SubscribeScaleAlarm(_fsm.OnScaleAlarmAsync);
+        _scale.SubscribeWeightReceived(raw =>
+            _fsm.OnWeightReceivedAsync(raw)
+        );
 
         // 2. Подписываемся на события Arduino
-        _arduino.ButtonPressed +=  _fsm.OnButtonPressed ;
+        _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
 
         // 4. Запускаем компоненты
         _scale.Start();

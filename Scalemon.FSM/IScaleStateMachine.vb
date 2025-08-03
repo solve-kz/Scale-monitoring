@@ -5,35 +5,26 @@
 Public Interface IScaleStateMachine
 
     ''' <summary>Вызывается при установлении связи с весами.</summary>
-    Sub OnScaleConnected()
+    Function OnScaleConnectedAsync() As Task
 
     ''' <summary>Вызывается при потере связи с весами.</summary>
-    Sub OnScaleDisconnected()
+    Function OnScaleDisconnectedAsync() As Task
 
-    ''' <summary>Вызывается, когда весы перешли в стабилизированное состояние.</summary>
-    Sub OnScaleStabilized()
 
     ''' <summary>Вызывается, когда весы стали нестабильными.</summary>
-    Sub OnScaleUnstable()
+    Function OnScaleUnstableAsync() As Task
 
     ''' <summary>Вызывается при возникновении аппаратной ошибки весов.</summary>
-    Sub OnScaleAlarm()
-
-    ''' <summary>Вызывается при необходимости сброса в 0.</summary>
-    Sub OnResetToZero()
-
-
-    ''' <summary>Вызывается при стабилизации весов на 0).</summary>
-    Sub OnZeroState()
+    Function OnScaleAlarmAsync() As Task
 
 
     ''' <summary>
     ''' Вызывается при получении нового значения веса.
     ''' <paramref name="raw"/> — необработанное значение веса.
     ''' </summary>
-    Sub OnWeightReceived(ByVal raw As Decimal)
+    Function OnWeightReceivedAsync(ByVal raw As Decimal) As Task
 
     ''' <summary>Вызывается при нажатии кнопки сброса на Arduino.</summary>
-    Sub OnButtonPressed()
+    Function OnButtonPressedAsync() As Task
 
 End Interface

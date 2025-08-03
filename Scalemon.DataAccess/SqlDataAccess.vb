@@ -3,7 +3,6 @@ Imports System.Data
 Imports Microsoft.Data.SqlClient
 Imports System.Threading.Tasks
 
-
 Public Class SqlDataAccess
     Implements IDataAccess
     Private ReadOnly _connString As String

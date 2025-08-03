@@ -1,8 +1,15 @@
-﻿Public Class ScaleDriver100
+﻿
+Public Class ScaleDriver100
     Implements IScaleDriver
 
-    Private _scale As New MassaKDriver100.Scales
+    Private _scale As MassaKDriver100.Scales
     Private _response As Long
+
+
+    Public Sub New()
+        _scale = New MassaKDriver100.Scales()
+        _response = 0
+    End Sub
 
     Public Property PortConnection As String Implements IScaleDriver.PortConnection
         Get
@@ -17,14 +24,12 @@
         Get
             Return CDec(_scale.Weight) / 100D
         End Get
-
     End Property
 
     Public ReadOnly Property Stable As Boolean Implements IScaleDriver.Stable
         Get
             Return _scale.Stable = 1
         End Get
-
     End Property
 
     Public ReadOnly Property LastResponseText As String Implements IScaleDriver.LastResponseText
@@ -98,19 +103,39 @@
     End Property
 
     Public Sub OpenConnection() Implements IScaleDriver.OpenConnection
-        _response = _scale.OpenConnection()
+        Try
+            _response = _scale.OpenConnection()
+        Catch ex As Exception
+            Throw New InvalidOperationException($"Ошибка драйвера OpenConnection(): {LastResponseText}", ex)
+        End Try
+
     End Sub
 
     Public Sub CloseConnection() Implements IScaleDriver.CloseConnection
-        _response = _scale.CloseConnection()
+        Try
+            _response = _scale.CloseConnection()
+        Catch ex As Exception
+            Throw New InvalidOperationException($"Ошибка драйвера CloseConnection(): {LastResponseText}", ex)
+        End Try
+
     End Sub
 
     Public Sub SetToZero() Implements IScaleDriver.SetToZero
-        _response = _scale.SetToZero()
+        Try
+            _response = _scale.SetToZero()
+        Catch ex As Exception
+            Throw New InvalidOperationException($"Ошибка драйвера SetToZero(): {LastResponseText}", ex)
+        End Try
+
     End Sub
 
     Public Sub ReadWeight() Implements IScaleDriver.ReadWeight
-        _response = _scale.ReadWeight()
+        Try
+            _response = _scale.ReadWeight()
+        Catch ex As Exception
+            Throw New InvalidOperationException($"Ошибка драйвера ReadWeight(): {LastResponseText}", ex)
+        End Try
+
     End Sub
 End Class
 

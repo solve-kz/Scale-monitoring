@@ -43,32 +43,29 @@ IHost host = Host.CreateDefaultBuilder(args)
         new ScaleStateMachine(
         sp.GetRequiredService<IConfiguration>(),                    // config
         sp.GetRequiredService<ILogger<ScaleStateMachine>>(),       // logger
-        onConnected: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.LinkOn ),
-        onDisconnected: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.LinkOff),
-        onUnstable: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Unstuble ),        
-        onResetToZero: () => sp.GetRequiredService<ScaleProcessor>().ResetToZero(),
-        onZeroState: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.Idle ),
-        onInvalidWeight: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.YellowRedOn  ),
-        onError: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode.RedOn  ),
-        onResetAlarm: () => sp.GetRequiredService<SignalBus>().Send(ArduinoSignalCode .AlarmOff ),
-        onRecord: raw =>
-        {
+        onConnected: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.LinkOn ),
+        onDisconnected: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.LinkOff),
+        onUnstable: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.Unstable ),        
+        onResetToZero: () => sp.GetRequiredService<IScaleProcessor>().ResetToZeroAsync(),
+        onZeroState: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.Idle ),
+        onInvalidWeight: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.YellowRedOn  ),
+        onError: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.RedOn  ),
+        onResetAlarm: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode .AlarmOff ),
+        onRecord: async raw =>        {
             var dbLogger = sp.GetRequiredService<ILogger<Program>>();
             try
             {
-                // Синхронно дожидаемся завершения асинхронной вставки
-                sp.GetRequiredService<IDataAccess>()
-                  .SaveWeighingAsync(raw, DateTime.Now)
-                  .GetAwaiter().GetResult();
+                // Правильно дождаться завершения асинхронной вставки
+                await sp.GetRequiredService<IDataAccess>()
+                    .SaveWeighingAsync(raw, DateTime.Now);
+                // Сигнал отправляется только после успешной записи
+                await sp.GetRequiredService<ISignalBus>()
+                    .SendAsync(ArduinoSignalCode.Complited);
             }
             catch (Exception ex)
             {
                 dbLogger.LogError(ex, "Не удалось записать взвешивание");
-            }
-
-            // После записи отправляем сигнал на Arduino
-            sp.GetRequiredService<ISignalBus>()
-              .Send(ArduinoSignalCode.Complited);
+            }            
         }
     )
 );
