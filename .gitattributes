@@ -61,3 +61,8 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Перекодировать при коммите/чекауте в UTF-8
+*.cs   text working-tree-encoding=UTF-8
+*.vb   text working-tree-encoding=UTF-8
+*.config text working-tree-encoding=UTF-8

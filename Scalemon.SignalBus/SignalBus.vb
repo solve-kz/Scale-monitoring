@@ -51,18 +51,13 @@ Public Class SignalBus
         End Set
     End Property
 
-
     Public Event ConnectionEstablished() Implements ISignalBus.ConnectionEstablished
     Public Event ConnectionLost() Implements ISignalBus.ConnectionLost
 
-
-
-
-
     Public Sub Start() Implements ISignalBus.Start
         _portName = _config("PLCSettings:PortName")
-        _baudRate = _config("PLCSettings:BaudRate")
-        _reconnectIntervalMs = _config("PLCSettings:ReconnectIntervalMs")
+        _baudRate = Integer.Parse(_config("PLCSettings:BaudRate"))
+        _reconnectIntervalMs = Integer.Parse(_config("PLCSettings:ReconnectIntervalMs"))
         _serialPort = New SerialPort()
         With _serialPort
             .PortName = _portName
@@ -106,44 +101,42 @@ Public Class SignalBus
     Private Async Sub OnDataReceived(sender As Object, e As SerialDataReceivedEventArgs)
         Try
             Dim data As Integer = _serialPort.ReadByte()
-            If data = &H20 Then ' сигнал кнопки
+            If data = &H20 Then ' СЃРёРіРЅР°Р» РєРЅРѕРїРєРё
                 Await RaiseAllAsync(_buttonpressedHandlers)
             End If
         Catch ex As Exception
-            ' возможная потеря соединения
-            _logger.LogError(ex, "Ошибка при опросе весов")
+            ' РІРѕР·РјРѕР¶РЅР°В¤ РїРѕС‚РµСЂВ¤ СЃРѕРµРґРёРЅРµРЅРёВ¤
+            _logger.LogError(ex, "СњС€РёР±РєР° РїСЂРё РѕРїСЂРѕСЃРµ Arduino")
         End Try
     End Sub
 
     Protected Overridable Sub Dispose(disposing As Boolean)
         If Not disposedValue Then
             If disposing Then
-                ' 1) Останавливаем логику Stop()
+                ' 1) СњСЃС‚Р°РЅР°РІР»РёРІР°РµРј Р»РѕРіРёРєСѓ Stop()
                 Me.Stop()
-                ' 2) Освобождаем SerialPort
+                ' 2) СњСЃРІРѕР±РѕР¶РґР°РµРј SerialPort
                 If _serialPort IsNot Nothing Then
                     _serialPort.Dispose()
                     _serialPort = Nothing
                 End If
-                ' 3) Освобождаем Timer
+                ' 3) СњСЃРІРѕР±РѕР¶РґР°РµРј Timer
                 If _timer IsNot Nothing Then
                     _timer.Dispose()
                     _timer = Nothing
                 End If
             End If
-            ' === Здесь можно освободить неуправляемые ресурсы, если бы они были ===
             disposedValue = True
         End If
     End Sub
 
     Public Sub Dispose() Implements IDisposable.Dispose
-        ' Не изменяйте этот код. Разместите код очистки в методе "Dispose(disposing As Boolean)".
         Dispose(disposing:=True)
         GC.SuppressFinalize(Me)
     End Sub
 
     Protected Overrides Sub Finalize()
-        ' в финализаторе освобождаем только неуправляемые
+        ' РІ С„РёРЅР°Р»РёР·Р°С‚РѕСЂРµ РѕСЃРІРѕР±РѕР¶РґР°РµРј С‚РѕР»СЊРєРѕ РЅРµСѓРїСЂР°РІР»В¤РµРјС‹Рµ
         Dispose(disposing:=False)
         MyBase.Finalize()
     End Sub

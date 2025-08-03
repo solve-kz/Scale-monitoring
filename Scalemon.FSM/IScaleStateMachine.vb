@@ -1,4 +1,4 @@
-﻿''' <summary>
+''' <summary>
 ''' Интерфейс для взаимодействия с конечным автоматом состояния весов.
 ''' Методы соответствуют внешним событиям от Scale и Arduino.
 ''' </summary>
@@ -23,6 +23,12 @@ Public Interface IScaleStateMachine
     ''' <paramref name="raw"/> — необработанное значение веса.
     ''' </summary>
     Function OnWeightReceivedAsync(ByVal raw As Decimal) As Task
+
+    ' Новый метод, который принимает Exception
+    Function OnDatabaseFailedAsync(ex As Exception) As Task
+
+    ' Новый метод для восстановления
+    Function OnDatabaseRestoredAsync() As Task
 
     ''' <summary>Вызывается при нажатии кнопки сброса на Arduino.</summary>
     Function OnButtonPressedAsync() As Task

@@ -1,4 +1,4 @@
-﻿Imports Scalemon.Common
+Imports Scalemon.Common
 
 
 

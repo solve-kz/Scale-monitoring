@@ -1,4 +1,7 @@
+Imports System
+Imports System.Collections.Generic
 Imports System.Threading
+Imports System.Threading.Tasks
 Imports Microsoft.Extensions.Configuration
 Imports Microsoft.Extensions.Logging
 Imports Scalemon.MassaKInterop
@@ -8,110 +11,113 @@ Public Class ScaleProcessor
 
     Private ReadOnly _weightHandlers As New List(Of Func(Of Decimal, Task))()
     Private ReadOnly _unstableHandlers As New List(Of Func(Of Task))()
-    Private ReadOnly _connectionlostHandlers As New List(Of Func(Of Task))()
-    Private ReadOnly _connectionestablishedHandlers As New List(Of Func(Of Task))()
-    Private ReadOnly _scalealarmHandlers As New List(Of Func(Of Task))()
-
-    Private _isProcessing As Boolean = False
+    Private ReadOnly _connectionLostHandlers As New List(Of Func(Of Task))()
+    Private ReadOnly _connectionEstablishedHandlers As New List(Of Func(Of Task))()
+    Private ReadOnly _scaleAlarmHandlers As New List(Of Func(Of Task))()
 
     Private ReadOnly _driver As IScaleDriver
     Private ReadOnly _logger As ILogger(Of ScaleProcessor)
-    Private ReadOnly _config As IConfiguration
-    Private WithEvents Timer As New Timers.Timer
-    Private _stableCount As Integer = 0
-    Private _unstableCount As Integer = 0
-    Private disposedValue As Boolean = False
-    Private shouldRaiseConnectionLost As Boolean = False
+    Private ReadOnly _stableThreshold As Integer
+    Private ReadOnly _unstableThreshold As Integer
+    Private ReadOnly _pollingInterval As Integer
+
+    Private _cts As CancellationTokenSource
+    Private _processingTask As Task
+    Private disposedValue As Boolean
 
     Public Sub New(config As IConfiguration, logger As ILogger(Of ScaleProcessor))
-        _config = config
         _logger = logger
-        _driver = New ScaleDriver100()
-        _driver.PortConnection = _config("ScaleSettings:PortName")
-        _logger.LogDebug("Создан объект процессора весов")
+        _driver = New ScaleDriver100() With {
+            .PortConnection = config("ScaleSettings:PortName")
+        }
+        _stableThreshold = Integer.Parse(config("ScaleSettings:StableThreshold"))
+        _unstableThreshold = Integer.Parse(config("ScaleSettings:UnstableThreshold"))
+        _pollingInterval = Integer.Parse(config("ScaleSettings:PollingIntervalMs"))
+        _logger.LogDebug("ScaleProcessor initialized: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold)
     End Sub
 
-
-    Public Async Sub Start() Implements IScaleProcessor.Start
-        ' Реализация запуска драйвера весов
-        Try
-            _driver.OpenConnection()
-        Catch ex As Exception
-            _logger.LogError(ex, "Ошибка при открытии соединения с весами")
-        End Try
-        If _driver.isConnected Then
-            Await RaiseAllAsync(_connectionestablishedHandlers)
-        Else
-            Await RaiseAllAsync(_connectionlostHandlers)
-        End If
-        Timer.Interval = Integer.Parse(_config("ScaleSettings:PollingIntervalMs"))
-        Timer.AutoReset = False
-        Timer.Start()
-
+    Public Sub Start() Implements IScaleProcessor.Start
+        _cts = New CancellationTokenSource()
+        _processingTask = ProcessLoopAsync(_cts.Token)
+        _logger.LogInformation("ScaleProcessor started")
     End Sub
 
-    Private Async Sub OnTimerElapsed(sender As Object, e As Timers.ElapsedEventArgs) Handles Timer.Elapsed
-        ' 1. ПРОВЕРКА ФЛАГА: Если предыдущий тик еще работает - выходим
-        If _isProcessing Then
-            _logger.LogWarning("Пропущен тик таймера, так как предыдущая операция еще не завершена.")
-            Return
-        End If
+    Private Async Function ProcessLoopAsync(token As CancellationToken) As Task
+        Dim timer = New PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval))
+        Dim stableCount As Integer = 0
+        Dim unstableCount As Integer = 0
         Try
-            _isProcessing = True
-            If Not _driver.isConnected Then
-                _driver.OpenConnection()
-                If _driver.isConnected Then Await RaiseAllAsync(_connectionestablishedHandlers)
-            End If
-            If _driver.isConnected Then
-                _driver.ReadWeight()
-                Select Case _driver.LastResponseNum
-                    Case 0
-                        If _driver.Stable Then
-                            _stableCount += 1
-                            _unstableCount = 0
-                            If _stableCount = _config("ScaleSettings:StableThreshold") Then
-                                Await RaiseAllAsync(_weightHandlers, _driver.Weight)
-                                _stableCount = 0
-                            End If
-                        Else
-                            _unstableCount += 1
-                            _stableCount = 0
-                            If _unstableCount = _config("ScaleSettings:UnstableThreshold") Then
-                                Await RaiseAllAsync(_unstableHandlers)
-                                _unstableCount = 0
-                            End If
+            While Await timer.WaitForNextTickAsync(token)
+                Dim shouldNotifyLost As Boolean = False
+                Try
+                    If Not _driver.isConnected Then
+                        _driver.OpenConnection()
+                        If _driver.isConnected Then
+                            Await RaiseAllAsync(_connectionEstablishedHandlers)
                         End If
-                    Case 1
-                        ' Обработка ошибки 
-                        _driver.CloseConnection()
-                        Await RaiseAllAsync(_connectionlostHandlers)
-                    Case Else
-                        Await RaiseAllAsync(_scalealarmHandlers)
-                End Select
-            End If
-        Catch ex As Exception
-            _logger.LogError(ex, "Ошибка при опросе весов")
-            _driver.CloseConnection()
-            shouldRaiseConnectionLost = True
+                    End If
+
+                    If _driver.isConnected Then
+                        _driver.ReadWeight()
+                        Select Case _driver.LastResponseNum
+                            Case 0
+                                If _driver.Stable Then
+                                    stableCount += 1
+                                    unstableCount = 0
+                                    If stableCount >= _stableThreshold Then
+                                        Await RaiseAllAsync(_weightHandlers, _driver.Weight)
+                                        stableCount = 0
+                                    End If
+                                Else
+                                    unstableCount += 1
+                                    stableCount = 0
+                                    If unstableCount >= _unstableThreshold Then
+                                        Await RaiseAllAsync(_unstableHandlers)
+                                        unstableCount = 0
+                                    End If
+                                End If
+                            Case 1
+                                _driver.CloseConnection()
+                                shouldNotifyLost = True
+                            Case Else
+                                Await RaiseAllAsync(_scaleAlarmHandlers)
+                        End Select
+                    End If
+                Catch ex As Exception
+                    _logger.LogError(ex, "Error during weight poll cycle")
+                    _driver.CloseConnection()
+                    shouldNotifyLost = True
+                End Try
+
+                If shouldNotifyLost Then
+                    Await RaiseAllAsync(_connectionLostHandlers)
+                End If
+            End While
+        Catch ocex As OperationCanceledException
+            ' Expected on shutdown
         Finally
-            _isProcessing = False
-            Timer.Start()
+            timer.Dispose()
         End Try
-        If shouldRaiseConnectionLost Then
-            Await RaiseAllAsync(_connectionlostHandlers)
-        End If
-    End Sub
+    End Function
 
     Public Sub [Stop]() Implements IScaleProcessor.Stop
-        ' Реализация остановки драйвера весов
-        Timer.Stop()
+        If _cts IsNot Nothing Then
+            _cts.Cancel()
+            Try
+                _processingTask?.Wait()
+            Catch ex As AggregateException
+                ' Ignore cancellation
+            End Try
+        End If
         _driver.CloseConnection()
+        _logger.LogInformation("ScaleProcessor stopped")
     End Sub
+
     Public Async Function ResetToZeroAsync() As Task Implements IScaleProcessor.ResetToZeroAsync
         _driver.SetToZero()
         If _driver.LastResponseNum > 0 Then
-            _logger.LogError("Ошибка сброса на ноль")
-            Throw New InvalidOperationException($"Ошибка сброса на ноль: {_driver.LastResponseText}")
+            _logger.LogError("Error resetting to zero: {text}", _driver.LastResponseText)
+            Throw New InvalidOperationException($"Error resetting to zero: {_driver.LastResponseText}")
         End If
         Await Task.CompletedTask
     End Function
@@ -119,88 +125,69 @@ Public Class ScaleProcessor
     Protected Overridable Sub Dispose(disposing As Boolean)
         If Not disposedValue Then
             If disposing Then
-                ' === Здесь освобождаем все управляемые ресурсы ===
-                ' Останавливаем и уничтожаем таймер
-                If Timer IsNot Nothing Then
-                    Timer.Stop()
-                    Timer.Dispose()
+                If _cts IsNot Nothing Then
+                    _cts.Cancel()
+                    _cts.Dispose()
                 End If
-
-                ' Закрываем COM-порт драйвера
-                Try
-                    _driver.CloseConnection()
-                Catch
-                    ' игнорируем ошибки при закрытии
-                End Try
+                _driver.CloseConnection()
             End If
-
-            ' === Здесь можно освободить неуправляемые ресурсы, если бы они были ===
-
             disposedValue = True
         End If
     End Sub
 
     Public Sub Dispose() Implements IDisposable.Dispose
-        ' Не изменяйте этот код. Разместите код очистки в методе "Dispose(disposing As Boolean)".
         Dispose(disposing:=True)
         GC.SuppressFinalize(Me)
-    End Sub
-    Protected Overrides Sub Finalize()
-        ' в финализаторе освобождаем только неуправляемые
-        Dispose(disposing:=False)
-        MyBase.Finalize()
     End Sub
 
     Private Async Function RaiseAllAsync(Of T)(handlers As IEnumerable(Of Func(Of T, Task)), arg As T) As Task
         For Each h In handlers.ToArray()
-            Await h(arg)
+            Try
+                Await h(arg)
+            Catch ex As Exception
+                _logger.LogError(ex, "Handler error")
+            End Try
         Next
     End Function
 
     Private Async Function RaiseAllAsync(handlers As IEnumerable(Of Func(Of Task))) As Task
         For Each h In handlers.ToArray()
-            Await h()
+            Try
+                Await h()
+            Catch ex As Exception
+                _logger.LogError(ex, "Handler error")
+            End Try
         Next
     End Function
 
     Public Sub SubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.SubscribeWeightReceived
         _weightHandlers.Add(handler)
     End Sub
-
     Public Sub UnsubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.UnsubscribeWeightReceived
         _weightHandlers.Remove(handler)
     End Sub
-
     Public Sub SubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeUnstable
         _unstableHandlers.Add(handler)
     End Sub
-
     Public Sub UnsubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeUnstable
         _unstableHandlers.Remove(handler)
     End Sub
-
     Public Sub SubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionLost
-        _connectionlostHandlers.Add(handler)
+        _connectionLostHandlers.Add(handler)
     End Sub
-
     Public Sub UnsubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionLost
-        _connectionlostHandlers.Remove(handler)
+        _connectionLostHandlers.Remove(handler)
     End Sub
-
     Public Sub SubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionEstablished
-        _connectionestablishedHandlers.Add(handler)
+        _connectionEstablishedHandlers.Add(handler)
     End Sub
-
     Public Sub UnsubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionEstablished
-        _connectionestablishedHandlers.Remove(handler)
+        _connectionEstablishedHandlers.Remove(handler)
     End Sub
-
     Public Sub SubscribeScaleAlarm(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeScaleAlarm
-        _scalealarmHandlers.Add(handler)
+        _scaleAlarmHandlers.Add(handler)
     End Sub
-
     Public Sub UnsubscribeScaleAlarm(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeScaleAlarm
-        _scalealarmHandlers.Remove(handler)
+        _scaleAlarmHandlers.Remove(handler)
     End Sub
 End Class
-

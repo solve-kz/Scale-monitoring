@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
@@ -46,6 +46,15 @@ public class ScalemonService : BackgroundService
         // 2. Подписываемся на события Arduino
         _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
 
+        // 3. Подписываемся на события базы данных
+
+        // Создаем анонимный асинхронный метод (лямбду), который принимает 'ex'
+        // и внутри себя вызывает нужный нам метод из FSM.
+        _db.DatabaseFailed += async (ex) => await _fsm.OnDatabaseFailedAsync(ex);
+
+        // То же самое для второго события
+        _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
+
         // 4. Запускаем компоненты
         _scale.Start();
         _arduino.Start();
@@ -53,7 +62,6 @@ public class ScalemonService : BackgroundService
         // 5. Держим сервис «живым» до остановки
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
-
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {

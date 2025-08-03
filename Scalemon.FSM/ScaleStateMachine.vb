@@ -22,6 +22,7 @@ Public Class ScaleStateMachine
     Private _errorFlag As Boolean
     Private _isInvalidWeight As Boolean
     Private _lastRaw As Decimal
+    Private _semaphoreTime As Integer
 
     Public Sub New(config As IConfiguration,
                        logger As ILogger(Of ScaleStateMachine),
@@ -35,46 +36,30 @@ Public Class ScaleStateMachine
                        onResetAlarm As Func(Of Task),
                        onRecord As Func(Of Decimal, Task))
 
-        ' Читаем настройки
+        ' Р§РёС‚Р°РµРј РЅР°СЃС‚СЂРѕР№РєРё
         _hystWeight = CDec(config("ScaleSettings:HystWeight"))
         _minWeight = CDec(config("ScaleSettings:MinWeight"))
+        _semaphoreTime = Integer.Parse(config("ScaleSettings:SemaphoreTime"))
 
-        ' Создаём FSM
+        ' РЎРѕР·РґР°С‘Рј FSM
         _fsm = New StateMachine(Of ScalesState, Trigger)(ScalesState.Disconnected)
-        ' "Оборачиваем" обычный enum-триггер WeightReceived в параметризованный:
+        ' "РћР±РѕСЂР°С‡РёРІР°РµРј" РѕР±С‹С‡РЅС‹Р№ enum-С‚СЂРёРіРіРµСЂ WeightReceived РІ РїР°СЂР°РјРµС‚СЂРёР·РѕРІР°РЅРЅС‹Р№:
         _weightReceivedTrigger = _fsm.SetTriggerParameters(Of Decimal)(Trigger.WeightReceived)
         _onResetToZero = onResetToZero
         _onError = onError
         _logger = logger
 
-        ' 1) Подключение/отключение
+        ' 1) РџРѕРґРєР»СЋС‡РµРЅРёРµ/РѕС‚РєР»СЋС‡РµРЅРёРµ
         _fsm.Configure(ScalesState.Disconnected) _
-                .Permit(Trigger.ScaleConnected, ScalesState.Connected)
+                .Permit(Trigger.ScaleConnected, ScalesState.Connected) _
+                .Permit(Trigger.DatabaseFailure, ScalesState.DatabaseError)
 
         _fsm.Configure(ScalesState.Connected) _
                 .Permit(Trigger.ScaleDisconnected, ScalesState.Disconnected) _
                 .Permit(Trigger.ScaleAlarm, ScalesState.ScaleError) _
+                .Permit(Trigger.DatabaseFailure, ScalesState.DatabaseError) _
                 .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
-                .PermitDynamic(Of Decimal)(_weightReceivedTrigger,
-                               Function(raw As Decimal)
-                                   _lastRaw = raw
-                                   If raw < 0D Then
-                                       Return ScalesState.NegativeWeight
-                                   ElseIf raw = 0D Then
-                                       Return ScalesState.ZeroWeight
-                                   ElseIf raw <= _hystWeight Then
-                                       Return ScalesState.LightWeight
-                                   ElseIf raw <= _minWeight Then
-                                       Return ScalesState.InvalidWeight
-                                   Else
-                                       If _zeroFlag Then
-                                           _zeroFlag = False
-                                           Return ScalesState.Recorded
-                                       Else
-                                           Return ScalesState.ErrorAfterWeighing
-                                       End If
-                                   End If
-                               End Function) _
+                .PermitDynamic(Of Decimal)(_weightReceivedTrigger, AddressOf DetermineStateFromWeight) _
                 .OnEntryAsync(Async Function()
                                   Await onConnected()
                               End Function) _
@@ -82,7 +67,7 @@ Public Class ScaleStateMachine
                                  Await onDisconnected()
                              End Function)
 
-        ' 2) Нестабильное состояние
+        ' 2) РќРµСЃС‚Р°Р±РёР»СЊРЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ
         _fsm.Configure(ScalesState.Unstable) _
                 .SubstateOf(ScalesState.Connected) _
                 .OnEntryFromAsync(Trigger.ArduinoButtonPressed, Async Function()
@@ -93,19 +78,20 @@ Public Class ScaleStateMachine
                                                                 End Function) _
                 .OnEntryAsync(Async Function()
                                   If _isInvalidWeight Then
-                                      ' Сбрасываем сигнализацию, если была ошибка взвешивания
+                                      ' РЎР±СЂР°СЃС‹РІР°РµРј СЃРёРіРЅР°Р»РёР·Р°С†РёСЋ, РµСЃР»Рё Р±С‹Р»Р° РѕС€РёР±РєР° РІР·РІРµС€РёРІР°РЅРёСЏ
                                       _isInvalidWeight = False
                                       Await onResetAlarm()
                                   End If
                                   Await onUnstable()
                               End Function)
 
-        ' 3) Стабилизированное состояние — суперкласс для весовых подкатегорий
+        ' 3) РЎС‚Р°Р±РёР»РёР·РёСЂРѕРІР°РЅРЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ вЂ” СЃСѓРїРµСЂРєР»Р°СЃСЃ РґР»СЏ РІРµСЃРѕРІС‹С… РїРѕРґРєР°С‚РµРіРѕСЂРёР№
         _fsm.Configure(ScalesState.Stabilized) _
                 .SubstateOf(ScalesState.Connected) _
-                .Permit(Trigger.ScaleUnstable, ScalesState.Unstable)
+                .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
+                .Ignore(Trigger.WeightReceived)
 
-        ' 4) Категории внутри Stabilized
+        ' 4) РљР°С‚РµРіРѕСЂРёРё РІРЅСѓС‚СЂРё Stabilized
         _fsm.Configure(ScalesState.NegativeWeight) _
                 .SubstateOf(ScalesState.Stabilized) _
                 .OnEntryAsync(AddressOf HandleResetAttemptAsync)
@@ -132,6 +118,7 @@ Public Class ScaleStateMachine
         _fsm.Configure(ScalesState.Recorded) _
                 .SubstateOf(ScalesState.Stabilized) _
                 .OnEntryAsync(Async Function()
+                                  _zeroFlag = False
                                   Await onRecord(_lastRaw)
                               End Function)
 
@@ -143,18 +130,46 @@ Public Class ScaleStateMachine
                                   Await onInvalidWeight()
                               End Function)
 
-        ' 5) Аппаратная ошибка весов
+        ' 5) РђРїРїР°СЂР°С‚РЅР°СЏ РѕС€РёР±РєР° РІРµСЃРѕРІ
         _fsm.Configure(ScalesState.ScaleError) _
                 .SubstateOf(ScalesState.Connected) _
                 .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
                 .Permit(Trigger.ArduinoButtonPressed, ScalesState.Unstable) _
+                .PermitDynamic(Of Decimal)(_weightReceivedTrigger, AddressOf DetermineStateFromWeight) _
                 .OnEntryAsync(Async Function()
                                   Await onError()
                               End Function)
+
+        ' 6) РћС€РёР±РєР° Р±Р°Р·С‹ РґР°РЅРЅС‹С…
+        _fsm.Configure(ScalesState.DatabaseError) _
+                .OnEntryAsync(Async Function()
+                                  Await onError() ' Р—Р°Р¶РёРіР°РµРј РєСЂР°СЃРЅСѓСЋ Р»Р°РјРїСѓ
+                              End Function) _
+                .Permit(Trigger.DatabaseRestored, ScalesState.Unstable) ' Р’С‹С…РѕРґ РёР· РѕС€РёР±РєРё РїСЂРё РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРё Р‘Р”
     End Sub
+
+    Private Function DetermineStateFromWeight(raw As Decimal) As ScalesState
+        _lastRaw = raw
+        If raw < 0D Then
+            Return ScalesState.NegativeWeight
+        ElseIf raw = 0D Then
+            Return ScalesState.ZeroWeight
+        ElseIf raw <= _hystWeight Then
+            Return ScalesState.LightWeight
+        ElseIf raw <= _minWeight Then
+            Return ScalesState.InvalidWeight
+        Else
+            If _zeroFlag Then
+                Return ScalesState.Recorded
+            Else
+                Return ScalesState.ErrorAfterWeighing
+            End If
+        End If
+    End Function
+
     Public Async Function OnScaleConnectedAsync() As Task Implements IScaleStateMachine.OnScaleConnectedAsync
         If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ 2 СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -165,8 +180,8 @@ Public Class ScaleStateMachine
     End Function
 
     Public Async Function OnScaleDisconnectedAsync() As Task Implements IScaleStateMachine.OnScaleDisconnectedAsync
-        If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -179,23 +194,23 @@ Public Class ScaleStateMachine
     Private Async Function HandleResetAttemptAsync() As Task
         Dim resetException As Exception = Nothing
         Try
-            ' Пытаемся выполнить асинхронную операцию
+            ' РџС‹С‚Р°РµРјСЃСЏ РІС‹РїРѕР»РЅРёС‚СЊ Р°СЃРёРЅС…СЂРѕРЅРЅСѓСЋ РѕРїРµСЂР°С†РёСЋ
             Await _onResetToZero()
         Catch ex As Exception
-            ' В блоке Catch только сохраняем исключение
+            ' Р’ Р±Р»РѕРєРµ Catch С‚РѕР»СЊРєРѕ СЃРѕС…СЂР°РЅСЏРµРј РёСЃРєР»СЋС‡РµРЅРёРµ
             resetException = ex
         End Try
-        ' Проверяем, была ли ошибка, уже ПОСЛЕ блока Catch
+        ' РџСЂРѕРІРµСЂСЏРµРј, Р±С‹Р»Р° Р»Рё РѕС€РёР±РєР°, СѓР¶Рµ РџРћРЎР›Р• Р±Р»РѕРєР° Catch
         If resetException IsNot Nothing Then
-            _logger.LogError(resetException, "Автоматический сброс веса не удался.")
-            Await _onError() ' Включаем красную лампу
-            Await _fsm.FireAsync(Trigger.ScaleAlarm) ' Переходим в состояние ошибки FSM
+            _logger.LogError(resetException, "РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ СЃР±СЂРѕСЃ РІРµСЃР° РЅРµ СѓРґР°Р»СЃСЏ.")
+            Await _onError() ' Р’РєР»СЋС‡Р°РµРј РєСЂР°СЃРЅСѓСЋ Р»Р°РјРїСѓ
+            Await _fsm.FireAsync(Trigger.ScaleAlarm) ' РџРµСЂРµС…РѕРґРёРј РІ СЃРѕСЃС‚РѕСЏРЅРёРµ РѕС€РёР±РєРё FSM
         End If
     End Function
 
     Public Async Function OnScaleUnstableAsync() As Task Implements IScaleStateMachine.OnScaleUnstableAsync
-        If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -206,8 +221,8 @@ Public Class ScaleStateMachine
     End Function
 
     Public Async Function OnScaleAlarmAsync() As Task Implements IScaleStateMachine.OnScaleAlarmAsync
-        If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -218,8 +233,8 @@ Public Class ScaleStateMachine
     End Function
 
     Public Async Function OnWeightReceivedAsync(raw As Decimal) As Task Implements IScaleStateMachine.OnWeightReceivedAsync
-        If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -230,8 +245,8 @@ Public Class ScaleStateMachine
     End Function
 
     Public Async Function OnButtonPressedAsync() As Task Implements IScaleStateMachine.OnButtonPressedAsync
-        If Not Await _semaphore.WaitAsync(2000) Then
-            _logger.LogCritical("Не удалось захватить семафор FSM в течение 2 секунд. Автомат может быть заблокирован.")
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
             Return
         End If
         Try
@@ -241,5 +256,29 @@ Public Class ScaleStateMachine
         End Try
     End Function
 
+    Public Async Function OnDatabaseFailedAsync(ex As Exception) As Task Implements IScaleStateMachine.OnDatabaseFailedAsync
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
+            Return
+        End If
+        Try
+            _logger.LogError(ex, "РџРѕР»СѓС‡РµРЅ СЃРёРіРЅР°Р» Рѕ СЃР±РѕРµ РІ Р±Р°Р·Рµ РґР°РЅРЅС‹С….")
+            Await _fsm.FireAsync(Trigger.DatabaseFailure)
+        Finally
+            _semaphore.Release()
+        End Try
+    End Function
 
+    Public Async Function OnDatabaseRestoredAsync() As Task Implements IScaleStateMachine.OnDatabaseRestoredAsync
+        If Not Await _semaphore.WaitAsync(_semaphoreTime) Then
+            _logger.LogCritical("РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°С…РІР°С‚РёС‚СЊ СЃРµРјР°С„РѕСЂ FSM РІ С‚РµС‡РµРЅРёРµ _semaphoreTime СЃРµРєСѓРЅРґ. РђРІС‚РѕРјР°С‚ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.")
+            Return
+        End If
+        Try
+            _logger.LogInformation("РџРѕР»СѓС‡РµРЅ СЃРёРіРЅР°Р» Рѕ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРё Р±Р°Р·С‹ РґР°РЅРЅС‹С….")
+            Await _fsm.FireAsync(Trigger.DatabaseRestored)
+        Finally
+            _semaphore.Release()
+        End Try
+    End Function
 End Class

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -35,8 +35,12 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IScaleProcessor, ScaleProcessor>();
         services.AddSingleton<IDataAccess>(sp =>
                                             new SqlDataAccess(
-                                            sp.GetRequiredService<IConfiguration>()["ConnectionStrings:ScaleDb"],
-                                            sp.GetRequiredService<IConfiguration>()["ScaleSettings:TableName"]
+                                            sp.GetRequiredService<ILogger<SqlDataAccess >>(),       // logger
+                                            sp.GetRequiredService<IConfiguration>()["DatabaseSettings:ConnectionString"],
+                                            sp.GetRequiredService<IConfiguration>()["DatabaseSettings:TableName"],
+                                            sp.GetRequiredService<IConfiguration>()["DatabaseSettings:MaxRetryQueueSize"],
+                                            sp.GetRequiredService<IConfiguration>()["DatabaseSettings:AlarmSize"],
+                                            sp.GetRequiredService<IHostApplicationLifetime>() // <-- Добавляем зависимость
                                             ));
         services.AddSingleton<ISignalBus, SignalBus>();
         services.AddSingleton<IScaleStateMachine>(sp =>
@@ -52,15 +56,15 @@ IHost host = Host.CreateDefaultBuilder(args)
         onError: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode.RedOn  ),
         onResetAlarm: () => sp.GetRequiredService<ISignalBus>().SendAsync(ArduinoSignalCode .AlarmOff ),
         onRecord: async raw =>        {
-            var dbLogger = sp.GetRequiredService<ILogger<Program>>();
+            var dbLogger = sp.GetRequiredService<ILogger<ScalemonService>>();
             try
             {
                 // Правильно дождаться завершения асинхронной вставки
                 await sp.GetRequiredService<IDataAccess>()
-                    .SaveWeighingAsync(raw, DateTime.Now);
+                    .SaveWeighingAsync(raw);
                 // Сигнал отправляется только после успешной записи
                 await sp.GetRequiredService<ISignalBus>()
-                    .SendAsync(ArduinoSignalCode.Complited);
+                    .SendAsync(ArduinoSignalCode.Completed);
             }
             catch (Exception ex)
             {

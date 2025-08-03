@@ -1,4 +1,4 @@
-﻿
+
 Public Interface IScaleDriver
 
         Sub OpenConnection()

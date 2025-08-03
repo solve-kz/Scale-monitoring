@@ -1,35 +1,37 @@
 Public Enum ArduinoSignalCode As Byte
-    LinkOn = &H10 ' Включается индикатор связи с весами
-    LinkOff = &H11 ' Выключаются все четыре индикатора
-    Idle = &H12 ' Включается зеленая лампа
-    Unstable = &H13 ' Выключаются зеленая и желтая лампы
-    Complited = &H14 ' Включается желтая лампа
-    YellowRedOn = &H15 ' Включаются желтая и красная лампы
-    RedOn = &H16 ' Включается красная лампа
-    AlarmOff = &H17 ' Выключается красная лампа
+    LinkOn = &H10 ' Р’РєР»СЋС‡Р°РµС‚СЃСЏ РёРЅРґРёРєР°С‚РѕСЂ СЃРІСЏР·Рё СЃ РІРµСЃР°РјРё
+    LinkOff = &H11 ' Р’С‹РєР»СЋС‡Р°СЋС‚СЃСЏ РІСЃРµ С‡РµС‚С‹СЂРµ РёРЅРґРёРєР°С‚РѕСЂР°
+    Idle = &H12 ' Р’РєР»СЋС‡Р°РµС‚СЃСЏ Р·РµР»РµРЅР°СЏ Р»Р°РјРїР°
+    Unstable = &H13 ' Р’С‹РєР»СЋС‡Р°СЋС‚СЃСЏ Р·РµР»РµРЅР°СЏ Рё Р¶РµР»С‚Р°СЏ Р»Р°РјРїС‹
+    Completed = &H14 ' Р’РєР»СЋС‡Р°РµС‚СЃСЏ Р¶РµР»С‚Р°СЏ Р»Р°РјРїР°
+    YellowRedOn = &H15 ' Р’РєР»СЋС‡Р°СЋС‚СЃСЏ Р¶РµР»С‚Р°СЏ Рё РєСЂР°СЃРЅР°СЏ Р»Р°РјРїС‹
+    RedOn = &H16 ' Р’РєР»СЋС‡Р°РµС‚СЃСЏ РєСЂР°СЃРЅР°СЏ Р»Р°РјРїР°
+    AlarmOff = &H17 ' Р’С‹РєР»СЋС‡Р°РµС‚СЃСЏ РєСЂР°СЃРЅР°СЏ Р»Р°РјРїР°
 End Enum
 
 Public Enum ScalesState
-    Disconnected       ' весы не подключены
-    Connected          ' общий суперстатус «подключены»
-    Unstable            ' вес нестабилизирован
-    Stabilized          ' вес стабилизирован — дальше подкатегории
+    Disconnected       ' РІРµСЃС‹ РЅРµ РїРѕРґРєР»СЋС‡РµРЅС‹
+    Connected          ' РѕР±С‰РёР№ СЃСѓРїРµСЂСЃС‚Р°С‚СѓСЃ В«РїРѕРґРєР»СЋС‡РµРЅС‹В»
+    Unstable            ' РІРµСЃ РЅРµСЃС‚Р°Р±РёР»РёР·РёСЂРѕРІР°РЅ
+    Stabilized          ' РІРµСЃ СЃС‚Р°Р±РёР»РёР·РёСЂРѕРІР°РЅ вЂ” РґР°Р»СЊС€Рµ РїРѕРґРєР°С‚РµРіРѕСЂРёРё
     NegativeWeight          ' raw < 0
     ZeroWeight              ' raw == 0
     LightWeight             ' 0 < raw <= h
     InvalidWeight           ' h < raw <= minWeight
-    ErrorAfterWeighing          ' > minWeight, но без предварительного нуля
-    Recorded                    ' вес записан в БД
-    ScaleError          ' аппаратная ошибка весов
+    ErrorAfterWeighing          ' > minWeight, РЅРѕ Р±РµР· РїСЂРµРґРІР°СЂРёС‚РµР»СЊРЅРѕРіРѕ РЅСѓР»СЏ
+    Recorded                    ' РІРµСЃ Р·Р°РїРёСЃР°РЅ РІ Р‘Р”
+    ScaleError          ' Р°РїРїР°СЂР°С‚РЅР°СЏ РѕС€РёР±РєР° РІРµСЃРѕРІ
+    DatabaseError       ' РЎРёСЃС‚РµРјР° Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅР° РёР·-Р·Р° РѕС€РёР±РєРё Р‘Р”
 End Enum
 
 Public Enum Trigger
-
     ScaleConnected       ' Scale.ConnectionEstablished
     ScaleDisconnected     ' Scale.ConnectionLost
     ScaleUnstable         ' Scale.Unstable
     ScaleAlarm            ' Scale.ScaleAlarm
-    WeightReceived        ' общий триггер: приходит необработанный raw
-    ArduinoButtonPressed  ' Arduino.ButtonPressed — сброс «нулевого» флага
+    WeightReceived        ' РѕР±С‰РёР№ С‚СЂРёРіРіРµСЂ: РїСЂРёС…РѕРґРёС‚ РЅРµРѕР±СЂР°Р±РѕС‚Р°РЅРЅС‹Р№ raw
+    ArduinoButtonPressed  ' Arduino.ButtonPressed вЂ” СЃР±СЂРѕСЃ В«РЅСѓР»РµРІРѕРіРѕВ» С„Р»Р°РіР°
+    DatabaseFailure     ' Р‘Р” РЅРµРґРѕСЃС‚СѓРїРЅР°
+    DatabaseRestored    ' Р‘Р” СЃРЅРѕРІР° РґРѕСЃС‚СѓРїРЅР°
 End Enum
 

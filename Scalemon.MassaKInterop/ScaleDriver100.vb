@@ -1,4 +1,4 @@
-﻿
+
 Public Class ScaleDriver100
     Implements IScaleDriver
 
@@ -58,6 +58,10 @@ Public Class ScaleDriver100
                     _message = "Ошибка входных данных"
                 Case 11
                     _message = "Ошибка сохранения данных"
+                Case 16
+                    _message = "Интерфейс Wi-Fi не поддерживается"
+                Case 17
+                    _message = "Интерфейс Ethernet не поддерживается"
                 Case 21
                     _message = "Установка нуля невозможна из-за наличия нагрузки на платформе"
                 Case 23
@@ -83,7 +87,7 @@ Public Class ScaleDriver100
     Public ReadOnly Property isConnected As Boolean Implements IScaleDriver.isConnected
         Get
             Select Case _response
-                Case 1, 23
+                Case 1, 2, 3, 23
                     Return False
                 Case Else
                     Return True
@@ -94,7 +98,7 @@ Public Class ScaleDriver100
     Public ReadOnly Property isScaleAlarm As Boolean Implements IScaleDriver.isScaleAlarm
         Get
             Select Case _response
-                Case 0, 1, 23
+                Case 0, 1, 2, 3, 23
                     Return False
                 Case Else
                     Return True
