@@ -6,25 +6,39 @@ Imports Microsoft.Extensions.Configuration
 Imports Microsoft.Extensions.Logging
 Imports Scalemon.MassaKInterop
 
+''' <summary>
+''' Компонент, выполняющий периодический опрос весов через драйвер,
+''' определяет, стабилизировался ли вес, и передаёт соответствующие события подписчикам.
+''' </summary>
 Public Class ScaleProcessor
     Implements IScaleProcessor, IDisposable
 
+    ' Списки обработчиков для событий
     Private ReadOnly _weightHandlers As New List(Of Func(Of Decimal, Task))()
     Private ReadOnly _unstableHandlers As New List(Of Func(Of Task))()
     Private ReadOnly _connectionLostHandlers As New List(Of Func(Of Task))()
     Private ReadOnly _connectionEstablishedHandlers As New List(Of Func(Of Task))()
     Private ReadOnly _scaleAlarmHandlers As New List(Of Func(Of Task))()
 
+    ' Драйвер весов
     Private ReadOnly _driver As IScaleDriver
+
+    ' Логгер для событий и ошибок
     Private ReadOnly _logger As ILogger(Of ScaleProcessor)
+
+    ' Параметры, считываемые из конфигурации
     Private ReadOnly _stableThreshold As Integer
     Private ReadOnly _unstableThreshold As Integer
     Private ReadOnly _pollingInterval As Integer
 
+    ' Для управления жизненным циклом фоновой задачи
     Private _cts As CancellationTokenSource
     Private _processingTask As Task
     Private disposedValue As Boolean
 
+    ''' <summary>
+    ''' Конструктор: инициализирует драйвер и параметры из конфигурации.
+    ''' </summary>
     Public Sub New(config As IConfiguration, logger As ILogger(Of ScaleProcessor))
         _logger = logger
         _driver = New ScaleDriver100() With {
@@ -36,12 +50,18 @@ Public Class ScaleProcessor
         _logger.LogDebug("ScaleProcessor initialized: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold)
     End Sub
 
+    ''' <summary>
+    ''' Запускает фоновую задачу опроса весов.
+    ''' </summary>
     Public Sub Start() Implements IScaleProcessor.Start
         _cts = New CancellationTokenSource()
         _processingTask = ProcessLoopAsync(_cts.Token)
         _logger.LogInformation("ScaleProcessor started")
     End Sub
 
+    ''' <summary>
+    ''' Главный цикл опроса весов, выполняется с интервалом _pollingInterval.
+    ''' </summary>
     Private Async Function ProcessLoopAsync(token As CancellationToken) As Task
         Dim timer = New PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval))
         Dim stableCount As Integer = 0
@@ -50,6 +70,7 @@ Public Class ScaleProcessor
             While Await timer.WaitForNextTickAsync(token)
                 Dim shouldNotifyLost As Boolean = False
                 Try
+                    ' Подключение к весам при необходимости
                     If Not _driver.isConnected Then
                         _driver.OpenConnection()
                         If _driver.isConnected Then
@@ -61,6 +82,7 @@ Public Class ScaleProcessor
                         _driver.ReadWeight()
                         Select Case _driver.LastResponseNum
                             Case 0
+                                ' Ответ корректный: проверка на стабилизацию веса
                                 If _driver.Stable Then
                                     stableCount += 1
                                     unstableCount = 0
@@ -77,42 +99,52 @@ Public Class ScaleProcessor
                                     End If
                                 End If
                             Case 1
+                                ' Весы вернули ошибку — разрываем соединение
                                 _driver.CloseConnection()
                                 shouldNotifyLost = True
                             Case Else
+                                ' Аппаратная ошибка (например, ALARM)
                                 Await RaiseAllAsync(_scaleAlarmHandlers)
                         End Select
                     End If
                 Catch ex As Exception
+                    ' Любая ошибка — считаем потерей связи
                     _logger.LogError(ex, "Error during weight poll cycle")
                     _driver.CloseConnection()
                     shouldNotifyLost = True
                 End Try
 
+                ' Отдельно уведомляем о потере связи (вне Catch)
                 If shouldNotifyLost Then
                     Await RaiseAllAsync(_connectionLostHandlers)
                 End If
             End While
         Catch ocex As OperationCanceledException
-            ' Expected on shutdown
+            ' Ожидаемая отмена при остановке
         Finally
             timer.Dispose()
         End Try
     End Function
 
+    ''' <summary>
+    ''' Останавливает опрос весов и закрывает соединение.
+    ''' </summary>
     Public Sub [Stop]() Implements IScaleProcessor.Stop
         If _cts IsNot Nothing Then
             _cts.Cancel()
             Try
                 _processingTask?.Wait()
             Catch ex As AggregateException
-                ' Ignore cancellation
+                ' Игнорируем отмену
             End Try
         End If
         _driver.CloseConnection()
         _logger.LogInformation("ScaleProcessor stopped")
     End Sub
 
+    ''' <summary>
+    ''' Отправляет команду сброса веса в 0.
+    ''' </summary>
     Public Async Function ResetToZeroAsync() As Task Implements IScaleProcessor.ResetToZeroAsync
         _driver.SetToZero()
         If _driver.LastResponseNum > 0 Then
@@ -122,6 +154,9 @@ Public Class ScaleProcessor
         Await Task.CompletedTask
     End Function
 
+    ''' <summary>
+    ''' Корректное освобождение ресурсов и остановка фоновой задачи.
+    ''' </summary>
     Protected Overridable Sub Dispose(disposing As Boolean)
         If Not disposedValue Then
             If disposing Then
@@ -140,6 +175,9 @@ Public Class ScaleProcessor
         GC.SuppressFinalize(Me)
     End Sub
 
+    ''' <summary>
+    ''' Безопасный вызов всех обработчиков события с параметром.
+    ''' </summary>
     Private Async Function RaiseAllAsync(Of T)(handlers As IEnumerable(Of Func(Of T, Task)), arg As T) As Task
         For Each h In handlers.ToArray()
             Try
@@ -150,6 +188,9 @@ Public Class ScaleProcessor
         Next
     End Function
 
+    ''' <summary>
+    ''' Безопасный вызов всех обработчиков события без параметров.
+    ''' </summary>
     Private Async Function RaiseAllAsync(handlers As IEnumerable(Of Func(Of Task))) As Task
         For Each h In handlers.ToArray()
             Try
@@ -160,30 +201,35 @@ Public Class ScaleProcessor
         Next
     End Function
 
+    ' Методы подписки/отписки на события:
     Public Sub SubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.SubscribeWeightReceived
         _weightHandlers.Add(handler)
     End Sub
     Public Sub UnsubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.UnsubscribeWeightReceived
         _weightHandlers.Remove(handler)
     End Sub
+
     Public Sub SubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeUnstable
         _unstableHandlers.Add(handler)
     End Sub
     Public Sub UnsubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeUnstable
         _unstableHandlers.Remove(handler)
     End Sub
+
     Public Sub SubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionLost
         _connectionLostHandlers.Add(handler)
     End Sub
     Public Sub UnsubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionLost
         _connectionLostHandlers.Remove(handler)
     End Sub
+
     Public Sub SubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionEstablished
         _connectionEstablishedHandlers.Add(handler)
     End Sub
     Public Sub UnsubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionEstablished
         _connectionEstablishedHandlers.Remove(handler)
     End Sub
+
     Public Sub SubscribeScaleAlarm(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeScaleAlarm
         _scaleAlarmHandlers.Add(handler)
     End Sub

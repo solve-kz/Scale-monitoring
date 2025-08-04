@@ -1,25 +1,39 @@
 Imports Scalemon.Common
 
-
-
-
+''' <summary>
+''' Интерфейс для управления сигнализацией через Arduino.
+''' Отправка команд и обработка событий подключения.
+''' </summary>
 Public Interface ISignalBus
-        ' Настройки подключения
-        Property PortName As String
-        Property BaudRate As Integer
-        Property ReconnectIntervalMs As Integer
 
-        ' События
-        Event ConnectionEstablished()
-        Event ConnectionLost()
+    ''' <summary>Имя COM-порта подключения.</summary>
+    Property PortName As String
+
+    ''' <summary>Скорость передачи (baud rate).</summary>
+    Property BaudRate As Integer
+
+    ''' <summary>Интервал повторного подключения, мс.</summary>
+    Property ReconnectIntervalMs As Integer
+
+    ''' <summary>Событие установления подключения к Arduino.</summary>
+    Event ConnectionEstablished()
+
+    ''' <summary>Событие потери подключения к Arduino.</summary>
+    Event ConnectionLost()
+
+    ''' <summary>Подписаться на нажатие кнопки.</summary>
     Sub SubscribeButtonPressed(handler As Func(Of Task))
+
+    ''' <summary>Отписаться от нажатия кнопки.</summary>
     Sub UnsubscribeButtonPressed(handler As Func(Of Task))
 
-    ' Метод отправки команды
+    ''' <summary>Отправляет команду на Arduino.</summary>
     Function SendAsync(cmd As ArduinoSignalCode) As Task
 
-    ' Управление подключением
+    ''' <summary>Запускает обработку событий и подключение.</summary>
     Sub Start()
-        Sub [Stop]()
-    End Interface
 
+    ''' <summary>Останавливает обработку и отключает порт.</summary>
+    Sub [Stop]()
+
+End Interface

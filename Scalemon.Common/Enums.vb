@@ -1,37 +1,154 @@
+''' <summary>
+''' Определяет коды команд, отправляемых на контроллер Arduino для управления световой индикацией.
+''' </summary>
 Public Enum ArduinoSignalCode As Byte
-    LinkOn = &H10 ' Включается индикатор связи с весами
-    LinkOff = &H11 ' Выключаются все четыре индикатора
-    Idle = &H12 ' Включается зеленая лампа
-    Unstable = &H13 ' Выключаются зеленая и желтая лампы
-    Completed = &H14 ' Включается желтая лампа
-    YellowRedOn = &H15 ' Включаются желтая и красная лампы
-    RedOn = &H16 ' Включается красная лампа
-    AlarmOff = &H17 ' Выключается красная лампа
+    ''' <summary>
+    ''' Включить индикатор связи с весами (лампа "Link").
+    ''' </summary>
+    LinkOn = &H10
+
+    ''' <summary>
+    ''' Выключить все четыре индикатора. Используется при потере связи.
+    ''' </summary>
+    LinkOff = &H11
+
+    ''' <summary>
+    ''' Включить зеленую лампу. Сигнализирует о готовности к новому взвешиванию (состояние "Готов").
+    ''' </summary>
+    Idle = &H12
+
+    ''' <summary>
+    ''' Выключить зеленую и желтую лампы. Сигнализирует о процессе взвешивания (состояние "Нестабильно").
+    ''' </summary>
+    Unstable = &H13
+
+    ''' <summary>
+    ''' Включить желтую лампу. Сигнализирует об успешной фиксации веса.
+    ''' </summary>
+    Completed = &H14
+
+    ''' <summary>
+    ''' Включить желтую и красную лампы. Сигнализирует об ошибке взвешивания (например, вес меньше минимального).
+    ''' </summary>
+    YellowRedOn = &H15
+
+    ''' <summary>
+    ''' Включить красную лампу. Сигнализирует о критической ошибке системы (аппаратный сбой, ошибка БД).
+    ''' </summary>
+    RedOn = &H16
+
+    ''' <summary>
+    ''' Выключить красную лампу. Используется для сброса состояния ошибки.
+    ''' </summary>
+    AlarmOff = &H17
 End Enum
 
+''' <summary>
+''' Определяет внутренние состояния конечного автомата (FSM) системы.
+''' </summary>
 Public Enum ScalesState
-    Disconnected       ' весы не подключены
-    Connected          ' общий суперстатус «подключены»
-    Unstable            ' вес нестабилизирован
-    Stabilized          ' вес стабилизирован — дальше подкатегории
-    NegativeWeight          ' raw < 0
-    ZeroWeight              ' raw == 0
-    LightWeight             ' 0 < raw <= h
-    InvalidWeight           ' h < raw <= minWeight
-    ErrorAfterWeighing          ' > minWeight, но без предварительного нуля
-    Recorded                    ' вес записан в БД
-    ScaleError          ' аппаратная ошибка весов
-    DatabaseError       ' Система заблокирована из-за ошибки БД
+    ''' <summary>
+    ''' Начальное состояние. Связь с весами не установлена.
+    ''' </summary>
+    Disconnected
+
+    ''' <summary>
+    ''' Суперсостояние, объединяющее все состояния, когда весы подключены.
+    ''' </summary>
+    Connected
+
+    ''' <summary>
+    ''' Вес на платформе изменяется.
+    ''' </summary>
+    Unstable
+
+    ''' <summary>
+    ''' Суперсостояние, объединяющее все состояния, когда вес на платформе стабилен.
+    ''' </summary>
+    Stabilized
+
+    ''' <summary>
+    ''' Стабильный вес имеет отрицательное значение (например, после уборки воды с платформы).
+    ''' </summary>
+    NegativeWeight
+
+    ''' <summary>
+    ''' Стабильный вес равен нулю. Система готова к новому взвешиванию.
+    ''' </summary>
+    ZeroWeight
+
+    ''' <summary>
+    ''' Стабильный вес больше нуля, но меньше или равен гистерезису (HystWeight).
+    ''' </summary>
+    LightWeight
+
+    ''' <summary>
+    ''' Стабильный вес больше гистерезиса, но меньше минимально допустимого (MinWeight).
+    ''' </summary>
+    InvalidWeight
+
+    ''' <summary>
+    ''' Зафиксирован валидный вес, но предыдущее взвешивание не было обнулено.
+    ''' </summary>
+    ErrorAfterWeighing
+
+    ''' <summary>
+    ''' Валидный вес успешно зафиксирован и записан в базу данных.
+    ''' </summary>
+    Recorded
+
+    ''' <summary>
+    ''' Драйвер весов сообщил об аппаратной ошибке.
+    ''' </summary>
+    ScaleError
+
+    ''' <summary>
+    ''' Система заблокирована из-за невозможности записать данные в БД.
+    ''' </summary>
+    DatabaseError
 End Enum
 
+''' <summary>
+''' Определяет триггеры (события), которые вызывают переходы между состояниями конечного автомата.
+''' </summary>
 Public Enum Trigger
-    ScaleConnected       ' Scale.ConnectionEstablished
-    ScaleDisconnected     ' Scale.ConnectionLost
-    ScaleUnstable         ' Scale.Unstable
-    ScaleAlarm            ' Scale.ScaleAlarm
-    WeightReceived        ' общий триггер: приходит необработанный raw
-    ArduinoButtonPressed  ' Arduino.ButtonPressed — сброс «нулевого» флага
-    DatabaseFailure     ' БД недоступна
-    DatabaseRestored    ' БД снова доступна
-End Enum
+    ''' <summary>
+    ''' Произошло успешное подключение к весам.
+    ''' </summary>
+    ScaleConnected
 
+    ''' <summary>
+    ''' Произошла потеря связи с весами.
+    ''' </summary>
+    ScaleDisconnected
+
+    ''' <summary>
+    ''' Вес на платформе стал нестабильным.
+    ''' </summary>
+    ScaleUnstable
+
+    ''' <summary>
+    ''' Весы сообщили об аппаратной ошибке.
+    ''' </summary>
+    ScaleAlarm
+
+    ''' <summary>
+    ''' От процессора весов получено новое (стабильное) значение веса.
+    ''' </summary>
+    WeightReceived
+
+    ''' <summary>
+    ''' Нажата кнопка на пульте Arduino.
+    ''' </summary>
+    ArduinoButtonPressed
+
+    ''' <summary>
+    ''' Произошел сбой при записи в базу данных.
+    ''' </summary>
+    DatabaseFailure
+
+    ''' <summary>
+    ''' Связь с базой данных была успешно восстановлена.
+    ''' </summary>
+    DatabaseRestored
+End Enum
