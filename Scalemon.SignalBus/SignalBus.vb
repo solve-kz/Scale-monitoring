@@ -6,7 +6,7 @@ Imports System.IO.Ports
 Imports System.Timers
 Imports Scalemon.Common
 Public Class SignalBus
-    Implements ISignalBus, IDisposable
+    Implements Scalemon.Common.ISignalBus, IDisposable
 
     Private ReadOnly _buttonpressedHandlers As New List(Of Func(Of Task))()
 
@@ -17,47 +17,19 @@ Public Class SignalBus
     Private _timer As Timer
     Private _isConnected As Boolean = False
     Private disposedValue As Boolean
-    Private ReadOnly _config As IConfiguration
     Private ReadOnly _logger As ILogger(Of SignalBus)
-    Public Sub New(config As IConfiguration, logger As ILogger(Of SignalBus))
-        _config = config
+    Public Sub New(logger As ILogger(Of SignalBus), portName As String, baudRate As Integer, reconnectedIntervalMs As Integer)
         _logger = logger
+        _portName = portName
+        _baudRate = baudRate
+        _reconnectIntervalMs = reconnectedIntervalMs
     End Sub
 
-    Public Property PortName As String Implements ISignalBus.PortName
-        Get
-            Return _portName
-        End Get
-        Set(value As String)
-            _portName = value
-        End Set
-    End Property
 
-    Public Property BaudRate As Integer Implements ISignalBus.BaudRate
-        Get
-            Return _baudRate
-        End Get
-        Set(value As Integer)
-            _baudRate = value
-        End Set
-    End Property
+    Public Event ConnectionEstablished() Implements Scalemon.Common.ISignalBus.ConnectionEstablished
+    Public Event ConnectionLost() Implements Scalemon.Common.ISignalBus.ConnectionLost
 
-    Public Property ReconnectIntervalMs As Integer Implements ISignalBus.ReconnectIntervalMs
-        Get
-            Return _reconnectIntervalMs
-        End Get
-        Set(value As Integer)
-            _reconnectIntervalMs = value
-        End Set
-    End Property
-
-    Public Event ConnectionEstablished() Implements ISignalBus.ConnectionEstablished
-    Public Event ConnectionLost() Implements ISignalBus.ConnectionLost
-
-    Public Sub Start() Implements ISignalBus.Start
-        _portName = _config("PLCSettings:PortName")
-        _baudRate = Integer.Parse(_config("PLCSettings:BaudRate"))
-        _reconnectIntervalMs = Integer.Parse(_config("PLCSettings:ReconnectIntervalMs"))
+    Public Sub Start() Implements Scalemon.Common.ISignalBus.Start
         _serialPort = New SerialPort()
         With _serialPort
             .PortName = _portName
@@ -70,12 +42,12 @@ Public Class SignalBus
 
         AddHandler _serialPort.DataReceived, AddressOf OnDataReceived
         TryOpenPort()
-        _timer = New Timer(ReconnectIntervalMs)
+        _timer = New Timer(_reconnectIntervalMs)
         AddHandler _timer.Elapsed, Sub(sender, e) If Not _isConnected Then TryOpenPort()
         _timer.Start()
     End Sub
 
-    Public Sub [Stop]() Implements ISignalBus.Stop
+    Public Sub [Stop]() Implements Scalemon.Common.ISignalBus.Stop
         RemoveHandler _serialPort.DataReceived, AddressOf OnDataReceived
         If _serialPort IsNot Nothing AndAlso _serialPort.IsOpen Then
             _serialPort.Close()
@@ -153,15 +125,15 @@ Public Class SignalBus
         Next
     End Function
 
-    Public Sub SubscribeButtonPressed(handler As Func(Of Task)) Implements ISignalBus.SubscribeButtonPressed
+    Public Sub SubscribeButtonPressed(handler As Func(Of Task)) Implements Scalemon.Common.ISignalBus.SubscribeButtonPressed
         _buttonpressedHandlers.Add(handler)
     End Sub
 
-    Public Sub UnsubscribeButtonPressed(handler As Func(Of Task)) Implements ISignalBus.UnsubscribeButtonPressed
+    Public Sub UnsubscribeButtonPressed(handler As Func(Of Task)) Implements Scalemon.Common.ISignalBus.UnsubscribeButtonPressed
         _buttonpressedHandlers.Remove(handler)
     End Sub
 
-    Public Async Function SendAsync(cmd As ArduinoSignalCode) As Task Implements ISignalBus.SendAsync
+    Public Async Function SendAsync(cmd As Scalemon.Common.Enums.ArduinoSignalCode) As Task Implements Scalemon.Common.ISignalBus.SendAsync
         If _serialPort.IsOpen Then
             Await Task.Run(Sub()
                                _serialPort.Write(New Byte() {CByte(cmd)}, 0, 1)

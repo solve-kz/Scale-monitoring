@@ -7,10 +7,10 @@ Imports Stateless
 
 Public Class ScaleStateMachine
 
-    Implements IScaleStateMachine
+    Implements Scalemon.Common.IScaleStateMachine
 
-    Private ReadOnly _fsm As StateMachine(Of ScalesState, Trigger)
-    Private ReadOnly _weightReceivedTrigger As StateMachine(Of ScalesState, Trigger).TriggerWithParameters(Of Decimal)
+    Private ReadOnly _fsm As StateMachine(Of Scalemon.Common.Enums.ScalesState, Scalemon.Common.Enums.Trigger)
+    Private ReadOnly _weightReceivedTrigger As StateMachine(Of Scalemon.Common.Enums.ScalesState, Scalemon.Common.Enums.Trigger).TriggerWithParameters(Of Decimal)
     Private ReadOnly _onResetToZero As Func(Of Task)
     Private ReadOnly _onError As Func(Of Task)
     Private ReadOnly _logger As ILogger(Of ScaleStateMachine)
@@ -24,8 +24,10 @@ Public Class ScaleStateMachine
     Private _lastRaw As Decimal
     Private _semaphoreTime As Integer
 
-    Public Sub New(config As IConfiguration,
-                       logger As ILogger(Of ScaleStateMachine),
+    Public Sub New(logger As ILogger(Of ScaleStateMachine),
+                       minWeight As Double,
+                       hystWeight As Double,
+                       semaphoreTimeMs As Integer,
                        onConnected As Func(Of Task),
                        onDisconnected As Func(Of Task),
                        onUnstable As Func(Of Task),
@@ -37,28 +39,28 @@ Public Class ScaleStateMachine
                        onRecord As Func(Of Decimal, Task))
 
         ' Читаем настройки
-        _hystWeight = CDec(config("ScaleSettings:HystWeight"))
-        _minWeight = CDec(config("ScaleSettings:MinWeight"))
-        _semaphoreTime = Integer.Parse(config("ScaleSettings:SemaphoreTime"))
+        _hystWeight = hystWeight
+        _minWeight = minWeight
+        _semaphoreTime = semaphoreTimeMs
 
         ' Создаём FSM
-        _fsm = New StateMachine(Of ScalesState, Trigger)(ScalesState.Disconnected)
+        _fsm = New StateMachine(Of Scalemon.Common.Enums.ScalesState, Scalemon.Common.Enums.Trigger)(Scalemon.Common.Enums.ScalesState.Disconnected)
         ' "Оборачиваем" обычный enum-триггер WeightReceived в параметризованный:
-        _weightReceivedTrigger = _fsm.SetTriggerParameters(Of Decimal)(Trigger.WeightReceived)
+        _weightReceivedTrigger = _fsm.SetTriggerParameters(Of Decimal)(Scalemon.Common.Enums.Trigger.WeightReceived)
         _onResetToZero = onResetToZero
         _onError = onError
         _logger = logger
 
         ' 1) Подключение/отключение
-        _fsm.Configure(ScalesState.Disconnected) _
-                .Permit(Trigger.ScaleConnected, ScalesState.Connected) _
-                .Permit(Trigger.DatabaseFailure, ScalesState.DatabaseError)
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.Disconnected) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleConnected, Scalemon.Common.Enums.ScalesState.Connected) _
+                .Permit(Scalemon.Common.Enums.Trigger.DatabaseFailure, Scalemon.Common.Enums.ScalesState.DatabaseError)
 
-        _fsm.Configure(ScalesState.Connected) _
-                .Permit(Trigger.ScaleDisconnected, ScalesState.Disconnected) _
-                .Permit(Trigger.ScaleAlarm, ScalesState.ScaleError) _
-                .Permit(Trigger.DatabaseFailure, ScalesState.DatabaseError) _
-                .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.Connected) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleDisconnected, Scalemon.Common.Enums.ScalesState.Disconnected) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleAlarm, Scalemon.Common.Enums.ScalesState.ScaleError) _
+                .Permit(Scalemon.Common.Enums.Trigger.DatabaseFailure, Scalemon.Common.Enums.ScalesState.DatabaseError) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleUnstable, Scalemon.Common.Enums.ScalesState.Unstable) _
                 .PermitDynamic(Of Decimal)(_weightReceivedTrigger, AddressOf DetermineStateFromWeight) _
                 .OnEntryAsync(Async Function()
                                   Await onConnected()
@@ -68,14 +70,14 @@ Public Class ScaleStateMachine
                              End Function)
 
         ' 2) Нестабильное состояние
-        _fsm.Configure(ScalesState.Unstable) _
-                .SubstateOf(ScalesState.Connected) _
-                .OnEntryFromAsync(Trigger.ArduinoButtonPressed, Async Function()
-                                                                    If _errorFlag Then
-                                                                        _errorFlag = False
-                                                                        Await onResetAlarm()
-                                                                    End If
-                                                                End Function) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.Unstable) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Connected) _
+                .OnEntryFromAsync(Scalemon.Common.Enums.Trigger.ArduinoButtonPressed, Async Function()
+                                                                                          If _errorFlag Then
+                                                                                              _errorFlag = False
+                                                                                              Await onResetAlarm()
+                                                                                          End If
+                                                                                      End Function) _
                 .OnEntryAsync(Async Function()
                                   If _isInvalidWeight Then
                                       ' Сбрасываем сигнализацию, если была ошибка взвешивания
@@ -86,83 +88,83 @@ Public Class ScaleStateMachine
                               End Function)
 
         ' 3) Стабилизированное состояние — суперкласс для весовых подкатегорий
-        _fsm.Configure(ScalesState.Stabilized) _
-                .SubstateOf(ScalesState.Connected) _
-                .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
-                .Ignore(Trigger.WeightReceived)
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.Stabilized) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Connected) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleUnstable, Scalemon.Common.Enums.ScalesState.Unstable) _
+                .Ignore(Scalemon.Common.Enums.Trigger.WeightReceived)
 
         ' 4) Категории внутри Stabilized
-        _fsm.Configure(ScalesState.NegativeWeight) _
-                .SubstateOf(ScalesState.Stabilized) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.NegativeWeight) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
                 .OnEntryAsync(AddressOf HandleResetAttemptAsync)
 
-        _fsm.Configure(ScalesState.ZeroWeight) _
-                .SubstateOf(ScalesState.Stabilized) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.ZeroWeight) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
                 .OnEntryAsync(Async Function()
                                   _zeroFlag = True
                                   Await onZeroState()
                               End Function)
 
-        _fsm.Configure(ScalesState.LightWeight) _
-                .SubstateOf(ScalesState.Stabilized) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.LightWeight) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
                 .OnEntryAsync(AddressOf HandleResetAttemptAsync)
 
-        _fsm.Configure(ScalesState.InvalidWeight) _
-                .SubstateOf(ScalesState.Stabilized) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.InvalidWeight) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
                 .OnEntryAsync(Async Function()
                                   _isInvalidWeight = True
                                   Await onInvalidWeight()
                               End Function)
 
 
-        _fsm.Configure(ScalesState.Recorded) _
-                .SubstateOf(ScalesState.Stabilized) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.Recorded) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
                 .OnEntryAsync(Async Function()
                                   _zeroFlag = False
                                   Await onRecord(_lastRaw)
                               End Function)
 
-        _fsm.Configure(ScalesState.ErrorAfterWeighing) _
-                .SubstateOf(ScalesState.Stabilized) _
-                .Permit(Trigger.ArduinoButtonPressed, ScalesState.Unstable) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.ErrorAfterWeighing) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Stabilized) _
+                .Permit(Scalemon.Common.Enums.Trigger.ArduinoButtonPressed, Scalemon.Common.Enums.ScalesState.Unstable) _
                 .OnEntryAsync(Async Function()
                                   _errorFlag = True
                                   Await onInvalidWeight()
                               End Function)
 
         ' 5) Аппаратная ошибка весов
-        _fsm.Configure(ScalesState.ScaleError) _
-                .SubstateOf(ScalesState.Connected) _
-                .Permit(Trigger.ScaleUnstable, ScalesState.Unstable) _
-                .Permit(Trigger.ArduinoButtonPressed, ScalesState.Unstable) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.ScaleError) _
+                .SubstateOf(Scalemon.Common.Enums.ScalesState.Connected) _
+                .Permit(Scalemon.Common.Enums.Trigger.ScaleUnstable, Scalemon.Common.Enums.ScalesState.Unstable) _
+                .Permit(Scalemon.Common.Enums.Trigger.ArduinoButtonPressed, Scalemon.Common.Enums.ScalesState.Unstable) _
                 .PermitDynamic(Of Decimal)(_weightReceivedTrigger, AddressOf DetermineStateFromWeight) _
                 .OnEntryAsync(Async Function()
                                   Await onError()
                               End Function)
 
         ' 6) Ошибка базы данных
-        _fsm.Configure(ScalesState.DatabaseError) _
+        _fsm.Configure(Scalemon.Common.Enums.ScalesState.DatabaseError) _
                 .OnEntryAsync(Async Function()
                                   Await onError() ' Зажигаем красную лампу
                               End Function) _
-                .Permit(Trigger.DatabaseRestored, ScalesState.Unstable) ' Выход из ошибки при восстановлении БД
+                .Permit(Scalemon.Common.Enums.Trigger.DatabaseRestored, Scalemon.Common.Enums.ScalesState.Unstable) ' Выход из ошибки при восстановлении БД
     End Sub
 
-    Private Function DetermineStateFromWeight(raw As Decimal) As ScalesState
+    Private Function DetermineStateFromWeight(raw As Decimal) As Scalemon.Common.Enums.ScalesState
         _lastRaw = raw
         If raw < 0D Then
-            Return ScalesState.NegativeWeight
+            Return Scalemon.Common.Enums.ScalesState.NegativeWeight
         ElseIf raw = 0D Then
-            Return ScalesState.ZeroWeight
+            Return Scalemon.Common.Enums.ScalesState.ZeroWeight
         ElseIf raw <= _hystWeight Then
-            Return ScalesState.LightWeight
+            Return Scalemon.Common.Enums.ScalesState.LightWeight
         ElseIf raw <= _minWeight Then
-            Return ScalesState.InvalidWeight
+            Return Scalemon.Common.Enums.ScalesState.InvalidWeight
         Else
             If _zeroFlag Then
-                Return ScalesState.Recorded
+                Return Scalemon.Common.Enums.ScalesState.Recorded
             Else
-                Return ScalesState.ErrorAfterWeighing
+                Return Scalemon.Common.Enums.ScalesState.ErrorAfterWeighing
             End If
         End If
     End Function
@@ -173,7 +175,7 @@ Public Class ScaleStateMachine
             Return
         End If
         Try
-            Await _fsm.FireAsync(Trigger.ScaleConnected)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ScaleConnected)
         Finally
             _semaphore.Release()
         End Try
@@ -185,7 +187,7 @@ Public Class ScaleStateMachine
             Return
         End If
         Try
-            Await _fsm.FireAsync(Trigger.ScaleDisconnected)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ScaleDisconnected)
         Finally
             _semaphore.Release()
         End Try
@@ -204,7 +206,7 @@ Public Class ScaleStateMachine
         If resetException IsNot Nothing Then
             _logger.LogError(resetException, "Автоматический сброс веса не удался.")
             Await _onError() ' Включаем красную лампу
-            Await _fsm.FireAsync(Trigger.ScaleAlarm) ' Переходим в состояние ошибки FSM
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ScaleAlarm) ' Переходим в состояние ошибки FSM
         End If
     End Function
 
@@ -214,7 +216,7 @@ Public Class ScaleStateMachine
             Return
         End If
         Try
-            Await _fsm.FireAsync(Trigger.ScaleUnstable)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ScaleUnstable)
         Finally
             _semaphore.Release()
         End Try
@@ -226,7 +228,7 @@ Public Class ScaleStateMachine
             Return
         End If
         Try
-            Await _fsm.FireAsync(Trigger.ScaleAlarm)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ScaleAlarm)
         Finally
             _semaphore.Release()
         End Try
@@ -250,7 +252,7 @@ Public Class ScaleStateMachine
             Return
         End If
         Try
-            Await _fsm.FireAsync(Trigger.ArduinoButtonPressed)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.ArduinoButtonPressed)
         Finally
             _semaphore.Release()
         End Try
@@ -263,7 +265,7 @@ Public Class ScaleStateMachine
         End If
         Try
             _logger.LogError(ex, "Получен сигнал о сбое в базе данных.")
-            Await _fsm.FireAsync(Trigger.DatabaseFailure)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.DatabaseFailure)
         Finally
             _semaphore.Release()
         End Try
@@ -276,7 +278,7 @@ Public Class ScaleStateMachine
         End If
         Try
             _logger.LogInformation("Получен сигнал о восстановлении базы данных.")
-            Await _fsm.FireAsync(Trigger.DatabaseRestored)
+            Await _fsm.FireAsync(Scalemon.Common.Enums.Trigger.DatabaseRestored)
         Finally
             _semaphore.Release()
         End Try

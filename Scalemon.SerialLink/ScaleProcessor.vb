@@ -11,7 +11,7 @@ Imports Scalemon.MassaKInterop
 ''' определяет, стабилизировался ли вес, и передаёт соответствующие события подписчикам.
 ''' </summary>
 Public Class ScaleProcessor
-    Implements IScaleProcessor, IDisposable
+    Implements Scalemon.Common.IScaleProcessor, IDisposable
 
     ' Списки обработчиков для событий
     Private ReadOnly _weightHandlers As New List(Of Func(Of Decimal, Task))()
@@ -39,21 +39,20 @@ Public Class ScaleProcessor
     ''' <summary>
     ''' Конструктор: инициализирует драйвер и параметры из конфигурации.
     ''' </summary>
-    Public Sub New(config As IConfiguration, logger As ILogger(Of ScaleProcessor))
+    Public Sub New(logger As ILogger(Of ScaleProcessor), driver As Scalemon.Common.IScaleDriver, portName As String, stableThreshold As Integer, unstableThreshold As Integer, pollingIntervalMs As Integer)
         _logger = logger
-        _driver = New ScaleDriver100() With {
-            .PortConnection = config("ScaleSettings:PortName")
-        }
-        _stableThreshold = Integer.Parse(config("ScaleSettings:StableThreshold"))
-        _unstableThreshold = Integer.Parse(config("ScaleSettings:UnstableThreshold"))
-        _pollingInterval = Integer.Parse(config("ScaleSettings:PollingIntervalMs"))
+        _driver = driver
+        driver.PortConnection = portName
+        _stableThreshold = stableThreshold
+        _unstableThreshold = unstableThreshold
+        _pollingInterval = pollingIntervalMs
         _logger.LogDebug("ScaleProcessor initialized: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold)
     End Sub
 
     ''' <summary>
     ''' Запускает фоновую задачу опроса весов.
     ''' </summary>
-    Public Sub Start() Implements IScaleProcessor.Start
+    Public Sub Start() Implements Scalemon.Common.IScaleProcessor.Start
         _cts = New CancellationTokenSource()
         _processingTask = ProcessLoopAsync(_cts.Token)
         _logger.LogInformation("ScaleProcessor started")
@@ -129,7 +128,7 @@ Public Class ScaleProcessor
     ''' <summary>
     ''' Останавливает опрос весов и закрывает соединение.
     ''' </summary>
-    Public Sub [Stop]() Implements IScaleProcessor.Stop
+    Public Sub [Stop]() Implements Scalemon.Common.IScaleProcessor.Stop
         If _cts IsNot Nothing Then
             _cts.Cancel()
             Try
@@ -145,7 +144,7 @@ Public Class ScaleProcessor
     ''' <summary>
     ''' Отправляет команду сброса веса в 0.
     ''' </summary>
-    Public Async Function ResetToZeroAsync() As Task Implements IScaleProcessor.ResetToZeroAsync
+    Public Async Function ResetToZeroAsync() As Task Implements Scalemon.Common.IScaleProcessor.ResetToZeroAsync
         _driver.SetToZero()
         If _driver.LastResponseNum > 0 Then
             _logger.LogError("Error resetting to zero: {text}", _driver.LastResponseText)
@@ -202,38 +201,38 @@ Public Class ScaleProcessor
     End Function
 
     ' Методы подписки/отписки на события:
-    Public Sub SubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.SubscribeWeightReceived
+    Public Sub SubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements Scalemon.Common.IScaleProcessor.SubscribeWeightReceived
         _weightHandlers.Add(handler)
     End Sub
-    Public Sub UnsubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements IScaleProcessor.UnsubscribeWeightReceived
+    Public Sub UnsubscribeWeightReceived(handler As Func(Of Decimal, Task)) Implements Scalemon.Common.IScaleProcessor.UnsubscribeWeightReceived
         _weightHandlers.Remove(handler)
     End Sub
 
-    Public Sub SubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeUnstable
+    Public Sub SubscribeUnstable(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.SubscribeUnstable
         _unstableHandlers.Add(handler)
     End Sub
-    Public Sub UnsubscribeUnstable(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeUnstable
+    Public Sub UnsubscribeUnstable(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.UnsubscribeUnstable
         _unstableHandlers.Remove(handler)
     End Sub
 
-    Public Sub SubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionLost
+    Public Sub SubscribeConnectionLost(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.SubscribeConnectionLost
         _connectionLostHandlers.Add(handler)
     End Sub
-    Public Sub UnsubscribeConnectionLost(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionLost
+    Public Sub UnsubscribeConnectionLost(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.UnsubscribeConnectionLost
         _connectionLostHandlers.Remove(handler)
     End Sub
 
-    Public Sub SubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeConnectionEstablished
+    Public Sub SubscribeConnectionEstablished(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.SubscribeConnectionEstablished
         _connectionEstablishedHandlers.Add(handler)
     End Sub
-    Public Sub UnsubscribeConnectionEstablished(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeConnectionEstablished
+    Public Sub UnsubscribeConnectionEstablished(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.UnsubscribeConnectionEstablished
         _connectionEstablishedHandlers.Remove(handler)
     End Sub
 
-    Public Sub SubscribeScaleAlarm(handler As Func(Of Task)) Implements IScaleProcessor.SubscribeScaleAlarm
+    Public Sub SubscribeScaleAlarm(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.SubscribeScaleAlarm
         _scaleAlarmHandlers.Add(handler)
     End Sub
-    Public Sub UnsubscribeScaleAlarm(handler As Func(Of Task)) Implements IScaleProcessor.UnsubscribeScaleAlarm
+    Public Sub UnsubscribeScaleAlarm(handler As Func(Of Task)) Implements Scalemon.Common.IScaleProcessor.UnsubscribeScaleAlarm
         _scaleAlarmHandlers.Remove(handler)
     End Sub
 End Class

@@ -6,15 +6,6 @@ Imports Scalemon.Common
 ''' </summary>
 Public Interface ISignalBus
 
-    ''' <summary>Имя COM-порта подключения.</summary>
-    Property PortName As String
-
-    ''' <summary>Скорость передачи (baud rate).</summary>
-    Property BaudRate As Integer
-
-    ''' <summary>Интервал повторного подключения, мс.</summary>
-    Property ReconnectIntervalMs As Integer
-
     ''' <summary>Событие установления подключения к Arduino.</summary>
     Event ConnectionEstablished()
 

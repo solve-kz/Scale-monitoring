@@ -6,9 +6,10 @@ Imports System.Threading.Tasks
 Imports Microsoft.Data.SqlClient
 Imports Microsoft.Extensions.Hosting
 Imports Microsoft.Extensions.Logging
+Imports Scalemon.Common
 
 Public Class SqlDataAccess
-    Implements IDataAccess, IDisposable
+    Implements Scalemon.Common.IDataAccess, IDisposable
 
     Private ReadOnly _logger As ILogger(Of SqlDataAccess)
     Private ReadOnly _retryQueue As New ConcurrentQueue(Of Decimal)
@@ -24,20 +25,19 @@ Public Class SqlDataAccess
     Public Event DatabaseFailed As DatabaseFailedEventHandler Implements IDataAccess.DatabaseFailed
     Public Event DatabaseRestored As DatabaseRestoredEventHandler Implements IDataAccess.DatabaseRestored
 
-    Public Sub New(
-                  logger As ILogger(Of SqlDataAccess),
+    Public Sub New(logger As ILogger(Of SqlDataAccess),
                   connString As String,
                   tableName As String,
-                  maxQueueSize As String,
-                  alarmsize As String,
+                  maxQueueSize As Integer,
+                  alarmsize As Integer,
                   lifetime As IHostApplicationLifetime)
 
         _logger = logger
         _connString = connString
         _tableName = tableName
         _lifetime = lifetime ' <-- Сохраняем зависимость
-        _maxQueueSize = CInt(maxQueueSize)
-        _alarmSize = CInt(alarmsize)
+        _maxQueueSize = maxQueueSize
+        _alarmSize = alarmsize
         StartRetryLoop(_lifetime.ApplicationStopping) ' <-- Передаем токен отмены
     End Sub
 
