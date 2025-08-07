@@ -1,4 +1,11 @@
-﻿using System;
+﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
+using Scalemon.Common;
+using Serilog.Core;
+using Serilog.Events;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,9 +13,6 @@ using System.ServiceProcess;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc;
-using Scalemon.Common;
 
 namespace Scalemon.ApiService.Controllers
 {
@@ -16,18 +20,22 @@ namespace Scalemon.ApiService.Controllers
     [Route("api")]
     public class LogsController : ControllerBase
     {
-        private readonly ServiceSettings _svcSettings;
-        private readonly string _mainLogPath;
         private readonly string _settingsFilePath;
+        private readonly string _mainLogPath;
+        private readonly LoggingLevelSwitch _levelSwitch;
 
         public LogsController(
-            ServiceSettings svcSettings,
-            IWebHostEnvironment env)
+            IWebHostEnvironment env,
+            IConfiguration config,
+            LoggingLevelSwitch levelSwitch)
         {
-            _svcSettings = svcSettings;
-            // путь к основному файлу логов (может быть относительным)
-            _mainLogPath = Path.Combine(env.ContentRootPath, _svcSettings.Logging.FilePath.MainLogPath.TrimStart('\\', '/'));
             _settingsFilePath = Path.Combine(env.ContentRootPath, "appsettings.json");
+            var relative = config["Logging:FilePath:MainLogPath"];
+            // убираем ведущие слеши на случай, если кто-то напишет "/Logs/..."
+            relative = relative?.TrimStart('\\', '/');
+            _mainLogPath = Path.Combine(env.ContentRootPath, relative!);
+
+            _levelSwitch = levelSwitch;
         }
 
         /// <summary>
@@ -96,11 +104,8 @@ namespace Scalemon.ApiService.Controllers
                 return BadRequest("Неверный формат appsettings.json");
 
             // 2. Найти и обновить Logging:Level:Default
-            var loggingSection = root["Logging"]?.AsObject();
-            var levelSection = loggingSection?["Level"]?.AsObject();
-            if (levelSection == null)
-                return BadRequest("Секция Logging:Level не найдена в конфиге");
-
+            var levelSection = root["Logging"]?["Level"]?.AsObject();
+            if (levelSection == null) return BadRequest("Секция Logging:Level не найдена");
             levelSection["Default"] = dto.Level;
 
             // 3. Записать обратно
@@ -108,6 +113,16 @@ namespace Scalemon.ApiService.Controllers
                 _settingsFilePath,
                 root.ToJsonString(new JsonSerializerOptions { WriteIndented = true })
             );
+
+            // 2. Обновить LevelSwitch в рантайме
+            if (Enum.TryParse<LogEventLevel>(dto.Level, ignoreCase: true, out var newLevel))
+            {
+                _levelSwitch.MinimumLevel = newLevel;
+            }
+            else
+            {
+                return BadRequest($"Неподдерживаемый уровень логирования: {dto.Level}");
+            }
 
             // reloadOnChange подхватит новое значение автоматически
             return NoContent();

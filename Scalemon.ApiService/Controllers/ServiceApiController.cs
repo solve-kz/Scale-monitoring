@@ -1,10 +1,11 @@
-﻿using System.IO;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using Scalemon.Common;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 namespace Scalemon.ApiService.Controllers
 {
@@ -16,10 +17,10 @@ namespace Scalemon.ApiService.Controllers
         private readonly string _settingsFilePath;
 
         public ServiceApiController(
-            ServiceSettings svcSettings,
+            IOptionsMonitor<ServiceSettings> monitor,
             IWebHostEnvironment env)
         {
-            _svcSettings = svcSettings;
+            _svcSettings = monitor.CurrentValue ;
             _settingsFilePath = Path.Combine(env.ContentRootPath, "appsettings.json");
         }
 
@@ -50,13 +51,13 @@ namespace Scalemon.ApiService.Controllers
         {
             return Ok(new
             {
-                apiSettings = _svcSettings.Api,
-                authSettings = _svcSettings.Authentication,
-                scaleSettings = _svcSettings.ScaleSettings,
-                logSettings = _svcSettings.Logging,
-                databaseSettings = _svcSettings.DatabaseSettings,
-                systemSettings = _svcSettings.SystemSettings,
-                plcSettings = _svcSettings.PlcSettings
+                ApiSettings = _svcSettings.Api,
+                AuthenticationSettings = _svcSettings.Authentication,
+                ScaleSettings = _svcSettings.ScaleSettings,
+                LogSettings = _svcSettings.Logging,
+                DatabaseSettings = _svcSettings.DatabaseSettings,
+                SystemSettings = _svcSettings.SystemSettings,
+                PlcSettings = _svcSettings.PlcSettings
             });
         }
 

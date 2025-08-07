@@ -15,14 +15,23 @@ using Scalemon.ServiceHost;
 using Scalemon.SignalBus;
 using Scalemon.SqlDataAccess;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
+using Serilog.Formatting.Json;
 using System;
 using System.IO;
 using System.Threading.Tasks;
 
+// 1) Считываем конфигурацию
 var config = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .Build();
+
+// 2) Создаём LevelSwitch, задав начальный уровень из конфига
+var levelSwitch = new LoggingLevelSwitch();
+var initialLevel = config.GetSection("Logging:Level:Default").Value!;
+levelSwitch.MinimumLevel = Enum.Parse<LogEventLevel>(initialLevel, ignoreCase: true);
 
 // Привязываем JSON в POCO
 var serviceSettings = new Scalemon.Common.ServiceSettings();
@@ -38,8 +47,8 @@ var apiPass = serviceSettings.Authentication.Basic.Password;
 // Настраиваем Serilog
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(config)
-    .WriteTo.File(mainLogPath, rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
-    .WriteTo.File(detailedLogPath, rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Debug)
+    .MinimumLevel.ControlledBy(levelSwitch)
+    .WriteTo.File(new JsonFormatter(), mainLogPath, rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Verbose)
     .CreateLogger();
 
 IHost host = Host.CreateDefaultBuilder(args)
@@ -50,6 +59,12 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         // 1) Регистрация IOptions<ServiceSettings>
         services.Configure<ServiceSettings>(config);
+        services.AddSingleton(resolver =>
+            resolver.GetRequiredService<IOptionsMonitor<ServiceSettings>>().CurrentValue
+        );
+
+        // Регистрируем сам LevelSwitch как singleton, чтобы его можно было обновлять из контроллера
+        services.AddSingleton(levelSwitch);
 
         // 2) Фоновые сервисы
         services.AddSingleton<Scalemon.Common.IScaleProcessor>(sp =>

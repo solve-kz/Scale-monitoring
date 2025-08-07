@@ -3,6 +3,7 @@
   <PropertyGroup>
     <RootNamespace>Scalemon.SqlDataAccess</RootNamespace>
     <TargetFramework>net8.0</TargetFramework>
+    <Configurations>Debug;Release;ArduinoController;ScalemonViewer</Configurations>
   </PropertyGroup>
 
   <ItemGroup>
