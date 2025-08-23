@@ -1,0 +1,107 @@
+﻿@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Authorization
+@inherits LayoutComponentBase
+
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject CookieThemeService CookieThemeService
+@implements IAsyncDisposable
+
+<RadzenLayout>
+
+    <!-- Верхняя панель с логотипом и общим заголовком -->
+    <RadzenHeader Class="rz-shadow-2 rz-px-3">
+        <RadzenStack Orientation="Orientation.Horizontal"
+                     AlignItems="AlignItems.Center"
+                     Gap="8"
+                     JustifyContent="JustifyContent.Start"
+                     Style="height:56px">
+            <RadzenImage Path="images/logo-main.png" Style="width:24px;height:24px" />
+            <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+            <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
+            <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
+        </RadzenStack>
+    </RadzenHeader>
+
+    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+    <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+        <NavMenu Collapsed="@(navCollapsed)"
+                 OnToggleSidebar="ToggleSidebar"
+                 OnLogin="Login"
+                 OnLogout="Logout" />
+    </RadzenSidebar>
+
+    <RadzenBody>
+        <div class="rz-p-3">
+            @Body
+        </div>
+
+        <!-- Cлужебные компоненты Radzen -->
+        <RadzenDialog />
+        <RadzenNotification />
+        <RadzenContextMenu />
+    </RadzenBody>
+</RadzenLayout>
+
+@code {
+    DotNetObjectReference<MainLayout>? _dotRef;
+    
+    // private bool sidebarExpanded = true;
+    private string _pageTitle = "Главная";
+    private bool navCollapsed = false; // false=широкая, true=узкая рейка
+
+    protected override void OnInitialized()
+    {
+        SetPageTitle(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        
+        SetPageTitle(e.Location);
+    }
+
+    private void SetPageTitle(string uri)
+    {
+        // Простой «роут->заголовок» без лишнего кода
+        var path = new Uri(uri).AbsolutePath.ToLowerInvariant();
+        _pageTitle = path switch
+        {
+            "/monitoring" => "Мониторинг",
+            "/logs" => "Логи службы Scalemon",
+            "/statistics" => "Статистика",
+            "/settings" => "Настройки",
+            "/" or "/about" => "О программе",
+            _ => "Страница"
+        };
+        StateHasChanged();
+    }
+
+    private Task ToggleSidebar()
+    {
+        navCollapsed = !navCollapsed;
+        return Task.CompletedTask;
+    }
+
+    // Простейшие заглушки под ваши реальные процедуры авторизации
+    private async Task Login()
+    {
+        // Покажите ваш диалог логина (например, RadzenDialog/RadzenLogin)
+        await JS.InvokeVoidAsync("scalemon.showLogin");
+    }
+
+    private async Task Logout()
+    {
+        // Ваш существующий сценарий выхода
+        await JS.InvokeVoidAsync("scalemon.logout");
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        // Если регистрировали JS-хэндлеры — здесь их отписать
+        await Task.CompletedTask;
+    }
+}

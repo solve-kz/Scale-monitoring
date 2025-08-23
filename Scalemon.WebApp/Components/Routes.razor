@@ -1,0 +1,23 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Authorization
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @* Можно показать заглушку или просто отправить на главную *@
+                <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Незнакомцам доступа нет!</RadzenText>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="rz-p-4">
+                <h3>Страница не найдена</h3>
+                <a href="/">На главную</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

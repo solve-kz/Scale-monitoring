@@ -1,0 +1,30 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+@inject Radzen.DialogService Dialog
+
+
+<AuthorizeView>
+    <Authorized>
+        <RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
+
+            <RadzenImage Path="images/logo.png" Style="width: 15rem;" AlternateText="community" />
+            <RadzenText TextStyle="TextStyle.DisplayH3">Здесь будет описание программы и рекламный текст</RadzenText>
+        </RadzenStack>
+    </Authorized>
+    <NotAuthorized>
+        <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Нет доступа незнакомцам!</RadzenText>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first || AuthTask is null) return;
+        var user = (await AuthTask).User;
+        if (!(user.Identity?.IsAuthenticated ?? false))
+            await Dialog.OpenAsync<Auth.LoginPopup>("Вход",
+              new Dictionary<string, object>(),
+              new DialogOptions { Width = "420px", ShowClose = false, CloseDialogOnOverlayClick = false });
+    }
+}

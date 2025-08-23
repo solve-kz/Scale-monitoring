@@ -1,0 +1,731 @@
+﻿@page "/settings"
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Authorization
+@using Scalemon.Common
+@using Scalemon.WebApp.Models
+@using System.IO.Ports
+@using Radzen
+
+@attribute [Authorize(Policy = "AdminOnly")]
+
+@inject HttpClient Http
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+@inject ISettingsSource SettingsSource
+@inject IWebHostEnvironment Env
+@inject ThemeService ThemeService
+
+<RadzenTabs RenderMode="TabRenderMode.Server">
+  <Tabs>
+
+    <!-- 1) ВЕБ-ИНТЕРФЕЙС -->
+    <RadzenTabsItem Text="Веб-интерфейс">
+            <RadzenTemplateForm TItem="SettingsDto"
+                                Data="@Model"
+                                Submit="@OnValidSubmit"
+                                InvalidSubmit="@OnInvalidSubmit">
+
+        <RadzenFieldset Text="Аутентификация и навигация">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Логин (Basic)" HelpText="Логин для базовой аутентификации API (если используется)">
+                
+                  <RadzenTextBox @bind-Value="Model.AuthenticationSettings.Basic.Username"
+                                 Name="BasicUser" Style="width:100%" />
+                  <RadzenRequiredValidator Component="BasicUser" Text="Логин обязателен" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Пароль (Basic)" HelpText="Пароль для базовой аутентификации API (если используется)">
+                
+                  <RadzenPassword @bind-Value="Model.AuthenticationSettings.Basic.Password"
+                                  Name="BasicPass" Style="width:100%" />
+                  <RadzenRequiredValidator Component="BasicPass" Text="Пароль обязателен" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Открывать после авторизации"
+                               HelpText="Страница, на которую перенаправлять пользователя после успешного входа">
+                
+                  <RadzenDropDown Data="@AfterLoginPages"
+                                  @bind-Value="Model.WebUiSettings.AfterLoginPage"
+                                  Style="width:100%" Name="AfterLogin" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Язык интерфейса"
+                               HelpText="Выбор языка/локали UI (перезагрузка страницы может потребоваться)">
+                
+                  <RadzenDropDown Data="@Cultures"
+                                  @bind-Value="Model.WebUiSettings.UICulture"
+                                  Style="width:100%" Name="UICulture" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Тема оформления"
+                               HelpText="Переключение визуальной темы Radzen">  
+                  <ThemeSwitcher/> 
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Запомнить дату последнего просмотра"
+                               HelpText="При входе автоматически открывать последний использованный день на страницах мониторинга">
+                
+                  <RadzenCheckBox @bind-Value="Model.WebUiSettings.RememberLastDate" TriState="false" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Порт API"
+                               HelpText="TCP-порт, на котором доступен API службы">
+                
+                  <RadzenNumeric @bind-Value="Model.ApiSettings.Port" Name="ApiPort" Min="1" Max="65535" Step="1" Style="width:100%" />
+                  <RadzenRequiredValidator Component="ApiPort" Text="Порт обязателен" />
+                  <RadzenNumericRangeValidator Component="ApiPort" Min="1" Max="65535" Text="Допустимо 1..65535" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Имя службы"
+                               HelpText="Системное имя Windows-службы Scalemon">
+                
+                  <RadzenTextBox @bind-Value="Model.ApiSettings.ServiceName" Name="SvcName" Style="width:100%" />
+                  <RadzenRequiredValidator Component="SvcName" Text="Имя службы обязательно" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+            <RadzenButton Text="Проверить статус службы" Click="@CheckServiceStatus" Icon="refresh" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+                    <RadzenButton Text="Сохранить"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  Icon="save"
+                                  ButtonType="ButtonType.Submit"
+                                  Disabled="@_saving" />
+          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+        </RadzenStack>
+      </RadzenTemplateForm>
+    </RadzenTabsItem>
+
+    <!-- 2) СЛУЖБА -->
+    <RadzenTabsItem Text="Служба">
+            <RadzenTemplateForm TItem="SettingsDto"
+                                Data="@Model"
+                                Submit="@OnValidSubmit"
+                                InvalidSubmit="@OnInvalidSubmit">
+
+        <RadzenFieldset Text="Опрос весов">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="COM-порт весов" HelpText="Последовательный порт подключения индикатора весов">
+                
+                  <RadzenDropDown Data="@ComPorts" @bind-Value="Model.ScaleSettings.PortName" Name="ScalePort" Style="width:100%" />
+                  <RadzenRequiredValidator Component="ScalePort" Text="Выберите COM-порт" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Интервал опроса, мс" HelpText="Как часто считывать показания с весов">
+                
+                  <RadzenNumeric @bind-Value="Model.ScaleSettings.PollingIntervalMs" Name="PollMs" Min="1" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="PollMs" Min="1" Text="Минимум 1 мс" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Порог стабильности" HelpText="Отклонение, при котором вес считается стабильным">
+                
+                  <RadzenNumeric @bind-Value="Model.ScaleSettings.StableThreshold" Name="StableTh" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="StableTh" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Порог нестабильности" HelpText="Отклонение, фиксирующее нестабильность показаний">
+                
+                  <RadzenNumeric @bind-Value="Model.ScaleSettings.UnstableThreshold" Name="UnstableTh" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="UnstableTh" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+            <RadzenButton Text="Тест чтения весов" Click="@TestScaleRead" Icon="speed" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenFieldset Text="Логика фиксации">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Мин. вес" HelpText="Минимальное значение для начала фиксации события">
+                
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.MinWeight" Name="MinW" Min="0" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="MinW" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Гистерезис" HelpText="Дельта веса, уменьшающая ложные срабатывания">
+                
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.HystWeight" Name="HystW" Min="0" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="HystW" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Семафор, мс" HelpText="Минимальная длительность устойчивого состояния">
+                
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.SemaphoreTimeMs" Name="SemMs" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="SemMs" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+        </RadzenFieldset>
+
+        <RadzenFieldset Text="PLC / Arduino">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="COM-порт PLC" HelpText="Последовательный порт контроллера сигнализации">
+                
+                  <RadzenDropDown Data="@ComPorts" @bind-Value="Model.PlcSettings.PortName" Name="PlcPort" Style="width:100%" />
+                  <RadzenRequiredValidator Component="PlcPort" Text="Выберите COM-порт" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Скорость, бод" HelpText="Скорость обмена с PLC/Arduino">
+                
+                  <RadzenNumeric @bind-Value="Model.PlcSettings.BaudRate" Name="Baud" Min="1" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="Baud" Min="1" Text="Минимум 1" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Реконнект, мс" HelpText="Интервал повторного подключения">
+                
+                  <RadzenNumeric @bind-Value="Model.PlcSettings.ReconnectIntervalMs" Name="PlcRe" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="PlcRe" Min="0" Text="Неотрицательное" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+            <RadzenButton Text="Тест сигналов PLC" Click="@TestPlc" Icon="developer_board" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenFieldset Text="Логи (уровень)">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Уровень логирования"
+                               HelpText="Включается немедленно без перезапуска службы">
+                
+                  <RadzenDropDown Data="@LogLevels" @bind-Value="Model.LogSettings.Level.Default"
+                                  Name="LogDefault" Style="width:100%" />
+                  <RadzenRequiredValidator Component="LogDefault" Text="Уровень обязателен" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+            <RadzenButton Text="Применить уровень" Click="@ApplyLogLevel" Icon="bolt" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+                    <RadzenButton Text="Сохранить"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  Icon="save"
+                                  ButtonType="ButtonType.Submit"
+                                  Disabled="@_saving" />
+          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+        </RadzenStack>
+      </RadzenTemplateForm>
+    </RadzenTabsItem>
+
+    <!-- 3) ХРАНЕНИЕ ДАННЫХ -->
+    <RadzenTabsItem Text="Хранение данных">
+            <RadzenTemplateForm TItem="SettingsDto"
+                                Data="@Model"
+                                Submit="@OnValidSubmit"
+                                InvalidSubmit="@OnInvalidSubmit">
+
+        <RadzenFieldset Text="База данных">
+          <RadzenRow>
+            <RadzenColumn Size="12" SizeSm="12">
+                            <RadzenFormField Text="Строка подключения" HelpText="Например, LocalDB или SQL Express на мини-ПК" Style="width:100%;max-width:none">
+                
+                  <RadzenTextBox @bind-Value="Model.DatabaseSettings.ConnectionString"
+                                 Name="ConnStr" Style="width:100%" />
+                  <RadzenRequiredValidator Component="ConnStr" Text="Строка подключения обязательна" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="12" SizeSm="12">
+              <RadzenFormField Text="Имя таблицы" HelpText="Таблица с результатами взвешиваний">
+                
+                  <RadzenTextBox @bind-Value="Model.DatabaseSettings.TableName"
+                                 Name="TableName" Style="width:100%" />
+                  <RadzenRequiredValidator Component="TableName" Text="Имя таблицы обязательно" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenRow>
+            <RadzenColumn Size="12" SizeSm="12">
+              <RadzenFormField Text="Очередь повторов, шт"
+                               HelpText="Макс. объём буфера повторных попыток записи">
+                
+                  <RadzenNumeric @bind-Value="Model.DatabaseSettings.MaxRetryQueueSize"
+                                 Name="MaxQueue" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="MaxQueue" Min="0" Text="Неотрицательное число" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="12" SizeSm="12">
+              <RadzenFormField Text="Порог тревоги, шт"
+                               HelpText="Размер очереди, при превышении которого выдаётся предупреждение">
+                
+                  <RadzenNumeric @bind-Value="Model.DatabaseSettings.AlarmSize"
+                                 Name="AlarmSize" Min="0" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="AlarmSize" Min="0" Text="Неотрицательное число" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+                        <RadzenButton Text="Проверить подключение" Click="@TestDbConnection" Icon="link" Disabled="@_busyTestDb" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenFieldset Text="Логи (файл)">
+          <RadzenRow>
+            <RadzenColumn Size="12" SizeSm="12">
+              <RadzenFormField Text="Путь к файлу лога"
+                               HelpText="Единственный файл лога службы (второй файл убран)">
+                
+                  <RadzenTextBox @bind-Value="Model.LogSettings.FilePath.MainLogPath"
+                                 Name="MainLog" Style="width:100%" />
+                  <RadzenRequiredValidator Component="MainLog" Text="Путь обязателен" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+            <RadzenButton Text="Открыть лог" Click="@OpenLogDialog" Icon="list" />
+          </RadzenStack>
+        </RadzenFieldset>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+                    <RadzenButton Text="Сохранить"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  Icon="save"
+                                  ButtonType="ButtonType.Submit"
+                                  Disabled="@_saving" />
+          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+        </RadzenStack>
+      </RadzenTemplateForm>
+    </RadzenTabsItem>
+
+    <!-- 4) ПОЛЬЗОВАТЕЛИ -->
+    <RadzenTabsItem Text="Пользователи">
+            <RadzenTemplateForm TItem="SettingsDto"
+                                Data="@Model"
+                                Submit="@OnValidSubmit"
+                                InvalidSubmit="@OnInvalidSubmit">
+
+        <RadzenFieldset Text="Параметры">
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Зеркалировать в SQL" HelpText="Создавать/обновлять пользователя в БД при изменении в UI">
+                
+                  <RadzenSwitch @bind-Value="Model.UsersSettings.SqlMirror" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Роли БД по умолчанию"
+                               HelpText="Будут назначаться при создании нового пользователя">
+                
+                  <RadzenDropDown Multiple="true" Data="@DbRolesCatalog"
+                                  @bind-Value="Model.UsersSettings.DefaultDbRoles"
+                                  Style="width:100%" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Тайм-аут сессии, мин" HelpText="Время жизни cookie-сессии пользователя">
+                
+                  <RadzenNumeric @bind-Value="Model.UsersSettings.SessionTimeoutMinutes"
+                                 Name="SessTo" Min="1" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="SessTo" Min="1" Text="Минимум 1 минута" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+        </RadzenFieldset>
+
+        <RadzenDataGrid TItem="UserDto" Data="@Model.UsersSettings.Users" @ref="UsersGrid"
+                        AllowPaging="true" PageSize="8"
+                        AllowFiltering="false" AllowSorting="true"
+                        EditMode="DataGridEditMode.Single"
+                        RowCreate="@OnUserCreate"
+                        RowUpdate="@OnUserUpdate">
+          <Columns>
+            <RadzenDataGridColumn TItem="UserDto" Property="UserName" Title="Логин" Width="160px">
+              <EditTemplate Context="u">
+                <RadzenTextBox @bind-Value="u.UserName" Style="width:100%" />
+              </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn TItem="UserDto" Property="DisplayName" Title="Имя" Width="180px">
+              <EditTemplate Context="u">
+                <RadzenTextBox @bind-Value="u.DisplayName" Style="width:100%" />
+              </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn TItem="UserDto" Title="Роли (UI)">
+              <Template Context="u">@string.Join(", ", u.Roles ?? new())</Template>
+              <EditTemplate Context="u">
+                <RadzenDropDown Multiple="true" Data="@UiRolesCatalog" @bind-Value="u.Roles" Style="width:100%" />
+              </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn TItem="UserDto" Title="Роли БД">
+              <Template Context="u">@string.Join(", ", u.DbRolesOverride ?? new())</Template>
+              <EditTemplate Context="u">
+                <RadzenDropDown Multiple="true" Data="@DbRolesCatalog" @bind-Value="u.DbRolesOverride" Style="width:100%" />
+              </EditTemplate>
+            </RadzenDataGridColumn>
+
+            <RadzenDataGridColumn TItem="UserDto" Title="Действия" Width="180px">
+              <Template Context="u">
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
+                              Click="@(() => UsersGrid!.EditRow(u))" />
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="delete" Size="ButtonSize.Small" Style="margin-left:6px"
+                              Click="@(() => DeleteUser(u))" />
+              </Template>
+              <EditTemplate Context="u">
+                <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Size="ButtonSize.Small"
+                              Click="@(async args => await UsersGrid!.UpdateRow(u))" />
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Size="ButtonSize.Small" Style="margin-left:6px"
+                              Click="@((args) => UsersGrid!.CancelEditRow(u))" />
+              </EditTemplate>
+            </RadzenDataGridColumn>
+          </Columns>
+        </RadzenDataGrid>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
+          <RadzenButton Text="Добавить" Icon="add" Click="@AddUser" />
+                    <RadzenButton Text="Сохранить"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  Icon="save"
+                                  ButtonType="ButtonType.Submit"
+                                  Disabled="@_saving" />
+          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+        </RadzenStack>
+      </RadzenTemplateForm>
+    </RadzenTabsItem>
+
+  </Tabs>
+</RadzenTabs>
+
+@code {
+  SettingsDto Model = new();
+
+  // Каталоги
+  List<string> ComPorts = new();
+  IReadOnlyList<string> LogLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
+  IReadOnlyList<string> UiRolesCatalog = new[] { "Admin", "Editor", "Viewer" };
+  IReadOnlyList<string> DbRolesCatalog = new[] { "db_datareader", "db_datawriter", "db_owner" };
+  IReadOnlyList<string> AfterLoginPages = new[] { "/", "/monitoring", "/logs", "/stats", "/settings" };
+  IReadOnlyList<string> Cultures = new[] { "ru-RU", "en-US" };
+
+  RadzenDataGrid<UserDto> UsersGrid = default!;
+
+    // Ссылки на формы (по одной на вкладку)
+    RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb, _formUsers;
+
+    bool _saving;
+    bool _busy;
+    bool _busyTestDb;
+
+    // ЕДИНЫЙ успешный сабмит RadzenTemplateForm
+    async Task OnValidSubmit(SettingsDto dto)
+    {
+        if (_saving) return;
+        _saving = true;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await SettingsSource.SaveAsync(dto, cts.Token);
+            NotificationService.Notify(NotificationSeverity.Success, "Сохранено", "Файл настроек успешно сохранён.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Ошибка сохранения", ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    // ЕДИНЫЙ обработчик неуспешной валидации
+    void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
+      => NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
+
+
+
+  protected override async Task OnInitializedAsync()
+  {
+    try
+    {
+      Model = await SettingsSource.LoadAsync();
+      EnsureDefaults(Model);
+      await LoadComPorts();
+      // isReady = true;
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Ошибка загрузки",
+        Env.IsDevelopment() ? ex.ToString() : ex.Message);
+      Console.Error.WriteLine(ex);
+    }
+  }
+
+
+
+  static void EnsureDefaults(SettingsDto m)
+  {
+    m.ApiSettings ??= new Scalemon.Common.ApiSettings();
+
+    m.AuthenticationSettings ??= new Scalemon.Common.AuthenticationSettings();
+    m.AuthenticationSettings.Basic ??= new Scalemon.Common.BasicAuthSettings();
+
+    m.LogSettings ??= new Scalemon.Common.LoggingSettings();
+    m.LogSettings.Level ??= new Scalemon.Common.LogLevelSettings();
+    m.LogSettings.FilePath ??= new Scalemon.Common.LogFilePathSettings();
+
+    m.DatabaseSettings ??= new Scalemon.Common.DatabaseSettings();
+    m.ScaleSettings ??= new Scalemon.Common.ScaleSettings();
+    m.SystemSettings ??= new Scalemon.Common.SystemSettings();
+    m.PlcSettings ??= new Scalemon.Common.PlcSettings();
+
+    // Новые настройки UI
+    m.WebUiSettings ??= new WebUiSettings
+    {
+      AfterLoginPage = "/monitoring",
+      UICulture = "ru-RU",
+      RememberLastDate = true
+    };
+
+    m.UsersSettings ??= new UsersSettings();
+    m.UsersSettings.Users ??= new List<UserDto>();
+    m.UsersSettings.DefaultDbRoles ??= new List<string>();
+    m.UsersSettings.SessionTimeoutMinutes = m.UsersSettings.SessionTimeoutMinutes <= 0 ? 480 : m.UsersSettings.SessionTimeoutMinutes;
+  }
+
+  async Task SaveAll(SettingsDto model)
+  {
+    if (_busy) return;
+    _busy = true;
+    try
+    {
+      await SettingsSource.SaveAsync(model);
+      NotificationService.Notify(NotificationSeverity.Success, "Сохранено", "Настройки применены");
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Сохранение", ex.Message);
+    }
+    finally { _busy = false; }
+  }
+
+  async Task ReloadAll()
+  {
+    try
+    {
+      Model = await SettingsSource.LoadAsync();
+      await LoadComPorts();
+      StateHasChanged();
+      NotificationService.Notify(NotificationSeverity.Info, "Настройки", "Загружено");
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Загрузка", ex.Message);
+    }
+  }
+
+
+
+  async Task ApplyLogLevel()
+  {
+    try
+    {
+      var body = new { Level = Model.LogSettings.Level.Default };
+      var resp = await Http.PutAsJsonAsync("api/settings/logging/level", body);
+      if (resp.IsSuccessStatusCode)
+        NotificationService.Notify(NotificationSeverity.Success, "Логи", $"Уровень: {Model.LogSettings.Level.Default}");
+      else
+        NotificationService.Notify(NotificationSeverity.Warning, "Логи", $"Не применён: {(int)resp.StatusCode}");
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Логи", ex.Message);
+    }
+  }
+
+  async Task OpenLogDialog()
+  {
+    try
+    {
+      var items = await Http.GetFromJsonAsync<List<LogEntry>>($"api/logs?path={Uri.EscapeDataString(Model.LogSettings.FilePath.MainLogPath)}");
+      await DialogService.OpenAsync("Журнал событий", ds => (builder) =>
+      {
+        builder.OpenComponent(0, typeof(RadzenDataGrid<LogEntry>));
+        builder.AddAttribute(1, "Data", items ?? new());
+        builder.AddAttribute(2, "AllowPaging", true);
+        builder.AddAttribute(3, "PageSize", 20);
+        builder.CloseComponent();
+      }, new DialogOptions() { Width = "1000px", Height = "70vh", Resizable = true });
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Чтение лога", ex.Message);
+    }
+  }
+
+    
+
+    async Task TestDbConnection()
+    {
+        if (_busyTestDb) return;
+        _busyTestDb = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("api/diagnostics/db/test", new
+            {
+                Model.DatabaseSettings.ConnectionString,
+                Model.DatabaseSettings.TableName
+            });
+
+            var text = await resp.Content.ReadAsStringAsync();
+            var sev = resp.IsSuccessStatusCode ? NotificationSeverity.Success : NotificationSeverity.Warning;
+            NotificationService.Notify(sev, "Проверка БД", string.IsNullOrWhiteSpace(text) ? resp.ReasonPhrase : text);
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Проверка БД", ex.Message);
+        }
+        finally { _busyTestDb = false; }
+    }
+
+  async Task TestScaleRead()
+  {
+    try
+    {
+      var value = await Http.GetStringAsync("api/diagnostics/scale/test");
+      NotificationService.Notify(NotificationSeverity.Info, "Тест чтения", $"Вес: {value}");
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Тест чтения", ex.Message);
+    }
+  }
+
+  async Task TestPlc()
+  {
+    try
+    {
+      var resp = await Http.PostAsync("api/diagnostics/plc/ping", null);
+      NotificationService.Notify(resp.IsSuccessStatusCode ? NotificationSeverity.Success : NotificationSeverity.Warning, "PLC", resp.ReasonPhrase);
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "PLC", ex.Message);
+    }
+  }
+
+  async Task LoadComPorts()
+  {
+    try { ComPorts = SerialPort.GetPortNames().OrderBy(p => p).ToList(); }
+    catch { ComPorts = new(); }
+    await Task.CompletedTask;
+  }
+
+  // USERS
+  void AddUser() => Model.UsersSettings.Users.Add(new UserDto { Roles = new(), DbRolesOverride = new() });
+  Task OnUserCreate(UserDto u) => Task.CompletedTask;
+  Task OnUserUpdate(UserDto u) => Task.CompletedTask;
+
+  async Task DeleteUser(UserDto u)
+  {
+    try
+    {
+      var resp = await Http.DeleteAsync($"api/admin/users/{Uri.EscapeDataString(u.UserName)}");
+      if (!resp.IsSuccessStatusCode)
+      {
+        NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", resp.ReasonPhrase ?? "Ошибка удаления");
+        return;
+      }
+      Model.UsersSettings.Users.Remove(u);
+      await UsersGrid!.Reload();
+      NotificationService.Notify(NotificationSeverity.Success, "Пользователи", "Удалено");
+    }
+    catch (Exception ex)
+    {
+      NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+    }
+  }
+
+    async Task CheckServiceStatus() 
+    { 
+        try 
+        { 
+            var status = await Http.GetStringAsync("api/service/status"); 
+            NotificationService.Notify(NotificationSeverity.Info, "Статус службы", status); 
+        } 
+        catch (Exception ex) 
+        { 
+            NotificationService.Notify(NotificationSeverity.Error, "Ошибка статуса", ex.Message); 
+        } 
+    }
+}

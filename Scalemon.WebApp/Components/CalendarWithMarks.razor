@@ -1,0 +1,58 @@
+﻿@using System.Globalization
+
+<RadzenCard Style="padding:0">
+    <ChildContent>
+        <RadzenStack Orientation="Orientation.Vertical" class="rz-p-3" Gap="0.5rem">
+            <RadzenText TextStyle="TextStyle.H5">Календарь разделки</RadzenText>
+
+            <RadzenDatePicker @bind-Value="SelectedDate"
+                              TValue="DateTime"
+                              Inline="true"
+                              ShowTime="false"
+                              DateRender="@OnDateRender"
+                              CurrentDateChanged="@OnCurrentDateChanged"
+                              Change="@OnDateChanged" />
+        </RadzenStack>
+    </ChildContent>
+</RadzenCard>
+
+@code {
+    [Parameter] public DateTime SelectedDate { get; set; } = DateTime.Today;
+    [Parameter] public EventCallback<DateTime> SelectedDateChanged { get; set; }
+    [Parameter] public HashSet<DateOnly> MarkedDays { get; set; } = new();
+    [Parameter] public EventCallback<(int Year, int Month)> MonthChanged { get; set; }
+    [Parameter] public EventCallback ClearSelection { get; set; }
+
+    private DateTime _currentDate = DateTime.Today;
+
+    void OnDateRender(DateRenderEventArgs args)
+    {
+        var d = DateOnly.FromDateTime(args.Date);
+        if (MarkedDays.Contains(d))
+        {
+            // встроенная подсветка Radzen
+            args.Attributes.Add("style", "background-color: #f0ba74;");
+        }
+    }
+
+    async Task OnCurrentDateChanged(DateTime newCurrent)
+    {
+        if (newCurrent.Month != _currentDate.Month || newCurrent.Year != _currentDate.Year)
+        {
+            _currentDate = newCurrent;
+            if (ClearSelection.HasDelegate)
+                await ClearSelection.InvokeAsync();
+            if (MonthChanged.HasDelegate)
+                await MonthChanged.InvokeAsync((newCurrent.Year, newCurrent.Month));
+        }
+    }
+
+    async Task OnDateChanged(DateTime? value)
+    {
+        var v = value ?? DateTime.Today;
+        if (ClearSelection.HasDelegate)
+            await ClearSelection.InvokeAsync();
+        if (SelectedDateChanged.HasDelegate)
+            await SelectedDateChanged.InvokeAsync(v.Date);
+    }
+}

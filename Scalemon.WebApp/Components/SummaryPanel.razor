@@ -1,0 +1,25 @@
+﻿@using static Scalemon.WebApp.Models.WeighingModels
+
+<RadzenCard Style="padding:0">
+    <ChildContent>
+        <RadzenStack Orientation="Orientation.Vertical" class="rz-p-3" Gap="0.5rem">
+            <RadzenText TextStyle="TextStyle.H5">Сводка по дню</RadzenText>
+
+            <RadzenRow>
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Записей:</b> @Summary?.Count</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Сумма, кг:</b> @Summary?.Sum.ToString("0.00")</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Среднее, кг:</b> @Summary?.Avg?.ToString("0.00")</RadzenText>
+                </RadzenColumn>
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Минимум:</b> @Summary?.Min?.ToString("0.00")</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body1"><b>Максимум:</b> @Summary?.Max?.ToString("0.00")</RadzenText>
+                </RadzenColumn>
+            </RadzenRow>
+        </RadzenStack>
+    </ChildContent>
+</RadzenCard>
+
+@code {
+    [Parameter] public DaySummary? Summary { get; set; }
+}

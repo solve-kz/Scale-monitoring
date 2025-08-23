@@ -6,8 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Scalemon.ApiService.Controllers;   // ваш namespace контроллеров
-using Scalemon.Common;            // ваш namespace с общими классами
+using Scalemon.ApiService.Controllers;
+using Scalemon.Common;
 using Scalemon.FSM;
 using Scalemon.MassaKInterop;
 using Scalemon.SerialLink;
@@ -21,6 +21,11 @@ using Serilog.Formatting.Json;
 using System;
 using System.IO;
 using System.Threading.Tasks;
+
+// --- ДОБАВЛЯЕМ USING ДЛЯ BLAZOR ---
+// Убедитесь, что namespace соответствует вашему проекту веб-приложения
+using Scalemon.WebApp.Components;
+// -----------------------------------
 
 // 1) Считываем конфигурацию
 var config = new ConfigurationBuilder()
@@ -54,7 +59,6 @@ Log.Logger = new LoggerConfiguration()
 IHost host = Host.CreateDefaultBuilder(args)
     .UseWindowsService()
     .UseSerilog()
-
     .ConfigureServices((hostContext, services) =>
     {
         // 1) Регистрация IOptions<ServiceSettings>
@@ -66,18 +70,18 @@ IHost host = Host.CreateDefaultBuilder(args)
         // Регистрируем сам LevelSwitch как singleton, чтобы его можно было обновлять из контроллера
         services.AddSingleton(levelSwitch);
 
-        // 2) Фоновые сервисы
+        // 2) Фоновые сервисы (Ваша существующая логика без изменений)
         services.AddSingleton<Scalemon.Common.IScaleProcessor>(sp =>
         {
-            var system = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings ;
+            var system = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings;
             var realDriver = new Scalemon.MassaKInterop.ScaleDriver100();
             var driver = new MassaKDriverAdapter(realDriver);
             return new ScaleProcessor(
                 sp.GetRequiredService<ILogger<ScaleProcessor>>(),
                 driver,
-                system .PortName,
+                system.PortName,
                 system.StableThreshold,
-                system .UnstableThreshold,
+                system.UnstableThreshold,
                 system.PollingIntervalMs
             );
         });
@@ -90,49 +94,45 @@ IHost host = Host.CreateDefaultBuilder(args)
                 db.ConnectionString,
                 db.TableName,
                 db.MaxRetryQueueSize,
-                db.AlarmSize,                               
+                db.AlarmSize,
                 sp.GetRequiredService<IHostApplicationLifetime>()
             );
         });
 
         services.AddSingleton<Scalemon.Common.ISignalBus>(sp =>
-        { 
+        {
             var plc = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.PlcSettings;
             return new SignalBus(
                 sp.GetRequiredService<ILogger<SignalBus>>(),
-                plc .PortName,
+                plc.PortName,
                 plc.BaudRate,
-                plc .ReconnectIntervalMs
+                plc.ReconnectIntervalMs
             );
-
         });
 
         services.AddSingleton<Scalemon.Common.IScaleStateMachine>(sp =>
         {
-            var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.SystemSettings  ;
+            var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.SystemSettings;
             return new ScaleStateMachine(logger: sp.GetRequiredService<ILogger<ScaleStateMachine>>(),
-                minWeight:settings.MinWeight,
+                minWeight: settings.MinWeight,
                 hystWeight: settings.HystWeight,
-                semaphoreTimeMs:settings.SemaphoreTimeMs,
-                // plus your handlers...
-                // Обработчики переходов автомата — отправляем соответствующий код Arduino
+                semaphoreTimeMs: settings.SemaphoreTimeMs,
                 onConnected: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOn),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOn),
                 onDisconnected: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOff),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOff),
                 onUnstable: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Unstable),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Unstable),
                 onResetToZero: () => sp.GetRequiredService<IScaleProcessor>()
-                                          .ResetToZeroAsync(),
+                                        .ResetToZeroAsync(),
                 onZeroState: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Idle),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Idle),
                 onInvalidWeight: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.YellowRedOn),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.YellowRedOn),
                 onError: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.RedOn),
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.RedOn),
                 onResetAlarm: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                          .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.AlarmOff),
-                // При успешной записи веса в базу — сигнал «Completed»
+                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.AlarmOff),
                 onRecord: async raw =>
                 {
                     var dbLogger = sp.GetRequiredService<ILogger<ScalemonService>>();
@@ -152,51 +152,67 @@ IHost host = Host.CreateDefaultBuilder(args)
 
         services.AddHostedService<ScalemonService>();
 
-        // 3) Web API
+        // 3) Web API и UI
         services.AddControllers()
-                .PartManager.ApplicationParts.Add(
-                    new Microsoft.AspNetCore.Mvc.ApplicationParts
-                        .AssemblyPart(typeof(ServiceApiController).Assembly));
+            .PartManager.ApplicationParts.Add(
+                new Microsoft.AspNetCore.Mvc.ApplicationParts
+                    .AssemblyPart(typeof(ServiceApiController).Assembly));
+
+        // --- ДОБАВЛЯЕМ СЕРВИСЫ ДЛЯ BLAZOR ---
+        services.AddRazorComponents()
+                .AddInteractiveServerComponents();
+        // ------------------------------------
 
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
 
         services.AddAuthentication(BasicDefaults.AuthenticationScheme)
-                .AddBasic(opts =>
+            .AddBasic(opts =>
+            {
+                opts.Realm = "Scalemon API";
+                opts.Events = new BasicEvents
                 {
-                    opts.Realm = "Scalemon API";
-                    opts.Events = new BasicEvents
+                    OnValidateCredentials = ctx =>
                     {
-                        OnValidateCredentials = ctx =>
-                        {
-                            if (ctx.Username == apiUser && ctx.Password == apiPass)
-                                ctx.ValidationSucceeded();
-                            else
-                                ctx.ValidationFailed();
-                            return Task.CompletedTask;
-                        }
-                    };
-                });
+                        if (ctx.Username == apiUser && ctx.Password == apiPass)
+                            ctx.ValidationSucceeded();
+                        else
+                            ctx.ValidationFailed();
+                        return Task.CompletedTask;
+                    }
+                };
+            });
         services.AddAuthorization();
     })
-
     .ConfigureWebHostDefaults(web =>
     {
         web.UseKestrel()
-           .UseUrls($"http://0.0.0.0:{apiPort}")
-           .Configure(app =>
-           {
-               app.UseSwagger();
-               app.UseSwaggerUI(c =>
-                   c.SwaggerEndpoint("/swagger/v1/swagger.json", "Scalemon API v1"));
+            .UseUrls($"http://0.0.0.0:{apiPort}")
+            .Configure(app =>
+            {
+                app.UseSwagger();
+                app.UseSwaggerUI(c =>
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Scalemon API v1"));
 
-               app.UseRouting();
-               app.UseAuthentication();
-               app.UseAuthorization();
-               app.UseEndpoints(endpoints => endpoints.MapControllers());
-           });
+                // --- ДОБАВЛЯЕМ MIDDLEWARE ДЛЯ BLAZOR ---
+                // Позволяет использовать статические файлы (CSS, JS) из папки wwwroot
+                app.UseStaticFiles();
+                // ---------------------------------------
+
+                app.UseRouting();
+                app.UseAuthentication();
+                app.UseAuthorization();
+                app.UseEndpoints(endpoints =>
+                {
+                    // Существующая конечная точка для API
+                    endpoints.MapControllers();
+                    // --- ДОБАВЛЯЕМ КОНЕЧНУЮ ТОЧКУ ДЛЯ BLAZOR ---
+                    // App - это корневой компонент вашего WebApp
+                    endpoints.MapRazorComponents<App>();
+                    // -----------------------------------------
+                });
+            });
     })
-
     .Build();
 
 host.Run();

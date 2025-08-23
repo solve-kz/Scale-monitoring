@@ -31,6 +31,7 @@
     <ProjectReference Include="..\Scalemon.FSM\Scalemon.FSM.vbproj" />
     <ProjectReference Include="..\Scalemon.SerialLink\Scalemon.SerialLink.vbproj" />
     <ProjectReference Include="..\Scalemon.SignalBus\Scalemon.SignalBus.vbproj" />
+    <ProjectReference Include="..\Scalemon.WebApp\Scalemon.WebApp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

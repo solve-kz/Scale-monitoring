@@ -59,6 +59,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.ApiService", "Scal
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.Common", "Scalemon.Common\Scalemon.Common.csproj", "{82AC6E77-D5B0-461C-ADED-13BC34FA4BB8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.WebApp", "Scalemon.WebApp\Scalemon.WebApp.csproj", "{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		ArduinoController|Any CPU = ArduinoController|Any CPU
@@ -554,6 +556,46 @@ Global
 		{82AC6E77-D5B0-461C-ADED-13BC34FA4BB8}.ServiceRelease|x64.Build.0 = Release|Any CPU
 		{82AC6E77-D5B0-461C-ADED-13BC34FA4BB8}.ServiceRelease|x86.ActiveCfg = Release|Any CPU
 		{82AC6E77-D5B0-461C-ADED-13BC34FA4BB8}.ServiceRelease|x86.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|Any CPU.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|Any CPU.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|ARM.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|ARM.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|ARM64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|ARM64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|x64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|x64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|x86.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ArduinoController|x86.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|Any CPU.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|Any CPU.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|ARM.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|ARM.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|ARM64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|ARM64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|x64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|x64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|x86.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ScalemonViewer|x86.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|Any CPU.Build.0 = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|ARM.ActiveCfg = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|ARM.Build.0 = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|ARM64.ActiveCfg = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|ARM64.Build.0 = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|x64.ActiveCfg = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|x64.Build.0 = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|x86.ActiveCfg = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceDebug|x86.Build.0 = Debug|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|Any CPU.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|ARM.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|ARM.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|ARM64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|ARM64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|x64.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|x64.Build.0 = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|x86.ActiveCfg = Release|Any CPU
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}.ServiceRelease|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -571,6 +613,7 @@ Global
 		{10CE2932-63AD-4699-B5DC-FFD580D2222F} = {B61F4063-085D-42B0-9BBC-F97BF4579972}
 		{AEF05355-CF26-4A98-99B1-840459F8F400} = {36D591C7-65C7-A0D1-1CBC-10CDE441BDC8}
 		{82AC6E77-D5B0-461C-ADED-13BC34FA4BB8} = {36D591C7-65C7-A0D1-1CBC-10CDE441BDC8}
+		{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87} = {36D591C7-65C7-A0D1-1CBC-10CDE441BDC8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7275CD28-C3F9-40FF-9193-6A9D2CA78C48}

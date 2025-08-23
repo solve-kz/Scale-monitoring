@@ -1,0 +1,53 @@
+﻿@inject ThemeService ThemeService
+@inject NotificationService NotificationService
+@inject HttpClient Http
+@implements IDisposable
+
+<RadzenStack class="rz-p-0 rz-p-md-6 rz-p-lg-12">
+    <RadzenCard Variant="Variant.Outlined">
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap">
+            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem" class="rz-p-sm-2">
+                <RadzenLabel Text="Change the current theme" />
+                <RadzenDropDown Name="ThemeDropDown" TValue="string" Value="@ThemeService.Theme" ValueChanged="@ChangeTheme" Data="@Themes.Free" TextProperty=@nameof(Theme.Text) ValueProperty=@nameof(Theme.Value)>
+                </RadzenDropDown>
+            </RadzenStack>            
+            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem" class="rz-p-sm-2">
+                <RadzenLabel Text="WCAG compliant colors" />
+                <RadzenSwitch Value="@(ThemeService.Wcag == true)" Name="WCAG" ValueChanged=@ChangeWcag />
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenCard>
+</RadzenStack>
+@code {
+
+    async Task ChangeTheme(string value)
+    {
+        ThemeService.SetTheme(value);          // (или SetTheme(value, false), если <RadzenTheme> уже рендерит CSS)
+        await Http.PostAsJsonAsync("/ui/theme", new { value });
+    }
+
+    void ChangeRightToLeft(bool value)
+    {
+        ThemeService.SetRightToLeft(value);
+    }
+
+    void ChangeWcag(bool value)
+    {
+        ThemeService.SetWcag(value);
+    }
+
+    protected override void OnInitialized()
+    {
+        ThemeService.ThemeChanged += OnThemeChanged;
+    }
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+
+    void OnThemeChanged()
+    {
+        NotificationService.Notify(NotificationSeverity.Success, "Тема изменена", "Настройки применены"  );
+    }
+}

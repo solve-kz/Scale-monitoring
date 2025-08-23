@@ -1,0 +1,23 @@
+﻿@using Radzen
+@inject IJSRuntime JS
+@inject DialogService Dialog
+@inject NotificationService Notify
+@inject NavigationManager Nav
+
+<RadzenLogin Login="OnLogin" />
+
+@code {
+    async Task OnLogin(LoginArgs args)
+    {
+        var ok = await JS.InvokeAsync<bool>("scalemon.login", args.Username, args.Password);
+        if (ok)
+        {
+            Dialog.Close();                       // закрываем попап
+            Nav.NavigateTo(Nav.Uri, true);        // полная перезагрузка — браузер уже с cookie
+        }
+        else
+        {
+            Notify.Notify(NotificationSeverity.Error, "Ошибка входа", "Неверный логин или пароль");
+        }
+    }
+}

@@ -1,0 +1,67 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback OnToggleSidebar { get; set; }
+    [Parameter] public EventCallback OnLogin { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private string ToggleIcon => Collapsed ? "keyboard_double_arrow_right" : "keyboard_double_arrow_left";
+    private string ToggleText => Collapsed ? "Развернуть" : "Свернуть";
+
+    private Task ToggleMenuItemClick(MenuItemEventArgs _)
+        => OnToggleSidebar.InvokeAsync();
+}
+
+<!-- Вся колонка панели -->
+<div style="height:100%;display:flex;flex-direction:column">
+
+    <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
+                     ShowArrow="false">
+        <RadzenPanelMenuItem Text="@ToggleText"
+                             Icon="@ToggleIcon"
+                             Click="@ToggleMenuItemClick" />
+    </RadzenPanelMenu>
+
+    <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
+                     ShowArrow="false">
+        <RadzenPanelMenuItem Text="Мониторинг" Icon="monitor_heart" Path="/monitoring" />
+        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" />
+        <RadzenPanelMenuItem Text="Статистика" Icon="query_stats" Path="/statistics" />
+    </RadzenPanelMenu>
+
+    <!-- Низ: служебные пункты и авторизация -->
+    <div style="margin-top:auto">
+        <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
+                         ShowArrow="false">
+            <RadzenPanelMenuItem Text="Настройки" Icon="settings" Path="/settings" />
+            <RadzenPanelMenuItem Text="О программе" Icon="help" Path="/" />
+        </RadzenPanelMenu>
+
+        <div class="rz-p-2">
+            <AuthorizeView>
+                <Authorized>
+                    <div style="display:flex;align-items:center;gap:.5rem">
+                        <RadzenIcon Icon="account_circle" />
+                        @if (!Collapsed)
+                        {
+                            <RadzenLabel Text="@context.User.Identity?.Name" />
+                        }
+                        <RadzenButton Icon="logout"
+                                      Text="@(Collapsed ? null : "Выход")"
+                                      ButtonStyle="ButtonStyle.Secondary"
+                                      Size="ButtonSize.Small"
+                                      Click="() => OnLogout.InvokeAsync()" />
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <RadzenButton Icon="login"
+                                  Text="@(Collapsed ? null : "Войти")"
+                                  ButtonStyle="ButtonStyle.Primary"
+                                  Size="ButtonSize.Small"
+                                  Click="() => OnLogin.InvokeAsync()" />
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+</div>

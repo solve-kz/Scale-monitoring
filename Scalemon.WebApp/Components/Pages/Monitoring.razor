@@ -1,0 +1,285 @@
+﻿@page "/monitoring"
+@using Microsoft.AspNetCore.Authorization
+@using Scalemon.WebApp.Models
+@using Scalemon.WebApp.Data
+@using static Scalemon.WebApp.Models.WeighingModels
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@inject ProtectedLocalStorage PLS
+@attribute [Authorize(Policy = "CanEdit")]
+@inject IWeighingDataService Data
+@inject NavigationManager Nav
+
+<RadzenRow>
+    
+
+    <!-- Правая колонка: шапка + таблица -->
+    <RadzenColumn Size="12" SizeLG="9">
+        <!-- Заголовок таблицы + переключатель справа -->
+        <RadzenCard Style="padding:0">
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             JustifyContent="JustifyContent.SpaceBetween"
+                             AlignItems="AlignItems.Center"
+                             class="rz-p-3">
+                    <RadzenText TextStyle="TextStyle.H4">
+                        Таблица взвешиваний за день — @SelectedDate.ToString("dd.MM.yyyy")
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
+                        <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                    </RadzenStack>
+                </RadzenStack>
+        </RadzenCard>
+
+        <WeightsGrid @ref="_grid"
+                     IsDetailed="@_isDetailed"
+                     Rows="@_rows"
+                     Totals="@_totals"
+                     TotalCount="@_totalCount"
+                     PageSize="400"
+                     PageChanged="@OnPageChanged"
+                     CellSelected="@OnCellSelected"
+                     ActionRequested="@OnActionFromGrid" />
+    </RadzenColumn>
+
+    <!-- Левая колонка: календарь, сводка, детали -->
+    <RadzenColumn Size="12" SizeLG="3">
+        <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" AlignItems="AlignItems.Center">
+            <CalendarWithMarks SelectedDate="@SelectedDate"
+                               SelectedDateChanged="@OnDatePicked"
+                               MarkedDays="@_markedDays"
+                               MonthChanged="@OnMonthChanged" />
+
+            <SummaryPanel Summary="@_daySummary" />
+
+            @if (_showDetails && _selectedCell?.HasValue == true)
+            {
+                <RecordDetailsPanel Cell="@_selectedCell"
+                                    Visible="@_showDetails"
+                                    ActionRequested="@OnActionFromDetails" />
+            }
+        </RadzenStack>
+    </RadzenColumn>
+</RadzenRow>
+
+@code {
+
+    WeightsGrid? _grid;
+
+    const decimal Step = 0.02m;
+
+    DateTime SelectedDate = DateTime.Today;
+    int _pageIndex = 0;
+
+    HashSet<DateOnly> _markedDays = new();
+    DaySummary? _daySummary;
+
+    bool _isDetailed = true;
+
+    IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
+    decimal[] _totals = new decimal[10];
+    int _totalCount = 0;
+
+    Cell? _selectedCell;
+    bool _showDetails => _isDetailed && _selectedCell?.HasValue == true;
+
+    const string UiStateKey = "scalemon.monitoring.ui.v1";
+    bool _uiLoaded; // начинаем сохранять только после первого рендера
+
+    sealed class MonitoringUiState
+    {
+        public DateTime? SelectedDate { get; set; }
+        public bool? IsDetailed { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
+        await LoadPage(0);
+    }
+
+    async Task OnMonthChanged((int Year, int Month) arg)
+    {
+        _selectedCell = null;
+        await _grid!.ClearSelectionAsync();                
+        await LoadMonthMarks(arg.Year, arg.Month);
+        await SaveUiStateAsync();
+    }
+
+
+    async Task OnDatePicked(DateTime date)
+    {
+        await _grid!.ClearSelectionAsync();   // сброс подсветки
+        SelectedDate = date.Date;
+        _pageIndex = 0;
+        _selectedCell = null;
+        await LoadPage(0);
+
+        if (_grid != null)
+            await _grid.GoFirstPageAsync(); // сброс RadzenPager
+
+        await SaveUiStateAsync();
+    }
+
+    async Task OnPageChanged(int pageIndex)
+    {
+        _pageIndex = pageIndex;
+        _selectedCell = null;
+        await _grid!.ClearSelectionAsync();
+        await LoadPage(pageIndex);
+        await SaveUiStateAsync();
+    }
+
+    async Task LoadMonthMarks(int year, int month)
+    {
+        var dict = await Data.GetMonthStatsAsync(year, month);
+        _markedDays = dict.Keys.ToHashSet();
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadUiStateAsync(); // применяем сохранённые значения и перезагружаем данные
+            _uiLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    async Task LoadUiStateAsync()
+    {
+        try
+        {
+            var res = await PLS.GetAsync<MonitoringUiState>(UiStateKey);
+            var s = res.Success ? res.Value : null;
+            if (s is null) return;
+
+            bool changed = false;
+
+            if (s.SelectedDate is DateTime d && d.Date != SelectedDate.Date)
+            {
+                SelectedDate = d.Date;
+                changed = true;
+            }
+
+            if (s.IsDetailed is bool det && det != _isDetailed)
+            {
+                _isDetailed = det;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
+                await LoadPage(0);
+                if (_grid != null)
+                    await _grid.GoFirstPageAsync();
+            }
+        }
+        catch { /* ok */ }
+    }
+
+    async Task SaveUiStateAsync()
+    {
+        if (!_uiLoaded) return; // до первого рендера не сохраняем
+        var s = new MonitoringUiState
+        {
+            SelectedDate = SelectedDate,
+            IsDetailed = _isDetailed
+        };
+        await PLS.SetAsync(UiStateKey, s);
+    }
+
+
+    async Task LoadPage(int pageIndex)
+    {
+        var dateOnly = DateOnly.FromDateTime(SelectedDate);
+
+        // теперь сюда передаём pageIndex и PageSize
+        var (items, total) = await Data.GetDayPageAsync(dateOnly, pageIndex, 400);
+        _totalCount = total;
+
+        // Получаем ВСЕ записи за день (только для сводки)
+        var allItems = await Data.GetDayAllAsync(dateOnly);
+        var weights = allItems.Select(x => x.Weight).ToList();
+
+        _daySummary = new DaySummary(
+            Count: weights.Count,
+            Sum: weights.Sum(),
+            Min: weights.Count > 0 ? weights.Min() : null,
+            Max: weights.Count > 0 ? weights.Max() : null,
+            Avg: weights.Count > 0 ? weights.Average() : null);
+
+        // Построение матрицы — только для текущей страницы
+        BuildMatrix(items);
+    }
+
+    void BuildMatrix(IReadOnlyList<Weighing> items)
+    {
+        var ordered = items.OrderBy(x => x.Timestamp).ToList();
+
+        // 10 столбцов по 40 ячеек
+        var columns = new List<List<Cell>>(10);
+        for (int i = 0; i < 10; i++)
+            columns.Add(new List<Cell>(40));
+
+        // раскладываем данные: сначала 40 строк первого столбца, потом второго и т.д.
+        for (int i = 0; i < ordered.Count && i < 400; i++)
+        {
+            int col = i / 40;   // номер столбца (0..9)
+            int row = i % 40;   // номер строки в столбце (0..39)
+
+            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp));
+        }
+
+        // дополняем пустыми ячейками до 40 в каждом столбце
+        for (int col = 0; col < 10; col++)
+            while (columns[col].Count < 40)
+                columns[col].Add(new Cell(null, null, null));
+
+        // собираем строки для грида
+        var rows = new List<GridRowVm>(40);
+        for (int r = 0; r < 40; r++)
+        {
+            var data = new GridRow(
+                columns[0][r], columns[1][r], columns[2][r], columns[3][r], columns[4][r],
+                columns[5][r], columns[6][r], columns[7][r], columns[8][r], columns[9][r]);
+
+            rows.Add(new GridRowVm(r + 1, data));
+        }
+        _rows = rows;
+
+        // итоги по столбцам
+        for (int col = 0; col < 10; col++)
+            _totals[col] = columns[col].Where(c => c.HasValue).Sum(c => c!.Weight!.Value);
+    }
+
+    Task OnCellSelected(Cell? cell)
+    {
+        _selectedCell = cell;
+        return Task.CompletedTask;
+    }
+
+    async Task OnUiChanged() => await SaveUiStateAsync();
+
+    async Task OnActionFromGrid(string action)
+    {
+        if (_selectedCell?.HasValue != true) return;
+        var id = _selectedCell.Id!.Value;
+
+        switch (action)
+        {
+            case "inc":      await Data.AdjustAsync(id, +Step); break;
+            case "dec":      await Data.AdjustAsync(id, -Step); break;
+            case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0); break;
+            case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0); break;
+            case "delete":   await Data.DeleteAsync(id); break;
+            case "logs":     Nav.NavigateTo("/logs"); return;
+        }
+
+        await LoadPage(_pageIndex);
+    }
+
+    Task OnActionFromDetails(string action) => OnActionFromGrid(action);
+}

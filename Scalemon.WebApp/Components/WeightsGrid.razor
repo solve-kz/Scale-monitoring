@@ -1,0 +1,233 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+@inject NavigationManager Nav
+@inject ContextMenuService ContextMenu
+@inject NotificationService NotificationService
+@using static Scalemon.WebApp.Models.WeighingModels
+
+
+@if (IsDetailed)
+{
+    
+    <RadzenDataGrid TItem="GridRowVm" Data="Rows" AllowPaging="false"
+                    CellClick="@OnCellClick"
+                    CellDoubleClick="@OnCellDoubleClick"
+                    CellContextMenu="@OnCellContextMenu"
+                    CellRender="@OnCellRender">
+        <Columns>
+            <RadzenDataGridColumn TItem="GridRowVm"
+                                  Title="№"
+                                  Width="80px"
+                                  TextAlign="TextAlign.Center">
+                <Template Context="vm">@vm.No</Template>
+                <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
+            </RadzenDataGridColumn>
+            @for (var i = 1; i <= 10; i++)
+            {
+                var colIndex = i;
+                <RadzenDataGridColumn TItem="GridRowVm"
+                                      Property="@($"C{colIndex}")"
+                                      Title="@($"Столбец {colIndex}")"
+                                      Width="1fr">
+                    <Template Context="vm">
+                        @{
+                            var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
+                        }
+                        <div class="cell @(cell?.HasValue == true ? "has" : "empty")"
+                             title="@cell?.Timestamp?.ToString("HH:mm:ss")">
+                            @cell?.Weight?.ToString("0.00")
+                        </div>
+                    </Template>
+                    <FooterTemplate>
+                    @(Totals is { Length: >= 10 }
+                                    ? Totals![colIndex - 1].ToString("0.00")
+                                    : "")
+                    </FooterTemplate>
+                </RadzenDataGridColumn>
+            }
+        </Columns>
+    </RadzenDataGrid>
+}
+else
+{
+    <!-- Сводный режим: только заголовки и последняя строка -->
+    <RadzenDataGrid TItem="GridRowVm"
+                    Data="Array.Empty<GridRowVm>()"
+                    AllowPaging="false"
+                    AllowSorting="false"
+                    AllowFiltering="false"
+                    EmptyText=""
+                    class="weights-grid summary-grid">
+        <Columns>
+            <RadzenDataGridColumn TItem="GridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
+                <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
+            </RadzenDataGridColumn>
+
+            @for (var i = 1; i <= 10; i++)
+            {
+                var colIndex = i;
+                <RadzenDataGridColumn TItem="GridRowVm" Title="@($"Столбец {colIndex}")" Width="1fr">
+                    <FooterTemplate>
+                        @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")
+                    </FooterTemplate>
+                </RadzenDataGridColumn>
+            }
+        </Columns>
+    </RadzenDataGrid>
+}
+
+<!-- Пейджер под таблицей -->
+<RadzenPager @ref="pager"  Count="@TotalCount" PageSize="@PageSize" PageChanged="@OnPagerChanged" AlwaysVisible="true" />
+
+@code {
+    [Parameter] public bool IsDetailed { get; set; } = true;
+    [Parameter] public decimal[]? Totals { get; set; } // длина 10
+    [Parameter] public IReadOnlyList<GridRowVm> Rows { get; set; } = Array.Empty<GridRowVm>();
+
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public int PageSize { get; set; } = 400;
+
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+    [Parameter] public EventCallback<Cell?> CellSelected { get; set; }
+
+
+    [Parameter] public EventCallback<string> ActionRequested { get; set; } // inc/dec/addAbove/addBelow/delete/logs
+
+    RadzenPager? pager;
+
+    // поля компонента
+    private (int Row, int Col)? _selectedCellPos;
+
+    public async Task GoFirstPageAsync()
+    {
+        if (pager != null)
+            await pager.FirstPage(forceReload: true);
+    }
+
+    
+    static int ParseCol(string? p) =>
+    p is { Length: > 1 } && p[0] == 'C' && int.TryParse(p.AsSpan(1), out var n) ? n : -1;
+
+    async Task OnPagerChanged(PagerEventArgs args)
+    {
+        // Конвертируем skip/top в pageIndex
+        var pageIndex = args.Skip / args.Top;
+        if (PageChanged.HasDelegate)
+            await PageChanged.InvokeAsync(pageIndex);
+    }
+
+
+    async Task OnCellClick(DataGridCellMouseEventArgs<GridRowVm> args)
+    {
+        // 1) Игнорируем клики по колонке "№" и по футеру/шапке
+        if (string.IsNullOrEmpty(args.Column?.Property))
+            return;
+        // № строки берём из GridRowVm.No (а не Row)
+        int rowIndex = args.Data.No;
+
+        // Имя свойства колонки может быть "Row.C1" или "Row.C1.Weight" — парсим номер
+        int colIndex = ParseCol(args.Column.Property);
+        if (colIndex < 1) return;
+        var cell = GetCell(args.Data.Row, colIndex);
+        if (cell is null || !cell.HasValue) return;
+        _selectedCellPos = (rowIndex, colIndex);
+        if (CellSelected.HasDelegate)
+            await CellSelected.InvokeAsync(cell);
+    }
+
+    async Task OnCellDoubleClick(DataGridCellMouseEventArgs<GridRowVm> args)
+    {
+        var col = ParseCol(args.Column.Property);
+        var cell = GetCell(args.Data.Row, col);
+        if (cell?.HasValue == true && ActionRequested.HasDelegate)
+            await ActionRequested.InvokeAsync("logs");
+    }
+
+    async Task OnCellContextMenu(DataGridCellMouseEventArgs<GridRowVm> args)
+    {
+        // 1) Игнорируем клики по колонке "№" и по футеру/шапке
+        if (string.IsNullOrEmpty(args.Column?.Property))
+            return;
+        var col = ParseCol(args.Column.Property);
+        var cell = GetCell(args.Data.Row, col);
+        int rowIndex = args.Data.No;
+
+        // Имя свойства колонки может быть "Row.C1" или "Row.C1.Weight" — парсим номер
+        int colIndex = ParseCol(args.Column.Property);
+        if (cell is null || !cell.HasValue) return;
+        _selectedCellPos = (rowIndex, colIndex);
+        // 2) Реальные пункты меню (не пустой список)
+        var items = new List<ContextMenuItem>
+    {
+        new() { Text = "Увеличить на 0,02 кг", Value = "inc",      Icon = "add" },             // "плюс" — увеличение
+        new() { Text = "Уменьшить на 0,02 кг", Value = "dec",      Icon = "remove" },          // "минус" — уменьшение
+        new() { Text = "Добавить выше",        Value = "addAbove", Icon = "vertical_align_top" },    // стрелка вверх с выравниванием
+        new() { Text = "Добавить ниже",        Value = "addBelow", Icon = "vertical_align_bottom" }, // стрелка вниз с выравниванием
+        new() { Text = "Удалить",              Value = "delete",   Icon = "delete" },          // стандартная корзина
+        new() { Text = "Посмотреть логи",      Value = "logs",     Icon = "description" },     // документ — как символ журнала/лога
+
+    };
+        ContextMenu.Open(args, items, OnMenuClick);
+
+        if (CellSelected.HasDelegate)
+            await CellSelected.InvokeAsync(cell);
+    }
+
+    void OnMenuClick(MenuItemEventArgs e)
+    {
+        ContextMenu.Close();
+        if (e?.Value is string v && ActionRequested.HasDelegate)
+            _ = ActionRequested.InvokeAsync(v);   // fire-and-forget
+        else
+            NotificationService.Notify(new NotificationMessage
+            {
+                Severity = NotificationSeverity.Info,
+                Summary = "Нажат пункт меню"
+            });
+    }
+
+    void OnCellRender(DataGridCellRenderEventArgs<GridRowVm> args)
+    {
+        if (string.IsNullOrEmpty(args.Column?.Property))
+            return;
+
+        int colIndex = ParseCol(args.Column.Property);
+
+        if (colIndex < 1) return;
+        var cell = GetCell(args.Data.Row, colIndex);
+        if (cell is not null && cell.HasValue)
+        {
+            args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
+                                     + "cursor:pointer;"; // или "cursor:crosshair;", "cursor:default;" и т.п.
+        }
+        // сравниваем с GridRowVm.No
+        if (_selectedCellPos is { } pos && pos.Row == args.Data.No && pos.Col == colIndex)
+        {
+            // если стиль уже есть, добавляем к нему
+            var style = args.Attributes.ContainsKey("style") ? args.Attributes["style"] + ";" : "";
+            style += "background-color:#ffe0b2;"; // мягкий оранжевый фон
+            args.Attributes["style"] = style;
+        }
+
+    }
+
+    public Task ClearSelectionAsync()
+    {
+        _selectedCellPos = null;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    static Cell? GetCell(GridRow row, int col) => col switch
+    {
+        1 => row.C1,
+        2 => row.C2,
+        3 => row.C3,
+        4 => row.C4,
+        5 => row.C5,
+        6 => row.C6,
+        7 => row.C7,
+        8 => row.C8,
+        9 => row.C9,
+        10 => row.C10,
+        _ => null
+    };
+}

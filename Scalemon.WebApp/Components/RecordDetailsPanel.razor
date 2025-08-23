@@ -1,0 +1,22 @@
+﻿@inject ContextMenuService ContextMenu
+@using static Scalemon.WebApp.Models.WeighingModels
+
+@if (Cell?.HasValue == true && Visible)
+{
+    <RadzenCard Style="padding:0">
+        <ChildContent>
+            <RadzenStack Orientation="Orientation.Vertical" class="rz-p-3" Gap="0.25rem">
+                <RadzenText TextStyle="TextStyle.H6">Детали записи</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2"><b>ID:</b> @Cell!.Id</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2"><b>Вес:</b> @Cell!.Weight?.ToString("0.00") кг</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2"><b>Время:</b> @Cell!.Timestamp?.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
+            </RadzenStack>
+        </ChildContent>
+    </RadzenCard>
+}
+
+@code {
+    [Parameter] public Cell? Cell { get; set; }
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<string> ActionRequested { get; set; }
+}
