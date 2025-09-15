@@ -165,6 +165,7 @@ namespace Scalemon.SerialLink
             // Ожидаемая отмена при остановке
             catch (OperationCanceledException ocex)
             {
+                _logger.LogInformation(ocex, "ScaleProcessor остановлен по запросу");
             }
             finally
             {
@@ -187,6 +188,7 @@ namespace Scalemon.SerialLink
                 catch (AggregateException ex)
                 {
                     // Игнорируем отмену
+                    _logger.LogError(ex, "Ошибка остановки ScaleProcessor");
                 }
             }
             _driver.CloseConnection();

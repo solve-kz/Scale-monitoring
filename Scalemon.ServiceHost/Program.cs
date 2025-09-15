@@ -9,9 +9,7 @@ using Microsoft.Extensions.Options;
 using Scalemon.ApiService.Controllers;
 using Scalemon.Common;
 using Scalemon.FSM;
-using Scalemon.MassaKInterop;
 using Scalemon.SerialLink;
-using Scalemon.ServiceHost;
 using Scalemon.SignalBus;
 using Scalemon.SqlDataAccess;
 using Serilog;
@@ -78,8 +76,10 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<Scalemon.Common.IScaleProcessor>(sp =>
         {
             var system = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings;
-            var realDriver = new Scalemon.MassaKInterop.ScaleDriver100();
-            var driver = new MassaKDriverAdapter(realDriver, sp.GetRequiredService<ILogger<MassaKDriverAdapter>>());
+
+            var driver = new Scalemon.SerialLink.SerialPortScaleDriver100(
+                sp.GetRequiredService<ILogger<Scalemon.SerialLink.SerialPortScaleDriver100>>());
+
             return new ScaleProcessor(
                 sp.GetRequiredService<ILogger<ScaleProcessor>>(),
                 driver,
