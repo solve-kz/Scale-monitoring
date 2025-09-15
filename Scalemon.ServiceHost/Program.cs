@@ -44,16 +44,21 @@ config.Bind(serviceSettings);
 
 // Сразу читаем то, что нужно для Serilog и WebHost
 var mainLogPath = serviceSettings.Logging.FilePath.MainLogPath;
-var detailedLogPath = serviceSettings.Logging.FilePath.DetailedLogPath;
 var apiPort = serviceSettings.Api.Port;
 var apiUser = serviceSettings.Authentication.Basic.Username;
 var apiPass = serviceSettings.Authentication.Basic.Password;
 
 // Настраиваем Serilog
 Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("System", LogEventLevel.Warning)
     .ReadFrom.Configuration(config)
     .MinimumLevel.ControlledBy(levelSwitch)
-    .WriteTo.File(new JsonFormatter(), mainLogPath, rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Verbose)
+    .WriteTo.File(new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
+                  mainLogPath,
+                  rollingInterval: RollingInterval.Day,
+                  restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
     .CreateLogger();
 
 IHost host = Host.CreateDefaultBuilder(args)
@@ -63,19 +68,18 @@ IHost host = Host.CreateDefaultBuilder(args)
     {
         // 1) Регистрация IOptions<ServiceSettings>
         services.Configure<ServiceSettings>(config);
-        services.AddSingleton(resolver =>
-            resolver.GetRequiredService<IOptionsMonitor<ServiceSettings>>().CurrentValue
-        );
+        
 
         // Регистрируем сам LevelSwitch как singleton, чтобы его можно было обновлять из контроллера
         services.AddSingleton(levelSwitch);
+
 
         // 2) Фоновые сервисы (Ваша существующая логика без изменений)
         services.AddSingleton<Scalemon.Common.IScaleProcessor>(sp =>
         {
             var system = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings;
             var realDriver = new Scalemon.MassaKInterop.ScaleDriver100();
-            var driver = new MassaKDriverAdapter(realDriver);
+            var driver = new MassaKDriverAdapter(realDriver, sp.GetRequiredService<ILogger<MassaKDriverAdapter>>());
             return new ScaleProcessor(
                 sp.GetRequiredService<ILogger<ScaleProcessor>>(),
                 driver,
@@ -144,7 +148,7 @@ IHost host = Host.CreateDefaultBuilder(args)
                     }
                     catch (Exception ex)
                     {
-                        dbLogger.LogError(ex, "Не удалось записать взвешивание");
+                        dbLogger.LogError(ex, "Program.cs Не удалось записать взвешивание");
                     }
                 }
             );
@@ -157,6 +161,9 @@ IHost host = Host.CreateDefaultBuilder(args)
             .PartManager.ApplicationParts.Add(
                 new Microsoft.AspNetCore.Mvc.ApplicationParts
                     .AssemblyPart(typeof(ServiceApiController).Assembly));
+            
+
+
 
         // --- ДОБАВЛЯЕМ СЕРВИСЫ ДЛЯ BLAZOR ---
         services.AddRazorComponents()
@@ -202,10 +209,11 @@ IHost host = Host.CreateDefaultBuilder(args)
                 app.UseRouting();
                 app.UseAuthentication();
                 app.UseAuthorization();
+                app.UseAntiforgery();
                 app.UseEndpoints(endpoints =>
                 {
                     // Существующая конечная точка для API
-                    endpoints.MapControllers();
+                    endpoints.MapControllers().RequireAuthorization();
                     // --- ДОБАВЛЯЕМ КОНЕЧНУЮ ТОЧКУ ДЛЯ BLAZOR ---
                     // App - это корневой компонент вашего WebApp
                     endpoints.MapRazorComponents<App>();

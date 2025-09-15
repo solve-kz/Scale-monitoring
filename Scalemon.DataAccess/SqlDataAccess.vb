@@ -101,7 +101,7 @@ Public Class SqlDataAccess
                                      End Using
                                  End Using
                              Catch
-                                 _logger.LogError("Lost data on shutdown: {weight}", weight)
+                                 _logger.LogError("Потеря данных при выключении: {weight}", weight)
                              End Try
                          Next
                      End Try
@@ -128,7 +128,7 @@ Public Class SqlDataAccess
                 ' ОЧЕРЕДЬ ПЕРЕПОЛНЕНА! Это критическая ситуация.
                 ' Здесь мы вынуждены отбросить взвешивание, но должны
                 ' обязательно залогировать это как КРИТИЧЕСКУЮ ОШИБКУ.
-                _logger.LogError("Retry queue is full. Losing data: {weight}", weight)
+                _logger.LogError("Очередь повторных попыток заполнена. Потеря данных: {weight}", weight)
                 ' Фиксируем состояние недоступности БД и уведомляем FSM
                 SyncLock _syncLock
                     If Not _isDbDown Then

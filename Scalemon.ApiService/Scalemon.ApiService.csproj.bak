@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Configurations>Debug;Release;ArduinoController;ScalemonViewer</Configurations>
+  </PropertyGroup>
+	<!-- чтобы у вас были атрибуты [ApiController], [Route] и т.п. -->
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+	  <PackageReference Include="Serilog" Version="4.3.0" />
+	  <PackageReference Include="System.IO.Ports" Version="9.0.8" />
+	  <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.8" />
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
+	  <ProjectReference Include="..\Scalemon.FSM\Scalemon.FSM.vbproj" />
+	</ItemGroup>
+
+</Project>

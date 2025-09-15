@@ -78,7 +78,7 @@ Public Class SignalBus
             End If
         Catch ex As Exception
             ' возможна¤ потер¤ соединени¤
-            _logger.LogError(ex, "ќшибка при опросе Arduino")
+            _logger.LogError(ex, "Ошибка при опросе Arduino")
         End Try
     End Sub
 

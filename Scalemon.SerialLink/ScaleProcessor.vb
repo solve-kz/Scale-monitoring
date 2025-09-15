@@ -4,7 +4,6 @@ Imports System.Threading
 Imports System.Threading.Tasks
 Imports Microsoft.Extensions.Configuration
 Imports Microsoft.Extensions.Logging
-Imports Scalemon.MassaKInterop
 
 ''' <summary>
 ''' Компонент, выполняющий периодический опрос весов через драйвер,
@@ -21,7 +20,7 @@ Public Class ScaleProcessor
     Private ReadOnly _scaleAlarmHandlers As New List(Of Func(Of Task))()
 
     ' Драйвер весов
-    Private ReadOnly _driver As IScaleDriver
+    Private ReadOnly _driver As Scalemon.Common.IScaleDriver
 
     ' Логгер для событий и ошибок
     Private ReadOnly _logger As ILogger(Of ScaleProcessor)
@@ -46,7 +45,7 @@ Public Class ScaleProcessor
         _stableThreshold = stableThreshold
         _unstableThreshold = unstableThreshold
         _pollingInterval = pollingIntervalMs
-        _logger.LogDebug("ScaleProcessor initialized: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold)
+        _logger.LogInformation("Библиотека ScaleProcessor инициализирована: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold)
     End Sub
 
     ''' <summary>
@@ -55,7 +54,7 @@ Public Class ScaleProcessor
     Public Sub Start() Implements Scalemon.Common.IScaleProcessor.Start
         _cts = New CancellationTokenSource()
         _processingTask = ProcessLoopAsync(_cts.Token)
-        _logger.LogInformation("ScaleProcessor started")
+        _logger.LogInformation("Библиотека ScaleProcessor запущена")
     End Sub
 
     ''' <summary>
@@ -65,36 +64,44 @@ Public Class ScaleProcessor
         Dim timer = New PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval))
         Dim stableCount As Integer = 0
         Dim unstableCount As Integer = 0
+        Dim swLoop As New Stopwatch()
+        Dim swRead As New Stopwatch()
         Try
             While Await timer.WaitForNextTickAsync(token)
+                swLoop.Restart()
                 Dim shouldNotifyLost As Boolean = False
                 Try
                     ' Подключение к весам при необходимости
-                    If Not _driver.isConnected Then
+                    If Not _driver.IsConnected Then
+                        _logger.LogInformation("Нет подключения в начале цикла взвешивания")
                         _driver.OpenConnection()
-                        If _driver.isConnected Then
+                        If _driver.IsConnected Then
                             Await RaiseAllAsync(_connectionEstablishedHandlers)
                         End If
                     End If
 
-                    If _driver.isConnected Then
+                    If _driver.IsConnected Then
+                        swRead.Restart()
                         _driver.ReadWeight()
+                        swRead.Stop()
+                        _logger.LogInformation("ReadWeight() took {ms} ms", swRead.ElapsedMilliseconds)
                         Select Case _driver.LastResponseNum
                             Case 0
                                 ' Ответ корректный: проверка на стабилизацию веса
                                 If _driver.Stable Then
                                     stableCount += 1
                                     unstableCount = 0
-                                    If stableCount >= _stableThreshold Then
+                                    If stableCount = _stableThreshold Then
+                                        _logger.LogInformation($"Вес считан: {_driver.Weight}")
                                         Await RaiseAllAsync(_weightHandlers, _driver.Weight)
                                         stableCount = 0
                                     End If
                                 Else
                                     unstableCount += 1
                                     stableCount = 0
-                                    If unstableCount >= _unstableThreshold Then
+                                    If unstableCount = _unstableThreshold Then
                                         Await RaiseAllAsync(_unstableHandlers)
-                                        unstableCount = 0
+                                        ' unstableCount = 0
                                     End If
                                 End If
                             Case 1
@@ -108,7 +115,7 @@ Public Class ScaleProcessor
                     End If
                 Catch ex As Exception
                     ' Любая ошибка — считаем потерей связи
-                    _logger.LogError(ex, "Error during weight poll cycle")
+                    _logger.LogError(ex, "Ошибка потери связи в цикле взвешивания")
                     _driver.CloseConnection()
                     shouldNotifyLost = True
                 End Try
@@ -117,6 +124,8 @@ Public Class ScaleProcessor
                 If shouldNotifyLost Then
                     Await RaiseAllAsync(_connectionLostHandlers)
                 End If
+                swLoop.Stop()
+                _logger.LogInformation("Iteration took {ms} ms", swLoop.ElapsedMilliseconds)
             End While
         Catch ocex As OperationCanceledException
             ' Ожидаемая отмена при остановке
@@ -138,7 +147,7 @@ Public Class ScaleProcessor
             End Try
         End If
         _driver.CloseConnection()
-        _logger.LogInformation("ScaleProcessor stopped")
+        _logger.LogInformation("ScaleProcessor остановлен")
     End Sub
 
     ''' <summary>
@@ -147,7 +156,7 @@ Public Class ScaleProcessor
     Public Async Function ResetToZeroAsync() As Task Implements Scalemon.Common.IScaleProcessor.ResetToZeroAsync
         _driver.SetToZero()
         If _driver.LastResponseNum > 0 Then
-            _logger.LogError("Error resetting to zero: {text}", _driver.LastResponseText)
+            _logger.LogError("Процессор. Ошибка сброса на ноль: {text}", _driver.LastResponseText)
             Throw New InvalidOperationException($"Error resetting to zero: {_driver.LastResponseText}")
         End If
         Await Task.CompletedTask
@@ -182,7 +191,7 @@ Public Class ScaleProcessor
             Try
                 Await h(arg)
             Catch ex As Exception
-                _logger.LogError(ex, "Handler error")
+                _logger.LogError(ex, "Ошибка обработчика с параметрами")
             End Try
         Next
     End Function
@@ -195,7 +204,7 @@ Public Class ScaleProcessor
             Try
                 Await h()
             Catch ex As Exception
-                _logger.LogError(ex, "Handler error")
+                _logger.LogError(ex, "Ошибка обработчика без параметров")
             End Try
         Next
     End Function

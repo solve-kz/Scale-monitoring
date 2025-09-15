@@ -3,12 +3,20 @@
 @using Microsoft.AspNetCore.Authorization
 @using System.Net.Http.Json
 @using System.Globalization
+@using ApiLogEntry = Scalemon.WebApp.ApiClient.LogEntry
+@inject NavigationManager Nav
+@inject ApiClient Api
+@inject IJSRuntime JS
+@inject NotificationService NotificationService 
+@inject ProtectedLocalStorage PLS 
+
 @attribute [StreamRendering]
 @attribute [Authorize(Policy = "CanEdit")]
 
 <PageTitle>Логи службы Scalemon</PageTitle>
 
-<RadzenHeading Size="H4" Text="Логи службы Scalemon" Style="margin-bottom:8px" />
+<RadzenButton Icon="arrow_back" Text="Назад" Visible="@_canGoBack"
+              Click="@GoBack" ButtonStyle="ButtonStyle.Light" />
 
 <!-- Панель фильтров -->
 <RadzenStack Orientation="Orientation.Horizontal"
@@ -18,16 +26,15 @@
              JustifyContent="JustifyContent.SpaceBetween"
              Style="margin-bottom:8px">
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-        <RadzenTextBox @bind-Value="Search" @bind-Value:after="OnFiltersChanged"  Placeholder="Поиск по сообщению" Style="width:280px" />
-        <RadzenDropDown Data="@LevelOptions"
+        <RadzenTextBox @bind-Value="search" @bind-Value:after="OnFiltersChanged"  Placeholder="Поиск по сообщению" Style="width:280px" />
+        <RadzenDropDown Data="@allLevels"
                         TValue="string"
                         @bind-Value="SelectedLevel"
                         @bind-Value:after="OnFiltersChanged"
                         AllowClear="true"
-                        Placeholder="Минимальный уровень"
                         Style="width:220px" />
-        <RadzenDatePicker @bind-Value="FromDate" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="От" Style="width:200px" />
-        <RadzenDatePicker @bind-Value="ToDate" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="До" Style="width:200px" />
+        <RadzenDatePicker @bind-Value="from" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="От" Style="width:200px" />
+        <RadzenDatePicker @bind-Value="to" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="До" Style="width:200px" />
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
             <RadzenSwitch @bind-Value="AutoRefresh" @bind-Value:after="OnFiltersChanged" />
       <span>Автообновление</span>
@@ -37,11 +44,11 @@
   </RadzenStack>
 
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-    <RadzenButton Icon="refresh" Text="Обновить" Click="@Reload" ButtonStyle="ButtonStyle.Primary" />
+    <RadzenButton Icon="refresh" Text="Обновить" Click="@ReloadAsync" ButtonStyle="ButtonStyle.Primary" />
     <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsv" />
 
         <RadzenButton Icon="delete" Text="Очистить"
-                      Click="@ClearLogs"
+                      Click="@ClearLogAsync"
                       ButtonStyle="ButtonStyle.Danger"
                       Disabled="@( !CanClear )" />
   </RadzenStack>
@@ -54,34 +61,38 @@
     <RadzenSplitterPane Size="@($"{LeftPaneSize.ToString(CultureInfo.InvariantCulture)}%")"
                         Min="25%"
                         Collapsible="false">
+                        <div style="height: 100%; overflow: auto;">
         <!-- DataGrid как был -->
-        <RadzenDataGrid TItem="LogEntry"
-                        Data="@LogsService"
+        <RadzenDataGrid TItem="ApiLogEntry"
+                        Data="@Rows"
                         Count="@TotalCount"
-                        LoadData="@LoadLogs"
+                        LoadData="@LoadData"
                         AllowSorting="true"
                         AllowPaging="true"
+                        AllowColumnResize="true"
                         PageSize="50"
                         RowSelect="@OnRowSelect"
                         @ref="grid">
             <Columns>
-                <RadzenDataGridColumn TItem="LogEntry" Property="Timestamp" Title="Время" Width="190px" FormatString="{0:yyyy-MM-dd HH:mm:ss.fff}" />
-                <RadzenDataGridColumn TItem="LogEntry" Title="Уровень" Width="110px">
+                <RadzenDataGridColumn TItem="ApiLogEntry" Property="Timestamp" Title="Время" Width="190px" FormatString="{0:yyyy-MM-dd HH:mm:ss.fff}" />
+                <RadzenDataGridColumn TItem="ApiLogEntry" Title="Уровень" Width="110px">
                     <Template Context="row">
                         <RadzenBadge Text="@row.Level" Style="@GetLevelStyle(row.Level)" />
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="LogEntry" Property="Source" Title="Источник" Width="200px" />
-                <RadzenDataGridColumn TItem="LogEntry" Property="Message" Title="Сообщение" />
+                <RadzenDataGridColumn TItem="ApiLogEntry" Property="Source" Title="Источник" Width="200px" />
+                <RadzenDataGridColumn TItem="ApiLogEntry" Property="Message" Title="Сообщение" />
             </Columns>
         </RadzenDataGrid>
+        </div>
     </RadzenSplitterPane>
 
     <!-- ПРАВАЯ панель: НЕ указываем Size, только минимальную ширину -->
     <RadzenSplitterPane Min="280px"
                         Collapsible="false">
+                        <div style="height: 100%; overflow: auto;">
         <RadzenCard Style="height:100%">
-            @if (Selected is null)
+            @if (selected is null)
             {
                 <div class="rz-p-2 rz-text-secondary">Выберите запись в таблице.</div>
             }
@@ -89,31 +100,28 @@
             {
                 <RadzenFieldset Text="Основное" Style="margin-bottom:8px">
                     <div class="rz-p-2">
-                        <div><b>Время:</b> @Selected.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</div>
-                        <div><b>Уровень:</b> <RadzenBadge Text="@Selected.Level" Style="@GetLevelStyle(Selected.Level)" /></div>
-                        <div><b>Источник:</b> @Selected.Source</div>
+                        <div><b>Время:</b> @selected.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</div>
+                        <div><b>Уровень:</b> <RadzenBadge Text="@selected.Level" Style="@GetLevelStyle(selected.Level)" /></div>
+                        <div><b>Источник:</b> @selected.Source</div>
                     </div>
                 </RadzenFieldset>
                 <RadzenFieldset Text="Сообщение" Collapsible="true" Expanded="true" Style="margin-bottom:8px">
-                    <div class="rz-p-2" style="white-space:pre-wrap">@Selected.Message</div>
+                    <div class="rz-p-2" style="white-space:pre-wrap">@selected.Message</div>
                 </RadzenFieldset>
-                @if (!string.IsNullOrWhiteSpace(Selected.Exception))
+                @if (!string.IsNullOrWhiteSpace(selected.Exception))
                 {
                     <RadzenFieldset Text="Исключение" Collapsible="true" Expanded="false">
-                        <div class="rz-p-2" style="white-space:pre-wrap">@Selected.Exception</div>
+                        <div class="rz-p-2" style="white-space:pre-wrap">@selected.Exception</div>
                     </RadzenFieldset>
                 }
             }
         </RadzenCard>
+        </div>
     </RadzenSplitterPane>
 </RadzenSplitter>
 
 @code {
-    // DI
-    [Inject] HttpClient Http { get; set; } = default!;
-    [Inject] NotificationService NotificationService { get; set; } = default!;
-
-    [Inject] ProtectedLocalStorage PLS { get; set; } = default!;
+ 
 
     const string UiStateKey = "scalemon.logs.ui.v1";
         private double LeftPaneSize  { get; set; } = 65;
@@ -122,19 +130,27 @@
     // ВАЖНО: localStorage читаем только после первого рендера
     private bool _uiLoaded;
 
+    const string ReturnKey = "scalemon.nav.return.v1";
+    bool _canGoBack;
 
 
-  // Grid data
-  private RadzenDataGrid<LogEntry>? grid;
-  private IEnumerable<LogEntry> LogsService = Array.Empty<LogEntry>();
-  private int TotalCount;
-  private LogEntry? Selected;
 
-  // Filters
-  private string? Search;
-  private DateTime? FromDate = DateTime.Today.AddDays(-1);
-  private DateTime? ToDate = DateTime.Now;
-  private readonly string[] LevelOptions = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
+    // Grid data
+    private RadzenDataGrid<ApiLogEntry>? grid;
+    private List<ApiLogEntry> Rows = new();
+    private int TotalCount;
+    private int PageSize = 50;
+    private ApiLogEntry? selected;
+
+    // ===== Фильтры (привяжите к вашим полям/контролам на странице) =====
+    private string? search;
+    private string? path;
+    private DateTime? from;
+    private DateTime? to;
+    private string minLevel = "Verbose"; // минимальный уровень
+    private static readonly string[] allLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
+
+    private CancellationTokenSource _cts = new();
   
 
   // Auto refresh
@@ -148,7 +164,15 @@
 
 
 
-  protected override void OnInitialized() => SetupTimer();
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUiStateAsync();
+        SetupTimer();
+        // Если нужно — задай здесь Path по умолчанию (например, главный лог из настроек страницы)
+        await ReloadAsync();
+    }
+
+    
 
   private void SetupTimer()
   {
@@ -156,62 +180,49 @@
     if (AutoRefresh)
     {
       _timer = new System.Timers.Timer(RefreshSeconds * 1000);
-      _timer.Elapsed += async (_, __) => { try { await InvokeAsync(Reload); } catch { } };
+      _timer.Elapsed += async (_, __) => { try { await InvokeAsync(ReloadAsync); } catch { } };
       _timer.AutoReset = true;
       _timer.Start();
     }
   }
 
-  private async Task Reload() => await (grid?.Reload() ?? Task.CompletedTask);
+    
 
-  private async Task LoadLogs(LoadDataArgs args)
-  {
-    try
+    private async Task ReloadAsync()
     {
-      var skip = args.Skip ?? 0;
-      var top  = args.Top ?? 50;
-      var sort = args.OrderBy;
-
-      var allLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
-      // если ничего не выбрано, берём минимальный уровень
-      var minLevel = SelectedLevel ?? "Verbose";
-
-      var minIndex = Array.IndexOf(allLevels, minLevel);
-      if (minIndex < 0) minIndex = 0;
-
-      // берём выбранный и все уровни выше
-      var levels = string.Join(",", allLevels[minIndex..]);
-      var from = FromDate?.ToString("o");
-      var to   = ToDate?.ToString("o");
-
-      var url =
-        $"/api/logs?skip={skip}&take={top}" +
-        (string.IsNullOrWhiteSpace(sort) ? "" : $"&orderBy={Uri.EscapeDataString(sort)}") +
-        (string.IsNullOrWhiteSpace(levels) ? "" : $"&levels={Uri.EscapeDataString(levels)}") +
-        (string.IsNullOrWhiteSpace(Search) ? "" : $"&search={Uri.EscapeDataString(Search)}") +
-        (from is null ? "" : $"&from={Uri.EscapeDataString(from)}") +
-        (to   is null ? "" : $"&to={Uri.EscapeDataString(to)}");
-
-      var page = await Http.GetFromJsonAsync<PagedResult<LogEntry>>(url);
-      LogsService = page?.Items ?? Array.Empty<LogEntry>();
-      TotalCount = page?.TotalCount ?? 0;
+        await LoadData(new Radzen.LoadDataArgs { Skip = 0, Top = PageSize });
     }
-    catch (Exception ex)
+
+    // загрузка данных в грид (RadzenDataGrid.LoadData)
+    async Task LoadData(Radzen.LoadDataArgs args)
     {
-            LogsService = Array.Empty<LogEntry>();
-            TotalCount = 0;
+        try
+        {
+            var skip = args.Skip ?? 0;
+            var take = args.Top ?? PageSize;
 
-            NotificationService.Notify(new NotificationMessage
-            {
-                Severity = NotificationSeverity.Error,
-                Summary = "Ошибка загрузки логов",
-                Detail = ex.Message,
-                Duration = 6000
-            });
+            var res = await Api.GetLogsPagedAsync(
+                skip: skip,
+                take: take,
+                levels: SelectedLevel,
+                search: search,
+                from: from,
+                to: to,
+                path: path,
+                ct: _cts.Token);
+
+            Rows = res.Items.ToList();
+            TotalCount = res.Total;
+            PageSize = take;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Загрузка лога", ex.Message);
+        }
     }
-  }
 
-  private void OnRowSelect(LogEntry entry) => Selected = entry;
+  private void OnRowSelect(ApiLogEntry entry) => selected = entry;
 
   private void DownloadCsv()
   {
@@ -224,28 +235,23 @@
     });
   }
 
-  private async Task ClearLogs()
-  {
-    if (!CanClear) return;
-    try
+    // очистка текущего лога
+    async Task ClearLogAsync()
     {
-      var resp = await Http.DeleteAsync("/api/logs");
-      if (resp.IsSuccessStatusCode)
-      {
-        Selected = null;
-        await Reload();
-                NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "Готово", Detail = "Логи очищены.", Duration = 3000 });
-      }
-      else
-      {
-                NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Warning, Summary = "Не удалось очистить", Detail = $"Код ответа: {(int)resp.StatusCode}", Duration = 5000 });
-      }
+        try
+        {
+            await Api.ClearLogAsync(path, _cts.Token);
+            NotificationService.Notify(NotificationSeverity.Success, "Логи", "Файл очищен");
+            if (grid is not null)
+                await grid.Reload();
+            else
+                await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Очистка лога", ex.Message);
+        }
     }
-    catch (Exception ex)
-    {
-            NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Error, Summary = "Ошибка очистки", Detail = ex.Message, Duration = 6000 });
-    }
-  }
 
   private string GetLevelStyle(string? level) => level?.ToLowerInvariant() switch
   {
@@ -258,11 +264,11 @@
     _ => "background:#424242;color:white"
   };
 
-  private sealed class PagedResult<T>
-  {
-    public IEnumerable<T> Items { get; set; } = Array.Empty<T>();
-    public int TotalCount { get; set; }
-  }
+    public sealed class PagedResult<T>
+    {
+        public List<T> Items { get; set; } = new();
+        public int Total { get; set; }
+    }
 
   private sealed class LogEntry
   {
@@ -287,21 +293,20 @@
         public double? RightPaneSize { get; set; }    // например, 35
     }
 
-    protected override async Task OnInitializedAsync()
-    {
-        
-        await LoadUiStateAsync();
-        SetupTimer();
-    }
+    
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
 {
-    if (firstRender)
-    {
-        await LoadUiStateAsync();     // читает из PLS и делает Clamp
-        _uiLoaded = true;
-        StateHasChanged();
-    }
+        {
+            if (!firstRender) return;
+            try
+            {
+                var res = await PLS.GetAsync<ReturnToMonitoring>(ReturnKey);
+                _canGoBack = res.Success && res.Value?.From == "monitoring";
+            }
+            catch { _canGoBack = false; }
+            StateHasChanged();
+        }
 }
 
     private async Task LoadUiStateAsync()
@@ -312,10 +317,10 @@
             var s = res.Success ? res.Value : null;
             if (s is null) return;
 
-            Search = s.Search;
+            search = s.Search;
             SelectedLevel = s.SelectedLevel;
-            FromDate = s.FromDate;
-            ToDate = s.ToDate;
+            from = s.FromDate;
+            to = s.ToDate;
             AutoRefresh = s.AutoRefresh;
             RefreshSeconds = s.RefreshSeconds > 0 ? s.RefreshSeconds : 15;
 
@@ -332,10 +337,10 @@
         if (!_uiLoaded) return; // не сохраняем до первой загрузки
         var s = new LogsUiState
         {
-            Search = Search,
+            Search = search,
             SelectedLevel = SelectedLevel,
-            FromDate = FromDate,
-            ToDate = ToDate,
+            FromDate = from,
+            ToDate = to,
             AutoRefresh = AutoRefresh,
             RefreshSeconds = RefreshSeconds,
             LeftPaneSize = Math.Round(Clamp(LeftPaneSize, 15, 90), 1)
@@ -347,7 +352,7 @@
     {
         SetupTimer();
         await SaveUiStateAsync();
-        await Reload();
+        await ReloadAsync();
     }
 
     private async Task OnSplitterResize(RadzenSplitterResizeEventArgs args)
@@ -363,6 +368,15 @@
     private static double Clamp(double v, double min, double max)
         => v < min ? min : (v > max ? max : v);
 
+    void GoBack() => Nav.NavigateTo("/monitoring?restore=1");
 
 
+    sealed class ReturnToMonitoring
+    {
+        public string From { get; set; } = "monitoring";
+        public DateTime Date { get; set; }
+        public int PageIndex { get; set; }
+        public int? SelectedOrderInDay { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
 }

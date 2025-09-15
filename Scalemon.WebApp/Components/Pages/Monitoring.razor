@@ -1,34 +1,64 @@
 ﻿@page "/monitoring"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
 @using static Scalemon.WebApp.Models.WeighingModels
+@using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject ProtectedLocalStorage PLS
 @attribute [Authorize(Policy = "CanEdit")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
 
-<RadzenRow>
-    
+<RadzenRow>   
 
-    <!-- Правая колонка: шапка + таблица -->
+    <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
     <RadzenColumn Size="12" SizeLG="9">
-        <!-- Заголовок таблицы + переключатель справа -->
+        <!-- Новый заголовок с «сводкой» + переключатель режима -->
         <RadzenCard Style="padding:0">
-                <RadzenStack Orientation="Orientation.Horizontal"
-                             JustifyContent="JustifyContent.SpaceBetween"
-                             AlignItems="AlignItems.Center"
-                             class="rz-p-3">
-                    <RadzenText TextStyle="TextStyle.H4">
-                        Таблица взвешиваний за день — @SelectedDate.ToString("dd.MM.yyyy")
-                    </RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         AlignItems="AlignItems.Center"
+                         class="rz-p-3 rz-pb-2">
 
-                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                        <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
-                        <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
-                    </RadzenStack>
+                <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
+					<RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
+						@(
+												_totalCount > 0
+												? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+												: "Данные за день отсутствуют"
+												)
+					</RadzenText>
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
+
+						<RadzenText TextStyle="TextStyle.Subtitle2">
+							@{
+								var ru = CultureInfo.GetCultureInfo("ru-RU");
+								var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
+								var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
+							}
+							Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
+						</RadzenText>
+						<RadzenText TextStyle="TextStyle.Subtitle2">
+							@{
+								var ru = CultureInfo.GetCultureInfo("ru-RU");
+								var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
+								var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
+								var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
+							}
+							Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
+						</RadzenText>
+					</RadzenStack>
                 </RadzenStack>
+                
+                
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
+                    <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                </RadzenStack>
+            </RadzenStack>
         </RadzenCard>
 
         <WeightsGrid @ref="_grid"
@@ -42,24 +72,34 @@
                      ActionRequested="@OnActionFromGrid" />
     </RadzenColumn>
 
-    <!-- Левая колонка: календарь, сводка, детали -->
-    <RadzenColumn Size="12" SizeLG="3">
-        <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" AlignItems="AlignItems.Center">
-            <CalendarWithMarks SelectedDate="@SelectedDate"
-                               SelectedDateChanged="@OnDatePicked"
-                               MarkedDays="@_markedDays"
-                               MonthChanged="@OnMonthChanged" />
+    <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
+    <RadzenColumn Size="12" SizeLG="3"
+                  Style="display:flex; flex-direction:column; min-height:100vh;">
+        <!-- Нижний блок, "прилипший" к низу окна -->
+        <div style="margin-top:auto; position:sticky; bottom:0px; z-index:10; width:100%;">
+            <RadzenStack Orientation="Orientation.Vertical"
+                         AlignItems="AlignItems.Center"
+                         Gap="0.75rem"
+                         Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
+                @if (_showDetails && _selectedCell?.HasValue == true)
+                {
+                    <RecordDetailsPanel Cell="@_selectedCell"
+                                        OrderInDay="@_selectedOrderInDay"
+                                        Visible="@_showDetails"
+                                        ActionRequested="@OnActionFromDetails" />
+                }
+                <div style="min-height:calc(100vh - 700px);">
 
-            <SummaryPanel Summary="@_daySummary" />
+                </div>
 
-            @if (_showDetails && _selectedCell?.HasValue == true)
-            {
-                <RecordDetailsPanel Cell="@_selectedCell"
-                                    Visible="@_showDetails"
-                                    ActionRequested="@OnActionFromDetails" />
-            }
-        </RadzenStack>
+                <CalendarWithMarks SelectedDate="@SelectedDate"
+                                   SelectedDateChanged="@OnDatePicked"
+                                   MarkedDays="@_markedDays"
+                                   MonthChanged="@OnMonthChanged" />
+            </RadzenStack>
+        </div>
     </RadzenColumn>
+
 </RadzenRow>
 
 @code {
@@ -81,15 +121,25 @@
     int _totalCount = 0;
 
     Cell? _selectedCell;
+    int? _selectedOrderInDay; // <— номер взвешивания за день для панели «детали»
     bool _showDetails => _isDetailed && _selectedCell?.HasValue == true;
 
-    const string UiStateKey = "scalemon.monitoring.ui.v1";
+    const string UiStateKey = "scalemon.monitoring.ui.v2";
+    const string ReturnKey = "scalemon.nav.return.v1"; // «билет» назад из Logs
     bool _uiLoaded; // начинаем сохранять только после первого рендера
 
-    sealed class MonitoringUiState
+    sealed class MonitoringUiStateV2
     {
-        public DateTime? SelectedDate { get; set; }
         public bool? IsDetailed { get; set; }
+    }
+
+    sealed class ReturnToMonitoring
+    {
+        public string From { get; set; } = "monitoring";
+        public DateTime Date { get; set; }               // выбранная дата
+        public int PageIndex { get; set; }               // страница (0..)
+        public int? SelectedOrderInDay { get; set; }     // № взвешивания за день (1..N), может быть null
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
     }
 
     protected override async Task OnInitializedAsync()
@@ -103,7 +153,7 @@
         _selectedCell = null;
         await _grid!.ClearSelectionAsync();                
         await LoadMonthMarks(arg.Year, arg.Month);
-        await SaveUiStateAsync();
+        
     }
 
 
@@ -117,8 +167,6 @@
 
         if (_grid != null)
             await _grid.GoFirstPageAsync(); // сброс RadzenPager
-
-        await SaveUiStateAsync();
     }
 
     async Task OnPageChanged(int pageIndex)
@@ -139,42 +187,94 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender) return;
+
+        // Всегда читаем только режим из UI-состояния
+        await LoadUiStateAsync();
+
+        // По умолчанию — сегодня
+        SelectedDate = DateTime.Today;
+
+        // Если пришли с ?restore=1 и есть билет — восстановимся
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("restore", out var v) && v == "1")
         {
-            await LoadUiStateAsync(); // применяем сохранённые значения и перезагружаем данные
-            _uiLoaded = true;
-            StateHasChanged();
+            var res = await PLS.GetAsync<ReturnToMonitoring>(ReturnKey);
+            var t = res.Success ? res.Value : null;
+
+            if (t != null && t.From == "monitoring")
+            {
+                SelectedDate = t.Date.Date;
+                _pageIndex = Math.Max(0, t.PageIndex);
+
+                await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
+                await LoadPage(_pageIndex);
+                if (_grid != null)
+                {
+                    await _grid.GoToPageAsync(_pageIndex); // программно перейти на страницу
+                    if (t.SelectedOrderInDay is int orderInDay && orderInDay > 0)
+                    {
+                        int orderOnPage = ((orderInDay - 1) % 400) + 1; // 1..400
+                        await _grid.SetSelectionByOrderOnPageAsync(orderOnPage);
+                        _selectedOrderInDay = orderInDay;
+                        _selectedCell = TryGetCellByOrderOnPage(orderOnPage);
+                    }
+                }
+
+                // Билет израсходован — удаляем
+                await PLS.DeleteAsync(ReturnKey);
+                StateHasChanged();
+                _uiLoaded = true;
+                return;
+            }
         }
+
+        // Обычный запуск — «сегодня» + первая страница
+        await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
+        await LoadPage(0);
+        if (_grid != null) await _grid.GoFirstPageAsync();
+
+        _uiLoaded = true;
+        StateHasChanged();
     }
+
+    static Cell? GetCellFromRow(WeighingModels.GridRow row, int col) => col switch
+    {
+        1 => row.C1,
+        2 => row.C2,
+        3 => row.C3,
+        4 => row.C4,
+        5 => row.C5,
+        6 => row.C6,
+        7 => row.C7,
+        8 => row.C8,
+        9 => row.C9,
+        10 => row.C10,
+        _ => null
+    };
+
+    Cell? TryGetCellByOrderOnPage(int orderOnPage)
+    {
+        int idx = Math.Clamp(orderOnPage, 1, 400) - 1;
+        int col = (idx / 40) + 1;
+        int rowIdx = idx % 40; // 0..39
+        var vm = _rows.ElementAtOrDefault(rowIdx);
+        return vm is null ? null : GetCellFromRow(vm.Row, col);
+    }
+
+
 
     async Task LoadUiStateAsync()
     {
         try
         {
-            var res = await PLS.GetAsync<MonitoringUiState>(UiStateKey);
+            var res = await PLS.GetAsync<MonitoringUiStateV2>(UiStateKey);
             var s = res.Success ? res.Value : null;
             if (s is null) return;
-
-            bool changed = false;
-
-            if (s.SelectedDate is DateTime d && d.Date != SelectedDate.Date)
-            {
-                SelectedDate = d.Date;
-                changed = true;
-            }
-
-            if (s.IsDetailed is bool det && det != _isDetailed)
+            if (s?.IsDetailed is bool det && det != _isDetailed)
             {
                 _isDetailed = det;
-                changed = true;
-            }
-
-            if (changed)
-            {
-                await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
-                await LoadPage(0);
-                if (_grid != null)
-                    await _grid.GoFirstPageAsync();
             }
         }
         catch { /* ok */ }
@@ -182,13 +282,8 @@
 
     async Task SaveUiStateAsync()
     {
-        if (!_uiLoaded) return; // до первого рендера не сохраняем
-        var s = new MonitoringUiState
-        {
-            SelectedDate = SelectedDate,
-            IsDetailed = _isDetailed
-        };
-        await PLS.SetAsync(UiStateKey, s);
+        if (!_uiLoaded) return;
+        await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2 { IsDetailed = _isDetailed });
     }
 
 
@@ -258,11 +353,31 @@
     Task OnCellSelected(Cell? cell)
     {
         _selectedCell = cell;
+        // считаем «№ взвешивания за день»: (текущая страница * 400) + позиция на странице
+        var posOnPage = _grid?.GetSelectedOrderOnPage(); // 1..400
+        _selectedOrderInDay = (posOnPage.HasValue ? (_pageIndex * 400) + posOnPage.Value : null);
+
         return Task.CompletedTask;
     }
 
     async Task OnUiChanged() => await SaveUiStateAsync();
 
+    
+    async Task SaveReturnTicketAsync()
+    {
+        // пытаемся вычислить точный № за день
+        var posOnPage = _grid?.GetSelectedOrderOnPage(); // 1..400 или null
+        int? orderInDay = posOnPage.HasValue ? (_pageIndex * 400) + posOnPage.Value : _selectedOrderInDay;
+
+        var ticket = new ReturnToMonitoring
+        {
+            Date = SelectedDate.Date,
+            PageIndex = _pageIndex,
+            SelectedOrderInDay = orderInDay
+        };
+        await PLS.SetAsync(ReturnKey, ticket);
+    }
+    
     async Task OnActionFromGrid(string action)
     {
         if (_selectedCell?.HasValue != true) return;
@@ -275,7 +390,7 @@
             case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0); break;
             case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0); break;
             case "delete":   await Data.DeleteAsync(id); break;
-            case "logs":     Nav.NavigateTo("/logs"); return;
+            case "logs": await SaveReturnTicketAsync(); Nav.NavigateTo("/logs?from=mon"); return;
         }
 
         await LoadPage(_pageIndex);

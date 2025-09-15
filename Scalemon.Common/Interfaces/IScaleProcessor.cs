@@ -11,6 +11,8 @@ namespace Scalemon.Common
     /// </summary>
     public interface IScaleProcessor : IDisposable
     {
+        
+        
         /// <summary>
         /// Запускает процессор весов.
         /// </summary>
@@ -42,6 +44,7 @@ namespace Scalemon.Common
 
         void SubscribeScaleAlarm(Func<Task> handler);
         void UnsubscribeScaleAlarm(Func<Task> handler);
+
 
     }
 }

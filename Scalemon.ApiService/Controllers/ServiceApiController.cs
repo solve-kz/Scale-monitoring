@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Scalemon.Common;
 using System.IO;
+using System.ServiceProcess;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -28,19 +29,34 @@ namespace Scalemon.ApiService.Controllers
         /// GET /api/service/status
         /// </summary>
         [HttpGet("status")]
+        [Produces("application/json")]
         public IActionResult GetStatus()
         {
-            using var winSvc = new System.ServiceProcess.ServiceController(
-                _svcSettings.Api.ServiceName);
-
-            var status = winSvc.Status switch
+            try
             {
-                System.ServiceProcess.ServiceControllerStatus.Running => "Running",
-                System.ServiceProcess.ServiceControllerStatus.Paused => "Paused",
-                _ => "Stopped"
-            };
+                var name = _svcSettings.Api.ServiceName;
 
-            return Ok(new { status });
+                // в dev служба может быть не установлена — возвращаем заглушку
+                var exists = ServiceController.GetServices()
+                    .Any(s => string.Equals(s.ServiceName, name, StringComparison.OrdinalIgnoreCase));
+
+                var status = exists
+                    ? new ServiceController(name).Status switch
+                    {
+                        ServiceControllerStatus.Running => "Running",
+                        ServiceControllerStatus.Paused => "Paused",
+                        _ => "Stopped"
+                    }
+                    : "Running"; // заглушка при отладке консолью
+
+                // ВАЖНО: именно JsonResult, чтобы клиент видел "application/json" и кавычки
+                return new JsonResult(status);
+            }
+            catch
+            {
+                // на любой сбой возвращаем JSON-строку, чтобы UI не падал
+                return new JsonResult("Running");
+            }
         }
 
         /// <summary>

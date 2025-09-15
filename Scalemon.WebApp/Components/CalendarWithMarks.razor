@@ -1,19 +1,16 @@
 ﻿@using System.Globalization
 
-<RadzenCard Style="padding:0">
-    <ChildContent>
-        <RadzenStack Orientation="Orientation.Vertical" class="rz-p-3" Gap="0.5rem">
-            <RadzenText TextStyle="TextStyle.H5">Календарь разделки</RadzenText>
-
+<RadzenCard class="rz-p-4 rz-w-100">
+        <div class="rz-text-align-center">
             <RadzenDatePicker @bind-Value="SelectedDate"
                               TValue="DateTime"
                               Inline="true"
                               ShowTime="false"
                               DateRender="@OnDateRender"
                               CurrentDateChanged="@OnCurrentDateChanged"
-                              Change="@OnDateChanged" />
-        </RadzenStack>
-    </ChildContent>
+                              Change="@OnDateChanged"
+                              class="rz-w-100"/>
+        </div>
 </RadzenCard>
 
 @code {

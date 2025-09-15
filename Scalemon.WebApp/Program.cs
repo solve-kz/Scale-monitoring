@@ -11,7 +11,9 @@ using Scalemon.Common;
 using Scalemon.WebApp.Components;
 using Scalemon.WebApp.Data;
 using System.IO.Ports;
+using System.Net.Http.Headers;
 using System.Security.Claims;
+using static Scalemon.WebApp.JsonFileSettingsSource;
 
 
 namespace Scalemon.WebApp
@@ -24,6 +26,20 @@ namespace Scalemon.WebApp
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // 0) Опции WebApp (берём секцию "WebApp" — источник настроек и путь к файлу службы)
+            builder.Services.Configure<JsonFileSettingsSource.WebAppOptions>(
+                builder.Configuration.GetSection("WebApp"));
+
+            // 1) Источник настроек (файловый — как сейчас; позже можно будет добавить "Api")
+            builder.Services.AddScoped<ISettingsSource, JsonFileSettingsSource>();
+
+            // 2) Фабрика HTTP-клиентов (без BaseAddress здесь!)
+            builder.Services.AddHttpClient();
+
+            // 3) Клиент API-обёртка
+            builder.Services.AddScoped<ApiClient>();
+
+
             // Razor Components (.NET 8) + интерактивный серверный рендеринг
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents(o => o.DetailedErrors = builder.Environment.IsDevelopment());
@@ -34,14 +50,9 @@ namespace Scalemon.WebApp
             // Если в приложении есть API-контроллеры (например, /api/diagnostics/*)
             builder.Services.AddControllers();
 
-            builder.Services.AddHttpClient();               // для вызовов из компонентов
+            
 
-            // ДОБАВЬТЕ ЭТО:
-            builder.Services.AddScoped(sp =>
-            {
-                var nav = sp.GetRequiredService<NavigationManager>();
-                return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
-            });
+
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddCascadingAuthenticationState();
 
@@ -107,6 +118,12 @@ namespace Scalemon.WebApp
             // Сервис данных:
             builder.Services.AddScoped<IWeighingDataService, SqlWeighingDataService>();
             var app = builder.Build();
+
+            // В DEV — подробная страница ошибок
+            if (app.Environment.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
 
 
 

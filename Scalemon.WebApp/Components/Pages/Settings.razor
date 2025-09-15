@@ -4,11 +4,11 @@
 @using Scalemon.Common
 @using Scalemon.WebApp.Models
 @using System.IO.Ports
-@using Radzen
+
 
 @attribute [Authorize(Policy = "AdminOnly")]
 
-@inject HttpClient Http
+@inject ApiClient Api
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 @inject ISettingsSource SettingsSource
@@ -120,7 +120,7 @@
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
                                   Disabled="@_saving" />
-          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
@@ -134,16 +134,16 @@
 
         <RadzenFieldset Text="Опрос весов">
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSm="3">
               <RadzenFormField Text="COM-порт весов" HelpText="Последовательный порт подключения индикатора весов">
                 
-                  <RadzenDropDown Data="@ComPorts" @bind-Value="Model.ScaleSettings.PortName" Name="ScalePort" Style="width:100%" />
+                  <RadzenDropDown Data="@SerialPorts" @bind-Value="Model.ScaleSettings.PortName" Name="ScalePort" Style="width:100%" />
                   <RadzenRequiredValidator Component="ScalePort" Text="Выберите COM-порт" />
                 
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSm="3">
               <RadzenFormField Text="Интервал опроса, мс" HelpText="Как часто считывать показания с весов">
                 
                   <RadzenNumeric @bind-Value="Model.ScaleSettings.PollingIntervalMs" Name="PollMs" Min="1" Step="1" Style="width:100%" />
@@ -152,7 +152,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSm="3">
               <RadzenFormField Text="Порог стабильности" HelpText="Отклонение, при котором вес считается стабильным">
                 
                   <RadzenNumeric @bind-Value="Model.ScaleSettings.StableThreshold" Name="StableTh" Min="0" Step="1" Style="width:100%" />
@@ -161,7 +161,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSm="3">
               <RadzenFormField Text="Порог нестабильности" HelpText="Отклонение, фиксирующее нестабильность показаний">
                 
                   <RadzenNumeric @bind-Value="Model.ScaleSettings.UnstableThreshold" Name="UnstableTh" Min="0" Step="1" Style="width:100%" />
@@ -212,7 +212,7 @@
             <RadzenColumn Size="3" SizeSm="12">
               <RadzenFormField Text="COM-порт PLC" HelpText="Последовательный порт контроллера сигнализации">
                 
-                  <RadzenDropDown Data="@ComPorts" @bind-Value="Model.PlcSettings.PortName" Name="PlcPort" Style="width:100%" />
+                  <RadzenDropDown Data="@SerialPorts" @bind-Value="Model.PlcSettings.PortName" Name="PlcPort" Style="width:100%" />
                   <RadzenRequiredValidator Component="PlcPort" Text="Выберите COM-порт" />
                 
               </RadzenFormField>
@@ -267,7 +267,7 @@
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
                                   Disabled="@_saving" />
-          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
@@ -327,7 +327,7 @@
           </RadzenRow>
 
           <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
-                        <RadzenButton Text="Проверить подключение" Click="@TestDbConnection" Icon="link" Disabled="@_busyTestDb" />
+                        <RadzenButton Text="Проверить подключение" Click="@TestDbAsync" Icon="link" Disabled="@_busyTestDb" />
           </RadzenStack>
         </RadzenFieldset>
 
@@ -356,7 +356,7 @@
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
                                   Disabled="@_saving" />
-          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
@@ -438,8 +438,7 @@
               <Template Context="u">
                 <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
                               Click="@(() => UsersGrid!.EditRow(u))" />
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="delete" Size="ButtonSize.Small" Style="margin-left:6px"
-                              Click="@(() => DeleteUser(u))" />
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="delete" Size="ButtonSize.Small" Style="margin-left:6px"/>
               </Template>
               <EditTemplate Context="u">
                 <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Size="ButtonSize.Small"
@@ -458,7 +457,7 @@
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
                                   Disabled="@_saving" />
-          <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAll" />
+                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
@@ -467,17 +466,18 @@
 </RadzenTabs>
 
 @code {
-  SettingsDto Model = new();
+    // ---------- Модель и каталоги ----------
+    private SettingsDto Model = CreateDefaults();
 
-  // Каталоги
-  List<string> ComPorts = new();
-  IReadOnlyList<string> LogLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
-  IReadOnlyList<string> UiRolesCatalog = new[] { "Admin", "Editor", "Viewer" };
-  IReadOnlyList<string> DbRolesCatalog = new[] { "db_datareader", "db_datawriter", "db_owner" };
-  IReadOnlyList<string> AfterLoginPages = new[] { "/", "/monitoring", "/logs", "/stats", "/settings" };
-  IReadOnlyList<string> Cultures = new[] { "ru-RU", "en-US" };
+    // Каталоги
+   
+    IReadOnlyList<string> LogLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
+    IReadOnlyList<string> UiRolesCatalog = new[] { "Admin", "Editor", "Viewer" };
+    IReadOnlyList<string> DbRolesCatalog = new[] { "db_datareader", "db_datawriter", "db_owner" };
+    IReadOnlyList<string> AfterLoginPages = new[] { "/", "/monitoring", "/logs", "/stats", "/settings" };
+    IReadOnlyList<string> Cultures = new[] { "ru-RU", "en-US" };
 
-  RadzenDataGrid<UserDto> UsersGrid = default!;
+    RadzenDataGrid<UserDto> UsersGrid = default!;
 
     // Ссылки на формы (по одной на вкладку)
     RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb, _formUsers;
@@ -486,7 +486,54 @@
     bool _busy;
     bool _busyTestDb;
 
-    // ЕДИНЫЙ успешный сабмит RadzenTemplateForm
+    // ---------- Диагностика/состояния ----------
+    private string ServiceStatus = "Unknown";
+    private string[] SerialPorts = Array.Empty<string>();
+    private string DbTestResult = "";
+    private string ScaleTestResult = "";
+
+    // ---------- Логи ----------
+    private string[] LoggingLevels = Array.Empty<string>();
+    private ApiClient.LogPaths? LogPaths;
+    private List<ApiClient.LogEntry> LogPreview = new();
+    private string? SelectedLogPath;
+
+    private CancellationTokenSource? _cts;
+
+    // ---------- Инициализация ----------
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+
+        // Загружаем настройки и подстилаем дефолты на случай частично заполненного файла
+        var loaded = await SettingsSource.LoadAsync(_cts.Token);
+        Model = EnsureDefaults(loaded);
+
+        await ReloadAllAsync();
+    }
+
+    private async Task ReloadAllAsync()
+    {
+        var ct = _cts?.Token ?? default;
+
+        // Статус сервиса
+        ServiceStatus = await Api.GetServiceStatusAsync(ct);
+
+        // Список COM-портов
+        SerialPorts = await Api.GetSerialPortsAsync(ct);
+
+        // Уровни логирования + пути к логам
+        LoggingLevels = await Api.GetLoggingLevelsAsync(ct);
+        LogPaths = await Api.GetLoggingPathsAsync(ct);
+        SelectedLogPath ??= LogPaths?.MainLogPath;
+
+        // Предпросмотр логов
+        await LoadLogPreviewAsync();
+
+        StateHasChanged();
+    }
+
+    // ---------- Сохранение ----------
     async Task OnValidSubmit(SettingsDto dto)
     {
         if (_saving) return;
@@ -508,224 +555,186 @@
         }
     }
 
-    // ЕДИНЫЙ обработчик неуспешной валидации
     void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
-      => NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
+        => NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
 
-
-
-  protected override async Task OnInitializedAsync()
-  {
-    try
+    private async Task SaveSettingsAsync()
     {
-      Model = await SettingsSource.LoadAsync();
-      EnsureDefaults(Model);
-      await LoadComPorts();
-      // isReady = true;
+        await SettingsSource.SaveAsync(Model, _cts?.Token ?? default);
+        await ReloadAllAsync();
     }
-    catch (Exception ex)
+
+    // ---------- Логи ----------
+    async Task ApplyLogLevel()
     {
-      NotificationService.Notify(NotificationSeverity.Error, "Ошибка загрузки",
-        Env.IsDevelopment() ? ex.ToString() : ex.Message);
-      Console.Error.WriteLine(ex);
-    }
-  }
-
-
-
-  static void EnsureDefaults(SettingsDto m)
-  {
-    m.ApiSettings ??= new Scalemon.Common.ApiSettings();
-
-    m.AuthenticationSettings ??= new Scalemon.Common.AuthenticationSettings();
-    m.AuthenticationSettings.Basic ??= new Scalemon.Common.BasicAuthSettings();
-
-    m.LogSettings ??= new Scalemon.Common.LoggingSettings();
-    m.LogSettings.Level ??= new Scalemon.Common.LogLevelSettings();
-    m.LogSettings.FilePath ??= new Scalemon.Common.LogFilePathSettings();
-
-    m.DatabaseSettings ??= new Scalemon.Common.DatabaseSettings();
-    m.ScaleSettings ??= new Scalemon.Common.ScaleSettings();
-    m.SystemSettings ??= new Scalemon.Common.SystemSettings();
-    m.PlcSettings ??= new Scalemon.Common.PlcSettings();
-
-    // Новые настройки UI
-    m.WebUiSettings ??= new WebUiSettings
-    {
-      AfterLoginPage = "/monitoring",
-      UICulture = "ru-RU",
-      RememberLastDate = true
-    };
-
-    m.UsersSettings ??= new UsersSettings();
-    m.UsersSettings.Users ??= new List<UserDto>();
-    m.UsersSettings.DefaultDbRoles ??= new List<string>();
-    m.UsersSettings.SessionTimeoutMinutes = m.UsersSettings.SessionTimeoutMinutes <= 0 ? 480 : m.UsersSettings.SessionTimeoutMinutes;
-  }
-
-  async Task SaveAll(SettingsDto model)
-  {
-    if (_busy) return;
-    _busy = true;
-    try
-    {
-      await SettingsSource.SaveAsync(model);
-      NotificationService.Notify(NotificationSeverity.Success, "Сохранено", "Настройки применены");
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Сохранение", ex.Message);
-    }
-    finally { _busy = false; }
-  }
-
-  async Task ReloadAll()
-  {
-    try
-    {
-      Model = await SettingsSource.LoadAsync();
-      await LoadComPorts();
-      StateHasChanged();
-      NotificationService.Notify(NotificationSeverity.Info, "Настройки", "Загружено");
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Загрузка", ex.Message);
-    }
-  }
-
-
-
-  async Task ApplyLogLevel()
-  {
-    try
-    {
-      var body = new { Level = Model.LogSettings.Level.Default };
-      var resp = await Http.PutAsJsonAsync("api/settings/logging/level", body);
-      if (resp.IsSuccessStatusCode)
-        NotificationService.Notify(NotificationSeverity.Success, "Логи", $"Уровень: {Model.LogSettings.Level.Default}");
-      else
-        NotificationService.Notify(NotificationSeverity.Warning, "Логи", $"Не применён: {(int)resp.StatusCode}");
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Логи", ex.Message);
-    }
-  }
-
-  async Task OpenLogDialog()
-  {
-    try
-    {
-      var items = await Http.GetFromJsonAsync<List<LogEntry>>($"api/logs?path={Uri.EscapeDataString(Model.LogSettings.FilePath.MainLogPath)}");
-      await DialogService.OpenAsync("Журнал событий", ds => (builder) =>
-      {
-        builder.OpenComponent(0, typeof(RadzenDataGrid<LogEntry>));
-        builder.AddAttribute(1, "Data", items ?? new());
-        builder.AddAttribute(2, "AllowPaging", true);
-        builder.AddAttribute(3, "PageSize", 20);
-        builder.CloseComponent();
-      }, new DialogOptions() { Width = "1000px", Height = "70vh", Resizable = true });
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Чтение лога", ex.Message);
-    }
-  }
-
-    
-
-    async Task TestDbConnection()
-    {
-        if (_busyTestDb) return;
-        _busyTestDb = true;
         try
         {
-            var resp = await Http.PostAsJsonAsync("api/diagnostics/db/test", new
-            {
-                Model.DatabaseSettings.ConnectionString,
-                Model.DatabaseSettings.TableName
-            });
-
-            var text = await resp.Content.ReadAsStringAsync();
-            var sev = resp.IsSuccessStatusCode ? NotificationSeverity.Success : NotificationSeverity.Warning;
-            NotificationService.Notify(sev, "Проверка БД", string.IsNullOrWhiteSpace(text) ? resp.ReasonPhrase : text);
+            await Api.SetLoggingLevelAsync(Model.LogSettings.Level.Default, _cts?.Token ?? default);
+            NotificationService.Notify(NotificationSeverity.Success, "Логи", $"Уровень применён: {Model.LogSettings.Level.Default}");
         }
         catch (Exception ex)
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Проверка БД", ex.Message);
+            NotificationService.Notify(NotificationSeverity.Error, "Логи", $"Не удалось применить уровень: {ex.Message}");
         }
-        finally { _busyTestDb = false; }
     }
 
-  async Task TestScaleRead()
-  {
-    try
+    async Task OpenLogDialog()
     {
-      var value = await Http.GetStringAsync("api/diagnostics/scale/test");
-      NotificationService.Notify(NotificationSeverity.Info, "Тест чтения", $"Вес: {value}");
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Тест чтения", ex.Message);
-    }
-  }
+        var path = Model.LogSettings.FilePath?.MainLogPath;
+        var items = (await Api.GetLogPreviewAsync(path, _cts?.Token ?? default)).ToList();
 
-  async Task TestPlc()
-  {
-    try
-    {
-      var resp = await Http.PostAsync("api/diagnostics/plc/ping", null);
-      NotificationService.Notify(resp.IsSuccessStatusCode ? NotificationSeverity.Success : NotificationSeverity.Warning, "PLC", resp.ReasonPhrase);
-    }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "PLC", ex.Message);
-    }
-  }
+        await DialogService.OpenAsync("Журнал событий", ds => (builder) =>
+        {
+            builder.OpenComponent(0, typeof(RadzenDataGrid<ApiClient.LogEntry>));
+            builder.AddAttribute(1, "Data", items);
+            builder.AddAttribute(2, "AllowPaging", true);
+            builder.AddAttribute(3, "PageSize", 20);
 
-  async Task LoadComPorts()
-  {
-    try { ComPorts = SerialPort.GetPortNames().OrderBy(p => p).ToList(); }
-    catch { ComPorts = new(); }
-    await Task.CompletedTask;
-  }
+            builder.AddAttribute(4, "Columns", (RenderFragment)((cols) =>
+            {
+                cols.OpenComponent(5, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
+                cols.AddAttribute(6, "Property", "Timestamp");
+                cols.AddAttribute(7, "Title", "Время");
+                cols.AddAttribute(8, "Width", "210px");
+                cols.AddAttribute(9, "FormatString", "{0:yyyy-MM-dd HH:mm:ss}");
+                cols.CloseComponent();
 
-  // USERS
-  void AddUser() => Model.UsersSettings.Users.Add(new UserDto { Roles = new(), DbRolesOverride = new() });
-  Task OnUserCreate(UserDto u) => Task.CompletedTask;
-  Task OnUserUpdate(UserDto u) => Task.CompletedTask;
+                cols.OpenComponent(10, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
+                cols.AddAttribute(11, "Property", "Level");
+                cols.AddAttribute(12, "Title", "Уровень");
+                cols.AddAttribute(13, "Width", "110px");
+                cols.CloseComponent();
 
-  async Task DeleteUser(UserDto u)
-  {
-    try
-    {
-      var resp = await Http.DeleteAsync($"api/admin/users/{Uri.EscapeDataString(u.UserName)}");
-      if (!resp.IsSuccessStatusCode)
-      {
-        NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", resp.ReasonPhrase ?? "Ошибка удаления");
-        return;
-      }
-      Model.UsersSettings.Users.Remove(u);
-      await UsersGrid!.Reload();
-      NotificationService.Notify(NotificationSeverity.Success, "Пользователи", "Удалено");
+                cols.OpenComponent(14, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
+                cols.AddAttribute(15, "Property", "Source");
+                cols.AddAttribute(16, "Title", "Источник");
+                cols.CloseComponent();
+
+                cols.OpenComponent(17, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
+                cols.AddAttribute(18, "Property", "Message");
+                cols.AddAttribute(19, "Title", "Сообщение");
+                cols.CloseComponent();
+
+                cols.OpenComponent(20, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
+                cols.AddAttribute(21, "Property", "Exception");
+                cols.AddAttribute(22, "Title", "Исключение");
+                cols.CloseComponent();
+            }));
+
+            builder.CloseComponent();
+        },
+        new DialogOptions { Width = "1000px", Height = "70vh", Resizable = true });
     }
-    catch (Exception ex)
-    {
-      NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
-    }
-  }
 
-    async Task CheckServiceStatus() 
-    { 
-        try 
-        { 
-            var status = await Http.GetStringAsync("api/service/status"); 
-            NotificationService.Notify(NotificationSeverity.Info, "Статус службы", status); 
-        } 
-        catch (Exception ex) 
-        { 
-            NotificationService.Notify(NotificationSeverity.Error, "Ошибка статуса", ex.Message); 
-        } 
+
+    private async Task LoadLogPreviewAsync()
+    {
+        var path = string.IsNullOrWhiteSpace(SelectedLogPath)
+            ? LogPaths?.MainLogPath
+            : SelectedLogPath;
+
+        LogPreview = (await Api.GetLogPreviewAsync(path, _cts?.Token ?? default)).ToList();
+    }
+
+    private async Task OnLogPathChangedAsync(ChangeEventArgs e)
+    {
+        SelectedLogPath = e.Value?.ToString();
+        await LoadLogPreviewAsync();
+    }
+
+    // ---------- Диагностика ----------
+    private async Task TestDbAsync()
+    {
+        DbTestResult = await Api.TestDbAsync(
+            Model.DatabaseSettings.ConnectionString,
+            Model.DatabaseSettings.TableName,
+            _cts?.Token ?? default);
+    }
+
+    async Task TestScaleRead()
+    {
+        try
+        {
+            ScaleTestResult = await Api.TestScaleAsync(_cts?.Token ?? default);
+            NotificationService.Notify(NotificationSeverity.Info, "Тест чтения OK");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Тест чтения", ex.Message);
+        }
+    }
+
+    async Task TestPlc()
+    {
+        try
+        {
+            await Api.PingPlcAsync(_cts?.Token ?? default);
+            NotificationService.Notify(NotificationSeverity.Success, "PLC", "Пинг отправлен");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "PLC", ex.Message);
+        }
+    }
+
+   
+
+    // USERS
+    void AddUser() => Model.UsersSettings.Users.Add(new UserDto { Roles = new(), DbRolesOverride = new() });
+    Task OnUserCreate(UserDto u) => Task.CompletedTask;
+    Task OnUserUpdate(UserDto u) => Task.CompletedTask;
+
+    async Task CheckServiceStatus()
+    {
+        var status = await Api.GetServiceStatusAsync(_cts?.Token ?? default);
+        NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "API", Detail = status });
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    // ---------- Defaulter ----------
+    private static SettingsDto CreateDefaults()
+    {
+        var m = new SettingsDto();
+        return EnsureDefaults(m);
+    }
+
+    private static SettingsDto EnsureDefaults(SettingsDto? m)
+    {
+        m ??= new SettingsDto();
+
+        m.ApiSettings ??= new Scalemon.Common.ApiSettings();
+
+        m.AuthenticationSettings ??= new Scalemon.Common.AuthenticationSettings();
+        m.AuthenticationSettings.Basic ??= new Scalemon.Common.BasicAuthSettings();
+
+        m.LogSettings ??= new Scalemon.Common.LoggingSettings();
+        m.LogSettings.Level ??= new Scalemon.Common.LogLevelSettings();
+        m.LogSettings.FilePath ??= new Scalemon.Common.LogFilePathSettings();
+
+        m.DatabaseSettings ??= new Scalemon.Common.DatabaseSettings();
+        m.ScaleSettings ??= new Scalemon.Common.ScaleSettings();
+        m.SystemSettings ??= new Scalemon.Common.SystemSettings();
+        m.PlcSettings ??= new Scalemon.Common.PlcSettings();
+
+        // Новые настройки UI
+        m.WebUiSettings ??= new WebUiSettings
+        {
+            AfterLoginPage = "/monitoring",
+            UICulture = "ru-RU",
+            RememberLastDate = true
+        };
+
+        m.UsersSettings ??= new UsersSettings();
+        m.UsersSettings.Users ??= new List<UserDto>();
+        m.UsersSettings.DefaultDbRoles ??= new List<string>();
+        m.UsersSettings.SessionTimeoutMinutes =
+            m.UsersSettings.SessionTimeoutMinutes <= 0 ? 480 : m.UsersSettings.SessionTimeoutMinutes;
+
+        return m;
     }
 }
