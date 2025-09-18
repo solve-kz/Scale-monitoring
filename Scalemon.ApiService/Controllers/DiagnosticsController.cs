@@ -79,9 +79,9 @@ public class DiagnosticsController : ControllerBase
         Func<Task> onAlarm = () => { tcs.TrySetException(new InvalidOperationException("Scale alarm")); return Task.CompletedTask; };
         Func<Task> onLost = () => { tcs.TrySetException(new InvalidOperationException("Connection lost")); return Task.CompletedTask; };
 
-        scales.SubscribeWeightReceived(onWeight);
-        scales.SubscribeScaleAlarm(onAlarm);
-        scales.SubscribeConnectionLost(onLost);
+        scales.WeightReceived += onWeight;
+        scales.ScaleAlarm += onAlarm;
+        scales.Disconnected += onLost;
 
         try
         {
@@ -98,9 +98,9 @@ public class DiagnosticsController : ControllerBase
         finally
         {
             // важные отписки, чтобы не копились обработчики
-            scales.UnsubscribeWeightReceived(onWeight);
-            scales.UnsubscribeScaleAlarm(onAlarm);
-            scales.UnsubscribeConnectionLost(onLost);
+            scales.WeightReceived -= onWeight;
+            scales.ScaleAlarm -= onAlarm;
+            scales.Disconnected -= onLost;
         }
     }
     [HttpPost("plc/ping")]

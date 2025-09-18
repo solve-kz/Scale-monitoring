@@ -44,6 +44,8 @@ namespace Scalemon.WebApp
             builder.Services.AddRazorComponents()
                 .AddInteractiveServerComponents(o => o.DetailedErrors = builder.Environment.IsDevelopment());
 
+
+
             // Radzen (ThemeService, DialogService, NotificationService, ContextMenuService)
             builder.Services.AddRadzenComponents();
 
@@ -231,6 +233,7 @@ namespace Scalemon.WebApp
 
                 return Results.NoContent();
             }).DisableAntiforgery();
+
 
             // Корневой компонент – МАППИНГ ОДИН РАЗ, В КОНЦЕ
             app.MapRazorComponents<App>()

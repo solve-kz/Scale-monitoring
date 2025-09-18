@@ -1,6 +1,7 @@
 ﻿@page "/logs"
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.WebUtilities
 @using System.Net.Http.Json
 @using System.Globalization
 @using ApiLogEntry = Scalemon.WebApp.ApiClient.LogEntry
@@ -153,14 +154,20 @@
     private CancellationTokenSource _cts = new();
   
 
-  // Auto refresh
-  private bool AutoRefresh = false;
-  private int RefreshSeconds = 15;
-  private System.Timers.Timer? _timer;
+    // Auto refresh
+    private bool AutoRefresh = false;
+    private int RefreshSeconds = 15;
+    private System.Timers.Timer? _timer;
 
-  private bool CanClear => true; // TODO: проверка политики/роли
+    private bool CanClear => true; // TODO: проверка политики/роли
 
-  private string? SelectedLevel { get; set; }
+    private string? SelectedLevel { get; set; }
+    const string SessionFromKey = "logs.from";
+    const string SessionToKey = "logs.to";
+
+    static DateTime StartOfDay(DateTime d) => new(d.Year, d.Month, d.Day, 0, 0, 0, 0);
+    static DateTime EndOfDay(DateTime d) => new(d.Year, d.Month, d.Day, 23, 59, 59, 999);
+
 
 
 
@@ -168,23 +175,21 @@
     {
         await LoadUiStateAsync();
         SetupTimer();
-        // Если нужно — задай здесь Path по умолчанию (например, главный лог из настроек страницы)
-        await ReloadAsync();
     }
 
     
 
-  private void SetupTimer()
-  {
-    _timer?.Dispose();
-    if (AutoRefresh)
+    private void SetupTimer()
     {
-      _timer = new System.Timers.Timer(RefreshSeconds * 1000);
-      _timer.Elapsed += async (_, __) => { try { await InvokeAsync(ReloadAsync); } catch { } };
-      _timer.AutoReset = true;
-      _timer.Start();
+        _timer?.Dispose();
+        if (AutoRefresh)
+        {
+        _timer = new System.Timers.Timer(RefreshSeconds * 1000);
+        _timer.Elapsed += async (_, __) => { try { await InvokeAsync(ReloadAsync); } catch { } };
+        _timer.AutoReset = true;
+        _timer.Start();
+        }
     }
-  }
 
     
 
@@ -222,18 +227,18 @@
         }
     }
 
-  private void OnRowSelect(ApiLogEntry entry) => selected = entry;
+    private void OnRowSelect(ApiLogEntry entry) => selected = entry;
 
-  private void DownloadCsv()
-  {
-        NotificationService.Notify(new NotificationMessage
+    private void DownloadCsv()
     {
-      Severity = NotificationSeverity.Info,
-      Summary = "Экспорт CSV",
-      Detail = "Реализуйте endpoint /api/logs/export для скачивания файла.",
-      Duration = 4000
-    });
-  }
+        NotificationService.Notify(new NotificationMessage
+        {
+            Severity = NotificationSeverity.Info,
+            Summary = "Экспорт CSV",
+            Detail = "Реализуйте endpoint /api/logs/export для скачивания файла.",
+            Duration = 4000
+        });
+    }
 
     // очистка текущего лога
     async Task ClearLogAsync()
@@ -296,18 +301,72 @@
     
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
-{
+    {
+        if (!firstRender) return;
+
+        // 1) Показать кнопку "Назад", если пришли с мониторинга
+        try
         {
-            if (!firstRender) return;
-            try
-            {
-                var res = await PLS.GetAsync<ReturnToMonitoring>(ReturnKey);
-                _canGoBack = res.Success && res.Value?.From == "monitoring";
-            }
-            catch { _canGoBack = false; }
-            StateHasChanged();
+            var res = await PLS.GetAsync<ReturnToMonitoring>(ReturnKey);
+            _canGoBack = res.Success && res.Value?.From == "monitoring";
         }
-}
+        catch { _canGoBack = false; }
+
+        // 2) Инициализация дат
+        await InitializeDatesAsync();
+
+        // 3) Разрешаем сохранение состояния и сразу сохраняем
+        _uiLoaded = true;
+        await SaveUiStateAsync();
+
+        // 4) Первая загрузка грида уже с корректным диапазоном
+        await ReloadAsync();
+    }
+
+    private async Task InitializeDatesAsync()
+    {
+        // Пришли с /monitoring ? Тогда берём "день из билета"
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("from", out var qv) && qv == "mon")
+        {
+            var res = await PLS.GetAsync<ReturnToMonitoring>(ReturnKey);
+            var t = res.Success ? res.Value : null;
+            if (t != null)
+            {
+                from = StartOfDay(t.Date);
+                to = EndOfDay(t.Date);
+                await PersistDatesToSessionAsync();
+                return;
+            }
+        }
+
+        // Иначе пробуем восстановить из sessionStorage текущей вкладки
+        var fromIso = await JS.InvokeAsync<string>("scalemon.logsGet", SessionFromKey);
+        var toIso = await JS.InvokeAsync<string>("scalemon.logsGet", SessionToKey);
+        if (DateTime.TryParse(fromIso, out var f) && DateTime.TryParse(toIso, out var t2))
+        {
+            from = f;
+            to = t2;
+            return;
+        }
+
+        // По умолчанию — сегодня целиком (00:00..23:59:59.999)
+        var todayIso = await JS.InvokeAsync<string>("scalemon.localTodayIso");
+        var today = DateTime.Parse(todayIso);
+        from = StartOfDay(today);
+        to = EndOfDay(today);
+        await PersistDatesToSessionAsync();
+    }
+
+    private Task PersistDatesToSessionAsync()
+    {
+        return Task.WhenAll(
+            JS.InvokeVoidAsync("scalemon.logsSet", SessionFromKey, (from ?? DateTime.MinValue).ToString("s")).AsTask(),
+            JS.InvokeVoidAsync("scalemon.logsSet", SessionToKey, (to ?? DateTime.MinValue).ToString("s")).AsTask()
+        );
+    }
+
 
     private async Task LoadUiStateAsync()
     {
@@ -351,6 +410,7 @@
     private async Task OnFiltersChanged()
     {
         SetupTimer();
+        await PersistDatesToSessionAsync();  // <-- добавлено
         await SaveUiStateAsync();
         await ReloadAsync();
     }

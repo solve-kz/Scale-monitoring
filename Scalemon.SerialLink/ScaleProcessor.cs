@@ -1,320 +1,260 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Scalemon.Common;
 
 namespace Scalemon.SerialLink
 {
-
-    /// <summary>
-/// Компонент, выполняющий периодический опрос весов через драйвер,
-/// определяет, стабилизировался ли вес, и передаёт соответствующие события подписчикам.
-/// </summary>
-    public class ScaleProcessor : Common.IScaleProcessor, IDisposable
+    public sealed class ScaleProcessor : IScaleProcessor
     {
+        private readonly ILogger<ScaleProcessor> _log;
+        private readonly IScaleDriver _driver;
 
-        // Списки обработчиков для событий
-        private readonly List<Func<decimal, Task>> _weightHandlers = new List<Func<decimal, Task>>();
-        private readonly List<Func<Task>> _unstableHandlers = new List<Func<Task>>();
-        private readonly List<Func<Task>> _connectionLostHandlers = new List<Func<Task>>();
-        private readonly List<Func<Task>> _connectionEstablishedHandlers = new List<Func<Task>>();
-        private readonly List<Func<Task>> _scaleAlarmHandlers = new List<Func<Task>>();
-
-        // Драйвер весов
-        private readonly Common.IScaleDriver _driver;
-
-        // Логгер для событий и ошибок
-        private readonly ILogger<ScaleProcessor> _logger;
-
-        // Параметры, считываемые из конфигурации
+        private readonly string _portName;
         private readonly int _stableThreshold;
         private readonly int _unstableThreshold;
-        private readonly int _pollingInterval;
+        private readonly int _pollingIntervalMs;
+        private bool _disconnectionLogged = false;
 
-        // Для управления жизненным циклом фоновой задачи
-        private CancellationTokenSource _cts;
-        private Task _processingTask;
-        private bool disposedValue;
+        private CancellationTokenSource? _cts;
+        private Task? _loopTask;
 
-        /// <summary>
-    /// Конструктор: инициализирует драйвер и параметры из конфигурации.
-    /// </summary>
-        public ScaleProcessor(ILogger<ScaleProcessor> logger, Common.IScaleDriver driver, string portName, int stableThreshold, int unstableThreshold, int pollingIntervalMs)
+        // состояние
+        private volatile bool _connected;               // текущее устойчивое состояние
+        private long _lastGoodTick;                     // когда был последний удачный кадр
+        private int _goodStreak;                        // сколько удачных подряд
+        private int _openPortErrorLogged = 0;           // одноразовый лог TryOpenPort
+        private int _connectionBreakdownLogged = 0;           // одноразовый лог connection breakdown
+
+        // Порог для установления связи: сколько удачных кадров подряд нужно
+        private readonly int _connectStreakThreshold = 2; // можно 2–3
+
+        // Таймаут потери связи: после какого молчания считаем "потеряно"
+        private int LostTimeoutMs => Math.Max(5 * _pollingIntervalMs, 2000);
+        private int _stableCount;
+        private int _unstableCount;
+
+        private DateTime _lastNoConnLog = DateTime.MinValue;
+        private static readonly TimeSpan NoConnLogInterval = TimeSpan.FromSeconds(5);
+        
+
+        public ScaleProcessor(
+            ILogger<ScaleProcessor> log,
+            IScaleDriver driver,
+            string portName,
+            int stableThreshold,
+            int unstableThreshold,
+            int pollingIntervalMs)
         {
-            _logger = logger;
+            _log = log;
             _driver = driver;
-            driver.PortConnection = portName;
-            _stableThreshold = stableThreshold;
-            _unstableThreshold = unstableThreshold;
-            _pollingInterval = pollingIntervalMs;
-            _logger.LogInformation("Библиотека ScaleProcessor инициализирована: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}", _pollingInterval, _stableThreshold, _unstableThreshold);
+
+            _portName = portName ?? "COM1";
+            _stableThreshold = Math.Max(1, stableThreshold);
+            _unstableThreshold = Math.Max(1, unstableThreshold);
+            _pollingIntervalMs = Math.Max(50, pollingIntervalMs);
+
+            _log.LogDebug(
+                "Библиотека ScaleProcessor инициализирована: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}",
+                _pollingIntervalMs, _stableThreshold, _unstableThreshold);
         }
 
-        /// <summary>
-    /// Запускает фоновую задачу опроса весов.
-    /// </summary>
+        public event Func<decimal, Task>? WeightReceived;
+        public event Func<Task>? Unstable;
+        public event Func<Task>? Connected;
+        public event Func<Task>? Disconnected;
+        public event Func<Task>? ScaleAlarm;
+
         public void Start()
         {
+            if (_loopTask != null) return;
+
+            _driver.PortConnection = _portName;
+
             _cts = new CancellationTokenSource();
-            _processingTask = ProcessLoopAsync(_cts.Token);
-            _logger.LogInformation("Библиотека ScaleProcessor запущена");
+            _loopTask = Task.Run(() => LoopAsync(_cts.Token));
+            _log.LogInformation("Библиотека ScaleProcessor запущена");
         }
 
-        /// <summary>
-    /// Главный цикл опроса весов, выполняется с интервалом _pollingInterval.
-    /// </summary>
-        private async Task ProcessLoopAsync(CancellationToken token)
-        {
-            var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval));
-            int stableCount = 0;
-            int unstableCount = 0;
-            var swLoop = new Stopwatch();
-            var swRead = new Stopwatch();
-            try
-            {
-                while (await timer.WaitForNextTickAsync(token))
-                {
-                    swLoop.Restart();
-                    bool shouldNotifyLost = false;
-                    try
-                    {
-                        // Подключение к весам при необходимости
-                        if (!_driver.IsConnected)
-                        {
-                            _logger.LogInformation("Нет подключения в начале цикла взвешивания");
-                            _driver.OpenConnection();
-                            if (_driver.IsConnected)
-                            {
-                                await RaiseAllAsync(_connectionEstablishedHandlers);
-                            }
-                        }
-
-                        if (_driver.IsConnected)
-                        {
-                            swRead.Restart();
-                            _driver.ReadWeight();
-                            swRead.Stop();
-                            _logger.LogInformation("ReadWeight() took {ms} ms", swRead.ElapsedMilliseconds);
-                            switch (_driver.LastResponseNum)
-                            {
-                                case 0L:
-                                    {
-                                        // Ответ корректный: проверка на стабилизацию веса
-                                        if (_driver.Stable)
-                                        {
-                                            stableCount += 1;
-                                            unstableCount = 0;
-                                            if (stableCount == _stableThreshold)
-                                            {
-                                                _logger.LogInformation($"Вес считан: {_driver.Weight}");
-                                                await RaiseAllAsync(_weightHandlers, _driver.Weight);
-                                                stableCount = 0;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            unstableCount += 1;
-                                            stableCount = 0;
-                                            if (unstableCount == _unstableThreshold)
-                                            {
-                                                await RaiseAllAsync(_unstableHandlers);
-                                                // unstableCount = 0
-                                            }
-                                        }
-
-                                        break;
-                                    }
-
-                                case 1L:
-                                    {
-                                        // Весы вернули ошибку — разрываем соединение
-                                        _driver.CloseConnection();
-                                        shouldNotifyLost = true;
-                                        break;
-                                    }
-
-                                default:
-                                    {
-                                        // Аппаратная ошибка (например, ALARM)
-                                        await RaiseAllAsync(_scaleAlarmHandlers);
-                                        break;
-                                    }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Любая ошибка — считаем потерей связи
-                        _logger.LogError(ex, "Ошибка потери связи в цикле взвешивания");
-                        _driver.CloseConnection();
-                        shouldNotifyLost = true;
-                    }
-
-                    // Отдельно уведомляем о потере связи (вне Catch)
-                    if (shouldNotifyLost)
-                    {
-                        await RaiseAllAsync(_connectionLostHandlers);
-                    }
-                    swLoop.Stop();
-                    _logger.LogInformation("Iteration took {ms} ms", swLoop.ElapsedMilliseconds);
-                }
-            }
-            // Ожидаемая отмена при остановке
-            catch (OperationCanceledException ocex)
-            {
-                _logger.LogInformation(ocex, "ScaleProcessor остановлен по запросу");
-            }
-            finally
-            {
-                timer.Dispose();
-            }
-        }
-
-        /// <summary>
-    /// Останавливает опрос весов и закрывает соединение.
-    /// </summary>
         public void Stop()
         {
-            if (_cts is not null)
-            {
-                _cts.Cancel();
-                try
-                {
-                    _processingTask?.Wait();
-                }
-                catch (AggregateException ex)
-                {
-                    // Игнорируем отмену
-                    _logger.LogError(ex, "Ошибка остановки ScaleProcessor");
-                }
-            }
-            _driver.CloseConnection();
-            _logger.LogInformation("ScaleProcessor остановлен");
-        }
-
-        /// <summary>
-    /// Отправляет команду сброса веса в 0.
-    /// </summary>
-        public async Task ResetToZeroAsync()
-        {
-            _driver.SetToZero();
-            if (_driver.LastResponseNum > 0L)
-            {
-                _logger.LogError("Процессор. Ошибка сброса на ноль: {text}", _driver.LastResponseText);
-                throw new InvalidOperationException($"Error resetting to zero: {_driver.LastResponseText}");
-            }
-            await Task.CompletedTask;
-        }
-
-        /// <summary>
-    /// Корректное освобождение ресурсов и остановка фоновой задачи.
-    /// </summary>
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposedValue)
-            {
-                if (disposing)
-                {
-                    if (_cts is not null)
-                    {
-                        _cts.Cancel();
-                        _cts.Dispose();
-                    }
-                    _driver.CloseConnection();
-                }
-                disposedValue = true;
-            }
+            try { _cts?.Cancel(); _loopTask?.Wait(); }
+            catch { /* ignore */ }
+            finally { _cts?.Dispose(); _cts = null; _loopTask = null; }
         }
 
         public void Dispose()
         {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
+            Stop();
+            _driver.CloseConnection();
         }
 
-        /// <summary>
-    /// Безопасный вызов всех обработчиков события с параметром.
-    /// </summary>
-        private async Task RaiseAllAsync<T>(IEnumerable<Func<T, Task>> handlers, T arg)
+        public async Task ResetToZeroAsync(CancellationToken ct = default)
         {
-            foreach (var h in handlers.ToArray())
+            try
             {
-                try
+                _driver.SetToZero();
+
+                // Проверим ответ драйвера — он сам мапит текст/код
+                if (_driver.LastResponseNum == 0)
+                    _log.LogInformation("Команда >0< выполнена");
+                else
                 {
-                    await h(arg);
+                    _log.LogWarning("Не удалось установить >0<: {text} (code={code})", _driver.LastResponseText, _driver.LastResponseNum);
+                    // Некоторые ошибки трактуем как alarm
+                    if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Ошибка обработчика с параметрами");
-                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Исключение при установке >0<");
+                if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
             }
         }
 
-        /// <summary>
-    /// Безопасный вызов всех обработчиков события без параметров.
-    /// </summary>
-        private async Task RaiseAllAsync(IEnumerable<Func<Task>> handlers)
+        private async Task LoopAsync(CancellationToken ct)
         {
-            foreach (var h in handlers.ToArray())
+
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingIntervalMs));
+            while (!ct.IsCancellationRequested)
             {
+                var started = Environment.TickCount64;
                 try
                 {
-                    await h();
+                    // 1) Открыть порт (повторно вызывать безопасно)
+                    TryOpenPort();
+
+                    // 2) ВСЕГДА пробуем опросить весы, даже если _connected==false
+                    _driver.ReadWeight();
+
+                    // 3) Разбор результата
+                    ProcessConnectionTransition(nowConnected: _driver.IsConnected);
+
+
+                    // 2) события только при устойчивом соединении
+                    if (_connected)
+                    {
+                        if (_driver.IsScaleAlarm)
+                        {
+                            if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
+                        }
+
+                        if (_driver.Stable)
+                        {
+                            _stableCount++;
+                            _unstableCount = 0;
+
+                            if (_stableCount >= _stableThreshold)
+                            {
+                                _stableCount = 0;
+                                if (WeightReceived != null)
+                                    await InvokeAll(WeightReceived, _driver.Weight);
+                                _log.LogDebug("WeightReceived invoked, weight={weight}", _driver.Weight);
+                            }
+                        }
+                        else
+                        {
+                            _unstableCount++;
+                            _stableCount = 0;
+
+                            if (_unstableCount == _unstableThreshold && Unstable != null)
+                                await InvokeAll(Unstable);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Ошибка обработчика без параметров");
+                    // Любое исключение при обмене — считаем обрывом связи
+                    ProcessConnectionTransition(nowConnected: false);
+                    // Одноразовый лог "не удалось открыть порт"
+                    if (Interlocked.Exchange(ref _connectionBreakdownLogged, 1) == 0)
+                        _log.LogInformation("Обрыв связи: {message}", ex.Message);
                 }
+                finally
+                {
+                    var took = (int)(Environment.TickCount64 - started);
+                    _log.LogTrace("Iteration took {ms} ms", took);
+                }
+
+                // ждём следующий тик
+                if (!await timer.WaitForNextTickAsync(ct)) break;
+            }
+
+        }
+
+        private void TryOpenPort()
+        {
+            try
+            {
+                _driver.OpenConnection(); // безопасно вызывать многократно
+                                          // Ничего не логируем здесь
+            }
+            catch (Exception ex)
+            {
+                // Сэмпл "не подключено" — но устойчивый переход решит ProcessConnectionTransition()
+                ProcessConnectionTransition(nowConnected: false);
+
+                // Одноразовый лог "не удалось открыть порт"
+                if (Interlocked.Exchange(ref _openPortErrorLogged, 1) == 0)
+                    _log.LogInformation("Не удалось открыть порт: {message}", ex.Message);
+
+                // дальше пусть цикл попробует ещё раз
             }
         }
 
-        // Методы подписки/отписки на события:
-        public void SubscribeWeightReceived(Func<decimal, Task> handler)
+        private void ProcessConnectionTransition(bool nowConnected)
         {
-            _weightHandlers.Add(handler);
-        }
-        public void UnsubscribeWeightReceived(Func<decimal, Task> handler)
-        {
-            _weightHandlers.Remove(handler);
+            var now = Environment.TickCount64;
+
+            if (nowConnected)
+            {
+                // успешный кадр
+                _goodStreak++;
+                _lastGoodTick = now;
+
+                // если были в "отключено" и набрали порог — фиксируем "подключено"
+                if (!_connected && _goodStreak >= _connectStreakThreshold)
+                {
+                    _connected = true;
+                    // разрешаем в будущем снова единоразово логировать ошибку открытия
+                    Interlocked.Exchange(ref _openPortErrorLogged, 0);
+
+                    _log.LogInformation("Соединение с весами установлено");
+                }
+            }
+            else
+            {
+                // неуспешный кадр — сбрасываем серию удач
+                _goodStreak = 0;
+
+                // если были в "подключено" — ждём таймаут молчания, затем считаем "потеряно"
+                if (_connected)
+                {
+                    var msSinceGood = unchecked((int)(now - _lastGoodTick));
+                    if (msSinceGood >= LostTimeoutMs)
+                    {
+                        _connected = false;
+                        _log.LogWarning("Соединение с весами потеряно");
+                    }
+                }
+                // если уже "отключено" — ничего не пишем
+            }
         }
 
-        public void SubscribeUnstable(Func<Task> handler)
+
+        // ==== безопасный вызов событий ====
+
+        private static async Task InvokeAll(Func<Task> ev)
         {
-            _unstableHandlers.Add(handler);
-        }
-        public void UnsubscribeUnstable(Func<Task> handler)
-        {
-            _unstableHandlers.Remove(handler);
+            foreach (var d in ev.GetInvocationList())
+                await ((Func<Task>)d)();
         }
 
-        public void SubscribeConnectionLost(Func<Task> handler)
+        private static async Task InvokeAll(Func<decimal, Task> ev, decimal arg)
         {
-            _connectionLostHandlers.Add(handler);
-        }
-        public void UnsubscribeConnectionLost(Func<Task> handler)
-        {
-            _connectionLostHandlers.Remove(handler);
-        }
-
-        public void SubscribeConnectionEstablished(Func<Task> handler)
-        {
-            _connectionEstablishedHandlers.Add(handler);
-        }
-        public void UnsubscribeConnectionEstablished(Func<Task> handler)
-        {
-            _connectionEstablishedHandlers.Remove(handler);
-        }
-
-        public void SubscribeScaleAlarm(Func<Task> handler)
-        {
-            _scaleAlarmHandlers.Add(handler);
-        }
-        public void UnsubscribeScaleAlarm(Func<Task> handler)
-        {
-            _scaleAlarmHandlers.Remove(handler);
+            foreach (var d in ev.GetInvocationList())
+                await ((Func<decimal, Task>)d)(arg);
         }
     }
 }

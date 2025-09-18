@@ -47,24 +47,26 @@ using System.Threading.Tasks;
             _arduino = arduino;
         }
 
-        /// <summary>
-        /// Основной метод, запускающийся при старте службы.
-        /// Здесь мы:
-        /// 1) Подписываемся на события от компонентов
-        /// 2) Запускаем опрос весов и Arduino
-        /// 3) Блокируем поток до остановки службы
-        /// </summary>
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            // 1. Подписка на события ScaleProcessor → FSM
-            _scale.SubscribeConnectionEstablished(_fsm.OnScaleConnectedAsync);
-            _scale.SubscribeConnectionLost(_fsm.OnScaleDisconnectedAsync);
-            _scale.SubscribeUnstable(_fsm.OnScaleUnstableAsync);
-            _scale.SubscribeScaleAlarm(_fsm.OnScaleAlarmAsync);
-            _scale.SubscribeWeightReceived(raw => _fsm.OnWeightReceivedAsync(raw));
+    private Task HandleWeightAsync(decimal raw) => _fsm.OnWeightReceivedAsync(raw);
 
-            // 2. Подписка на событие кнопки сброса на Arduino → FSM
-            _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+    /// <summary>
+    /// Основной метод, запускающийся при старте службы.
+    /// Здесь мы:
+    /// 1) Подписываемся на события от компонентов
+    /// 2) Запускаем опрос весов и Arduino
+    /// 3) Блокируем поток до остановки службы
+    /// </summary>
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+        // 1. Подписка на события ScaleProcessor → FSM
+        _scale.Connected += _fsm.OnScaleConnectedAsync;
+        _scale.Disconnected += _fsm.OnScaleDisconnectedAsync;
+        _scale.Unstable += _fsm.OnScaleUnstableAsync;
+        _scale.ScaleAlarm += _fsm.OnScaleAlarmAsync;
+        _scale.WeightReceived += HandleWeightAsync;
+
+        // 2. Подписка на событие кнопки сброса на Arduino → FSM
+        _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
 
             // 3. Подписка на события работы с базой данных → FSM
             //    Используем анонимные асинхронные обработчики
@@ -86,8 +88,14 @@ using System.Threading.Tasks;
         public override Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("ScalemonService: остановка службы.");
+        // Отписка
+        _scale.Connected -= _fsm.OnScaleConnectedAsync;
+        _scale.Disconnected -= _fsm.OnScaleDisconnectedAsync;
+        _scale.Unstable -= _fsm.OnScaleUnstableAsync;
+        _scale.ScaleAlarm -= _fsm.OnScaleAlarmAsync;
+        _scale.WeightReceived -= HandleWeightAsync;
 
-            _scale.Stop();    // Остановить опрос весов
+        _scale.Stop();    // Остановить опрос весов
             _arduino.Stop();  // Остановить связь с Arduino
 
             return base.StopAsync(cancellationToken);

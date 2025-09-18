@@ -129,6 +129,7 @@ namespace Scalemon.SqlDataAccess
                 {
                     cmd.Parameters.Add("@weight", SqlDbType.Decimal).Value = weight;
                     await cmd.ExecuteNonQueryAsync();
+                    _logger.LogInformation("Записано взвешивание: {weight}", weight);
                 }
             }
         }

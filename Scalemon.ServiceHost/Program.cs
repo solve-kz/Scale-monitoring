@@ -12,17 +12,17 @@ using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
 using Scalemon.SqlDataAccess;
+// --- ДОБАВЛЯЕМ USING ДЛЯ BLAZOR ---
+// Убедитесь, что namespace соответствует вашему проекту веб-приложения
+using Scalemon.WebApp.Components;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using Serilog.Filters;
 using Serilog.Formatting.Json;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-
-// --- ДОБАВЛЯЕМ USING ДЛЯ BLAZOR ---
-// Убедитесь, что namespace соответствует вашему проекту веб-приложения
-using Scalemon.WebApp.Components;
 // -----------------------------------
 
 // 1) Считываем конфигурацию
@@ -48,15 +48,26 @@ var apiPass = serviceSettings.Authentication.Basic.Password;
 
 // Настраиваем Serilog
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-    .MinimumLevel.Override("System", LogEventLevel.Warning)
-    .ReadFrom.Configuration(config)
+    .ReadFrom.Configuration(config)               // ← СНАЧАЛА читаем из appsettings
     .MinimumLevel.ControlledBy(levelSwitch)
+
+    // Меньше системного шума
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.AspNetCore.Authentication", LogEventLevel.Information)
+    .MinimumLevel.Override("AspNetCore.Authentication", LogEventLevel.Information) // ← добавили
+
+    // Жёстко вырезаем всю ветку Authentication вне зависимости от уровня
+    .Filter.ByExcluding(Matching.FromSource("Microsoft.AspNetCore.Authentication"))
+    .Filter.ByExcluding(Matching.FromSource("AspNetCore.Authentication"))          // ← добавили
+
+    // На всякий случай вырежем именно эту фразу на Debug, если вдруг придёт из другой категории
+    .Filter.ByExcluding(le => le.Level == LogEventLevel.Debug
+        && le.MessageTemplate.Text.Contains("was successfully authenticated", StringComparison.OrdinalIgnoreCase))
+
     .WriteTo.File(new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
                   mainLogPath,
-                  rollingInterval: RollingInterval.Day,
-                  restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
+                  rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 IHost host = Host.CreateDefaultBuilder(args)

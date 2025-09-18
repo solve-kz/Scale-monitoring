@@ -1,10 +1,10 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Scalemon.Common;
+using Stateless;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using Scalemon.Common;
-
-using Stateless;
+using static Scalemon.Common.Enums;
 
 namespace Scalemon.FSM
 {
@@ -45,51 +45,66 @@ namespace Scalemon.FSM
             _logger = logger;
 
             // 1) Подключение/отключение
-            _fsm.Configure(Enums.ScalesState.Disconnected).Permit(Enums.Trigger.ScaleConnected, Enums.ScalesState.Connected).Permit(Enums.Trigger.DatabaseFailure, Enums.ScalesState.DatabaseError);
+            _fsm.Configure(Enums.ScalesState.Disconnected)
+                .Ignore(Trigger.ScaleUnstable)
+                .Ignore(Trigger.ScaleAlarm)
+                .Ignore(Enums.Trigger.WeightReceived)
+                .Permit(Enums.Trigger.ScaleConnected, Enums.ScalesState.Connected)
+                .Permit(Enums.Trigger.DatabaseFailure, Enums.ScalesState.DatabaseError);
 
 
-            _fsm.Configure(Enums.ScalesState.Connected).Permit(Enums.Trigger.ScaleDisconnected, Enums.ScalesState.Disconnected).Permit(Enums.Trigger.ScaleAlarm, Enums.ScalesState.ScaleError).Permit(Enums.Trigger.DatabaseFailure, Enums.ScalesState.DatabaseError).Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable).PermitDynamic(_weightReceivedTrigger, DetermineStateFromWeight).OnEntryAsync(async () => await onConnected()).OnExitAsync(async () => await onDisconnected());
-
-
-
-
-
-
+            _fsm.Configure(Enums.ScalesState.Connected)
+                .Permit(Enums.Trigger.ScaleDisconnected, Enums.ScalesState.Disconnected)
+                .Permit(Enums.Trigger.ScaleAlarm, Enums.ScalesState.ScaleError)
+                .Permit(Enums.Trigger.DatabaseFailure, Enums.ScalesState.DatabaseError)
+                .Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable)
+                .PermitDynamic(_weightReceivedTrigger, DetermineStateFromWeight)
+                .OnEntryAsync(async () => await onConnected())
+                .OnExitAsync(async () => await onDisconnected());
 
             // 2) Нестабильное состояние
-            _fsm.Configure(Enums.ScalesState.Unstable).SubstateOf(Enums.ScalesState.Connected).OnEntryFromAsync(Enums.Trigger.ArduinoButtonPressed, async () => { if (_errorFlag) { _errorFlag = false; await onResetAlarm(); } }).OnEntryAsync(async () =>
-
-
-{
-if (_isInvalidWeight)
-{
-        // Сбрасываем сигнализацию, если была ошибка взвешивания
-_isInvalidWeight = false;
-await onResetAlarm();
-}
-await onUnstable();
-});
+            _fsm.Configure(Enums.ScalesState.Unstable)
+                .SubstateOf(Enums.ScalesState.Connected)
+                .OnEntryFromAsync(Enums.Trigger.ArduinoButtonPressed, async () => { if (_errorFlag) { _errorFlag = false; await onResetAlarm(); } }).OnEntryAsync(async () =>
+                    {
+                        if (_isInvalidWeight)
+                            {
+                                // Сбрасываем сигнализацию, если была ошибка взвешивания
+                                _isInvalidWeight = false;
+                                await onResetAlarm();
+                            }
+                    await onUnstable();
+                    });
 
             // 3) Стабилизированное состояние — суперкласс для весовых подкатегорий
-            _fsm.Configure(Enums.ScalesState.Stabilized).SubstateOf(Enums.ScalesState.Connected).Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable).Ignore(Enums.Trigger.WeightReceived);
+            _fsm.Configure(Enums.ScalesState.Stabilized).SubstateOf(Enums.ScalesState.Connected)
+                .Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable)
+                .PermitDynamic(_weightReceivedTrigger, DetermineStateFromWeight);
 
 
 
             // 4) Категории внутри Stabilized
-            _fsm.Configure(Enums.ScalesState.NegativeWeight).SubstateOf(Enums.ScalesState.Stabilized).OnEntryAsync(HandleResetAttemptAsync);
+            _fsm.Configure(Enums.ScalesState.NegativeWeight)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .OnEntryAsync(HandleResetAttemptAsync);
 
 
-            _fsm.Configure(Enums.ScalesState.ZeroWeight).SubstateOf(Enums.ScalesState.Stabilized).OnEntryAsync(async () =>
+            _fsm.Configure(Enums.ScalesState.ZeroWeight)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .OnEntryAsync(async () =>
 
                                 {
                                     _zeroFlag = true;
                                     await onZeroState();
                                 });
 
-            _fsm.Configure(Enums.ScalesState.LightWeight).SubstateOf(Enums.ScalesState.Stabilized).OnEntryAsync(HandleResetAttemptAsync);
+            _fsm.Configure(Enums.ScalesState.LightWeight)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .OnEntryAsync(HandleResetAttemptAsync);
 
-
-            _fsm.Configure(Enums.ScalesState.InvalidWeight).SubstateOf(Enums.ScalesState.Stabilized).OnEntryAsync(async () =>
+            _fsm.Configure(Enums.ScalesState.InvalidWeight)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .OnEntryAsync(async () =>
 
                                 {
                                     _isInvalidWeight = true;
@@ -97,33 +112,35 @@ await onUnstable();
                                 });
 
 
-            _fsm.Configure(Enums.ScalesState.Recorded).SubstateOf(Enums.ScalesState.Stabilized).OnEntryAsync(async () =>
-
+            _fsm.Configure(Enums.ScalesState.Recorded)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .OnEntryAsync(async () =>
                                 {
                                     _zeroFlag = false;
                                     await onRecord(_lastRaw);
                                 });
 
-            _fsm.Configure(Enums.ScalesState.ErrorAfterWeighing).SubstateOf(Enums.ScalesState.Stabilized).Permit(Enums.Trigger.ArduinoButtonPressed, Enums.ScalesState.Unstable).OnEntryAsync(async () =>
-
-
+            _fsm.Configure(Enums.ScalesState.ErrorAfterWeighing)
+                .SubstateOf(Enums.ScalesState.Stabilized)
+                .Permit(Enums.Trigger.ArduinoButtonPressed, Enums.ScalesState.Unstable)
+                .OnEntryAsync(async () =>
                                 {
                                     _errorFlag = true;
                                     await onInvalidWeight();
                                 });
 
             // 5) Аппаратная ошибка весов
-            _fsm.Configure(Enums.ScalesState.ScaleError).SubstateOf(Enums.ScalesState.Connected).Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable).Permit(Enums.Trigger.ArduinoButtonPressed, Enums.ScalesState.Unstable).PermitDynamic(_weightReceivedTrigger, DetermineStateFromWeight).OnEntryAsync(async () => await onError());
-
-
-
-
+            _fsm.Configure(Enums.ScalesState.ScaleError)
+                .SubstateOf(Enums.ScalesState.Connected)
+                .Permit(Enums.Trigger.ScaleUnstable, Enums.ScalesState.Unstable)
+                .Permit(Enums.Trigger.ArduinoButtonPressed, Enums.ScalesState.Unstable)
+                .PermitDynamic(_weightReceivedTrigger, DetermineStateFromWeight)
+                .OnEntryAsync(async () => await onError());
 
             // 6) Ошибка базы данных
-            _fsm.Configure(Enums.ScalesState.DatabaseError).OnEntryAsync(async () => await onError()).Permit(Enums.Trigger.DatabaseRestored, Enums.ScalesState.Unstable);
-            // Зажигаем красную лампу
-
-            // Выход из ошибки при восстановлении БД
+            _fsm.Configure(Enums.ScalesState.DatabaseError)
+                .OnEntryAsync(async () => await onError())
+                .Permit(Enums.Trigger.DatabaseRestored, Enums.ScalesState.Unstable);
         }
 
         private Enums.ScalesState DetermineStateFromWeight(decimal raw)

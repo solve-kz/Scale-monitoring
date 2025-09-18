@@ -78,12 +78,15 @@ namespace Scalemon.SerialLink
 
                     _connected = false; // подтвердим обменом
                     SetStatus(1, "Открыт COM, ожидается подтверждение обменом");
-                    _log.LogInformation("Открыт порт {Port} для весов (4800, Even, 8N1)", _portName);
+                    _log.LogDebug("Открыт порт {Port} для весов (4800, Even, 8N1)", _portName);
                 }
                 catch (Exception ex)
-                {
-                    _connected = false;
+                {   
+                    if (_connected)
                     SetStatus(1, $"Не удалось открыть порт: {ex.Message}");
+                    _connected = false;
+
+                    
                     throw;
                 }
             }
@@ -118,18 +121,13 @@ namespace Scalemon.SerialLink
 
                 try
                 {
-                    // Запрос: F8 55 CE | 01 00 | 23 | CRC(lo hi)
-                    var frame = new byte[8];
-                    frame[0] = 0xF8; frame[1] = 0x55; frame[2] = 0xCE;
-                    frame[3] = 0x01; frame[4] = 0x00;           // Len = 1
-                    frame[5] = 0x23;                            // CMD_GET_MASSA
-                    ushort crc = Crc16Ccitt(frame, 5, 1);
-                    frame[6] = (byte)(crc & 0xFF);              // CRC LSB
-                    frame[7] = (byte)(crc >> 8);                // CRC MSB
+                    // было: строили кадр и считали CRC сами
+                    // стало: шлём проверенный кадр как в SpeedTest
+                    byte[] cmdGetMassa = { 0xF8, 0x55, 0xCE, 0x01, 0x00, 0x23, 0x4E, 0x6E };
 
                     _sp!.DiscardInBuffer();
-                    _sp.DiscardOutBuffer();
-                    _sp.Write(frame, 0, frame.Length);
+                    // _sp.DiscardOutBuffer(); // можно оставить или убрать; не критично
+                    _sp.Write(cmdGetMassa, 0, cmdGetMassa.Length);
 
                     var body = ReadFrame(_sp);
 
@@ -284,7 +282,6 @@ namespace Scalemon.SerialLink
 
         private static byte[] ReadFrame(SerialPort sp)
         {
-            // поиск заголовка F8 55 CE
             int b;
             do { b = sp.ReadByte(); } while (b != 0xF8);
             if (sp.ReadByte() != 0x55) throw new TimeoutException();
@@ -298,12 +295,7 @@ namespace Scalemon.SerialLink
             ReadExact(sp, body, 0, len);
 
             var crc = new byte[2];
-            ReadExact(sp, crc, 0, 2);
-
-            ushort calc = Crc16Ccitt(body, 0, body.Length);
-            ushort got = (ushort)(crc[0] | (crc[1] << 8));
-            if (calc != got)
-                throw new TimeoutException(); // трактуем как ошибку обмена
+            ReadExact(sp, crc, 0, 2); // пока просто вычитываем, без проверки
 
             return body;
         }

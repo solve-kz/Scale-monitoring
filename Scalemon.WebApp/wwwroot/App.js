@@ -56,6 +56,28 @@
         },
         delCookie(name) {
             document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/; samesite=lax";
+        },
+        logsGet: function (key) {
+            try {
+                var v = sessionStorage.getItem(key);
+                return v == null ? "" : v;
+            } catch (e) {            // ← обязательно с параметром
+                return "";
+            }
+        },
+
+        logsSet: function (key, val) {
+            try {
+                sessionStorage.setItem(key, val);
+            } catch (e) { }
+        },
+
+        localTodayIso: function () {
+            var d = new Date();
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + "-" + m + "-" + day;
         }
     });
 })();
