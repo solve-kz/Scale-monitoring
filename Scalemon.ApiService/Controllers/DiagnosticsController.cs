@@ -75,13 +75,26 @@ public class DiagnosticsController : ControllerBase
     {
         var tcs = new TaskCompletionSource<decimal>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Func<decimal, Task> onWeight = w => { tcs.TrySetResult(w); return Task.CompletedTask; };
-        Func<Task> onAlarm = () => { tcs.TrySetException(new InvalidOperationException("Scale alarm")); return Task.CompletedTask; };
-        Func<Task> onLost = () => { tcs.TrySetException(new InvalidOperationException("Connection lost")); return Task.CompletedTask; };
+        // Создаём один обработчик для нового события DataReceived
+        Func<ScaleDataPoint, Task> onData = data =>
+        {
+            if (!data.IsConnected)
+            {
+                tcs.TrySetException(new InvalidOperationException("Connection lost"));
+            }
+            else if (data.IsAlarm)
+            {
+                tcs.TrySetException(new InvalidOperationException("Scale alarm"));
+            }
+            else if (data.IsStable) // Успех, только если вес стабилен и нет ошибок
+            {
+                tcs.TrySetResult(data.WeightKg);
+            }
+            return Task.CompletedTask;
+        };
 
-        scales.WeightReceived += onWeight;
-        scales.ScaleAlarm += onAlarm;
-        scales.Disconnected += onLost;
+        // Подписываемся на единственное событие
+        scales.DataReceived += onData;
 
         try
         {
@@ -97,10 +110,8 @@ public class DiagnosticsController : ControllerBase
         }
         finally
         {
-            // важные отписки, чтобы не копились обработчики
-            scales.WeightReceived -= onWeight;
-            scales.ScaleAlarm -= onAlarm;
-            scales.Disconnected -= onLost;
+            // Очень важная отписка, чтобы не было утечек памяти
+            scales.DataReceived -= onData;
         }
     }
     [HttpPost("plc/ping")]

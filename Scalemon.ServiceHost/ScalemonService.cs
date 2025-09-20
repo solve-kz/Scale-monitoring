@@ -2,21 +2,22 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
-using Scalemon.SqlDataAccess;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
+using Scalemon.SqlDataAccess;
+using Serilog;
 using System.Threading;
 using System.Threading.Tasks;
 
 
-    /// <summary>
-    /// Фоновый сервис, который связывает все компоненты системы: 
-    /// - опрос весов (_scale)
-    /// - конечный автомат обработки состояний (_fsm)
-    /// - запись в базу данных (_db)
-    /// - управление индикаторами через Arduino (_arduino)
-    /// </summary>
+/// <summary>
+/// Фоновый сервис, который связывает все компоненты системы: 
+/// - опрос весов (_scale)
+/// - конечный автомат обработки состояний (_fsm)
+/// - запись в базу данных (_db)
+/// - управление индикаторами через Arduino (_arduino)
+/// </summary>
     public class ScalemonService : BackgroundService
     {
         private readonly ILogger<ScalemonService> _logger;
@@ -25,15 +26,20 @@ using System.Threading.Tasks;
         private readonly IDataAccess _db;
         private readonly ISignalBus _arduino;
 
-        /// <summary>
-        /// Внедрение зависимостей через DI:
-        /// - logger: логирование событий сервиса
-        /// - scale: компонент опроса весов
-        /// - fsm: конечный автомат обработки весов
-        /// - db: хранилище данных (SQL)
-        /// - arduino: шина сигналов для индикаторов
-        /// </summary>
-        public ScalemonService(
+    
+    
+    private readonly SemaphoreSlim _fsmGate = new(1, 1);
+    private int _consecutiveZeroServiceCount = 0;
+
+    /// <summary>
+    /// Внедрение зависимостей через DI:
+    /// - logger: логирование событий сервиса
+    /// - scale: компонент опроса весов
+    /// - fsm: конечный автомат обработки весов
+    /// - db: хранилище данных (SQL)
+    /// - arduino: шина сигналов для индикаторов
+    /// </summary>
+    public ScalemonService(
             ILogger<ScalemonService> logger,
             IScaleProcessor scale,
             IScaleStateMachine fsm,
@@ -47,7 +53,40 @@ using System.Threading.Tasks;
             _arduino = arduino;
         }
 
-    private Task HandleWeightAsync(decimal raw) => _fsm.OnWeightReceivedAsync(raw);
+    // Новый обработчик
+    private async Task HandleDataAsync(ScaleDataPoint data)
+    {
+        if (!_fsmGate.Wait(0)) return;
+        try
+        {
+            // Получаем всё из одного пакета! Никаких флагов.
+            await _fsm.SetConnectionAsync(data.IsConnected);
+            await _fsm.SetAlarmAsync(data.IsAlarm);
+
+            // Отправляем вес в FSM, только если весы стабильны
+            if (data.IsStable)
+            {
+                if (data.WeightKg != 0)
+                {
+                    _consecutiveZeroServiceCount = 0;
+                    _logger.LogDebug("Получен стабильный вес {weightKg} кг. Передаю в FSM.", data.WeightKg);
+                }
+                else
+                {
+                    _consecutiveZeroServiceCount++;
+                    if (_consecutiveZeroServiceCount <= 3)
+                    {
+                        _logger.LogDebug("Получен стабильный вес {weightKg} кг. Передаю в FSM.", data.WeightKg);
+                    }
+                }
+                await _fsm.OnWeightSampleAsync(data.WeightKg);
+            }
+        }
+        finally
+        {
+            _fsmGate.Release();
+        }
+    }
 
     /// <summary>
     /// Основной метод, запускающийся при старте службы.
@@ -57,48 +96,36 @@ using System.Threading.Tasks;
     /// 3) Блокируем поток до остановки службы
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-        // 1. Подписка на события ScaleProcessor → FSM
-        _scale.Connected += _fsm.OnScaleConnectedAsync;
-        _scale.Disconnected += _fsm.OnScaleDisconnectedAsync;
-        _scale.Unstable += _fsm.OnScaleUnstableAsync;
-        _scale.ScaleAlarm += _fsm.OnScaleAlarmAsync;
-        _scale.WeightReceived += HandleWeightAsync;
+    {
+        // 1) события ScaleProcessor → обновляем снимок и сразу же шлём в FSM
+        _scale.DataReceived += HandleDataAsync;
 
-        // 2. Подписка на событие кнопки сброса на Arduino → FSM
+        // 3) Arduino/БД как было
         _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+        _db.DatabaseFailed += async ex => await _fsm.OnDatabaseFailedAsync(ex);
+        _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
 
-            // 3. Подписка на события работы с базой данных → FSM
-            //    Используем анонимные асинхронные обработчики
-            _db.DatabaseFailed += async (ex) => await _fsm.OnDatabaseFailedAsync(ex);
-            _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
+        _scale.Start();
+        _arduino.Start();
 
-            // 4. Пуск компонентов
-            _scale.Start();    // Начать опрос весов
-            _arduino.Start();  // Инициализировать связь с Arduino
-
-            // 5. Держим службу «живой», пока не придёт отмена из ОС
-            await Task.Delay(Timeout.Infinite, stoppingToken);
-        }
-
-        /// <summary>
-        /// Метод вызывается при остановке службы.
-        /// Производится корректная остановка всех компонентов.
-        /// </summary>
-        public override Task StopAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("ScalemonService: остановка службы.");
-        // Отписка
-        _scale.Connected -= _fsm.OnScaleConnectedAsync;
-        _scale.Disconnected -= _fsm.OnScaleDisconnectedAsync;
-        _scale.Unstable -= _fsm.OnScaleUnstableAsync;
-        _scale.ScaleAlarm -= _fsm.OnScaleAlarmAsync;
-        _scale.WeightReceived -= HandleWeightAsync;
-
-        _scale.Stop();    // Остановить опрос весов
-            _arduino.Stop();  // Остановить связь с Arduino
-
-            return base.StopAsync(cancellationToken);
-        }
+        await Task.Delay(Timeout.Infinite, stoppingToken);
     }
+
+    /// <summary>
+    /// Метод вызывается при остановке службы.
+    /// Производится корректная остановка всех компонентов.
+    /// </summary>
+    public override Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("ScalemonService: остановка службы.");
+
+        _scale.DataReceived -= HandleDataAsync; // Отписка
+
+        _scale.Stop();
+        _arduino.Stop();
+        return base.StopAsync(cancellationToken);
+    }
+
+
+}
 

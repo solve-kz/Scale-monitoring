@@ -27,6 +27,8 @@ namespace Scalemon.SerialLink
         private int _openPortErrorLogged = 0;           // одноразовый лог TryOpenPort
         private int _connectionBreakdownLogged = 0;           // одноразовый лог connection breakdown
 
+        private int _consecutiveZeroPacketCount = 0;
+
         // Порог для установления связи: сколько удачных кадров подряд нужно
         private readonly int _connectStreakThreshold = 2; // можно 2–3
 
@@ -60,11 +62,7 @@ namespace Scalemon.SerialLink
                 _pollingIntervalMs, _stableThreshold, _unstableThreshold);
         }
 
-        public event Func<decimal, Task>? WeightReceived;
-        public event Func<Task>? Unstable;
-        public event Func<Task>? Connected;
-        public event Func<Task>? Disconnected;
-        public event Func<Task>? ScaleAlarm;
+        public event Func<ScaleDataPoint, Task>? DataReceived;
 
         public void Start()
         {
@@ -90,27 +88,29 @@ namespace Scalemon.SerialLink
             _driver.CloseConnection();
         }
 
-        public async Task ResetToZeroAsync(CancellationToken ct = default)
+        public Task ResetToZeroAsync(CancellationToken ct = default)
         {
-            try
+            return Task.Run(() =>
             {
-                _driver.SetToZero();
-
-                // Проверим ответ драйвера — он сам мапит текст/код
-                if (_driver.LastResponseNum == 0)
-                    _log.LogInformation("Команда >0< выполнена");
-                else
+                try
                 {
-                    _log.LogWarning("Не удалось установить >0<: {text} (code={code})", _driver.LastResponseText, _driver.LastResponseNum);
-                    // Некоторые ошибки трактуем как alarm
-                    if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
+                    _driver.SetToZero();
+
+                    if (_driver.LastResponseNum == 0)
+                    {
+                        _log.LogInformation("Команда >0< выполнена успешно");
+                    }
+                    else
+                    {
+                        _log.LogWarning("Не удалось установить >0<: {text} (code={code})", _driver.LastResponseText, _driver.LastResponseNum);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "Исключение при установке >0<");
-                if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
-            }
+                catch (Exception ex)
+                {
+                    // Логируем как Error, т.к. исключение - это более серьёзная проблема
+                    _log.LogError(ex, "Критическое исключение при отправке команды >0<");
+                }
+            }, ct);
         }
 
         private async Task LoopAsync(CancellationToken ct)
@@ -133,33 +133,31 @@ namespace Scalemon.SerialLink
 
 
                     // 2) события только при устойчивом соединении
-                    if (_connected)
+                    if (DataReceived != null)
                     {
-                        if (_driver.IsScaleAlarm)
                         {
-                            if (ScaleAlarm != null) await InvokeAll(ScaleAlarm);
-                        }
-
-                        if (_driver.Stable)
-                        {
-                            _stableCount++;
-                            _unstableCount = 0;
-
-                            if (_stableCount >= _stableThreshold)
+                            var dataPoint = new ScaleDataPoint(
+                                weightKg: _driver.Weight,
+                                isStable: _driver.Stable,
+                                isConnected: _connected, // <-- Используем актуальное состояние из процессора!
+                                isAlarm: _driver.IsScaleAlarm
+                            );
+                            if (dataPoint.WeightKg != 0)
                             {
-                                _stableCount = 0;
-                                if (WeightReceived != null)
-                                    await InvokeAll(WeightReceived, _driver.Weight);
-                                _log.LogDebug("WeightReceived invoked, weight={weight}", _driver.Weight);
+                                _consecutiveZeroPacketCount = 0;
+                                _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
+                                              dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
                             }
-                        }
-                        else
-                        {
-                            _unstableCount++;
-                            _stableCount = 0;
-
-                            if (_unstableCount == _unstableThreshold && Unstable != null)
-                                await InvokeAll(Unstable);
+                            else
+                            {
+                                _consecutiveZeroPacketCount++;
+                                if (_consecutiveZeroPacketCount <= 3)
+                                {
+                                    _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
+                                                  dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
+                                }
+                            }
+                            await InvokeAll(DataReceived, dataPoint);
                         }
                     }
                 }
@@ -245,10 +243,10 @@ namespace Scalemon.SerialLink
 
         // ==== безопасный вызов событий ====
 
-        private static async Task InvokeAll(Func<Task> ev)
+        private static async Task InvokeAll(Func<ScaleDataPoint, Task> ev, ScaleDataPoint arg)
         {
             foreach (var d in ev.GetInvocationList())
-                await ((Func<Task>)d)();
+                await ((Func<ScaleDataPoint, Task>)d)(arg);
         }
 
         private static async Task InvokeAll(Func<decimal, Task> ev, decimal arg)

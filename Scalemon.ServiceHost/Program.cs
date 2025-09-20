@@ -25,11 +25,16 @@ using System.IO;
 using System.Threading.Tasks;
 // -----------------------------------
 
+
+
+
 // 1) Считываем конфигурацию
 var config = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .Build();
+
+var settings = config.Get<ServiceSettings>();
 
 // 2) Создаём LevelSwitch, задав начальный уровень из конфига
 var levelSwitch = new LoggingLevelSwitch();
@@ -45,6 +50,8 @@ var mainLogPath = serviceSettings.Logging.FilePath.MainLogPath;
 var apiPort = serviceSettings.Api.Port;
 var apiUser = serviceSettings.Authentication.Basic.Username;
 var apiPass = serviceSettings.Authentication.Basic.Password;
+
+
 
 // Настраиваем Serilog
 Log.Logger = new LoggerConfiguration()
@@ -125,44 +132,59 @@ IHost host = Host.CreateDefaultBuilder(args)
             );
         });
 
-        services.AddSingleton<Scalemon.Common.IScaleStateMachine>(sp =>
+        services.AddSingleton<IScaleStateMachine>(sp =>
         {
-            var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.SystemSettings;
-            return new ScaleStateMachine(logger: sp.GetRequiredService<ILogger<ScaleStateMachine>>(),
-                minWeight: settings.MinWeight,
-                hystWeight: settings.HystWeight,
-                semaphoreTimeMs: settings.SemaphoreTimeMs,
-                onConnected: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOn),
-                onDisconnected: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.LinkOff),
-                onUnstable: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Unstable),
-                onResetToZero: () => sp.GetRequiredService<IScaleProcessor>()
-                                        .ResetToZeroAsync(),
-                onZeroState: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Idle),
-                onInvalidWeight: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.YellowRedOn),
-                onError: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.RedOn),
-                onResetAlarm: () => sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                        .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.AlarmOff),
-                onRecord: async raw =>
-                {
-                    var dbLogger = sp.GetRequiredService<ILogger<ScalemonService>>();
-                    try
-                    {
-                        await sp.GetRequiredService<IDataAccess>().SaveWeighingAsync(raw);
-                        await sp.GetRequiredService<Scalemon.Common.ISignalBus>()
-                                .SendAsync(Scalemon.Common.Enums.ArduinoSignalCode.Completed);
-                    }
-                    catch (Exception ex)
-                    {
-                        dbLogger.LogError(ex, "Program.cs Не удалось записать взвешивание");
-                    }
-                }
+            var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();
+
+            // возьми ServiceSettings так, как у тебя принято:
+            // 1) если ты уже сделал var settings = config.Get<ServiceSettings>(); выше — просто используй его из замыкания
+            // ИЛИ
+            // 2) через options:
+            var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServiceSettings>>().Value;
+
+            // === СБОРОЧКА cfg (прямо тут, без всяких BuildFsmSettings) ===
+            decimal minW = (decimal)settings.SystemSettings.MinWeight;
+            decimal hyst = (decimal)settings.SystemSettings.HystWeight;
+            int M = Math.Max(1, settings.ScaleSettings.StableThreshold);
+            int K = Math.Max(2, settings.ScaleSettings.UnstableThreshold);
+            int tareMs = Math.Clamp(settings.SystemSettings.SemaphoreTimeMs, 1500, 5000);
+
+            decimal zeroBand = hyst * 0.2m;
+            if (zeroBand < 0.005m) zeroBand = 0.005m;
+            if (zeroBand > hyst * 0.5m) zeroBand = hyst * 0.5m;
+
+            var cfg = new PlateauZeroStateMachine.Settings(
+                ZeroBandKg: zeroBand,
+                ResidualBandKg: hyst,
+                NegativeBandKg: hyst,
+                MinWeightKg: minW,
+                PlateauStableSamples: M,
+                ZeroStableSamples: K,
+                TareTimeout: TimeSpan.FromMilliseconds(tareMs),
+                TareMaxRetries: 2
             );
+
+            if (cfg.MinWeightKg <= cfg.ResidualBandKg)
+                log.LogWarning("MinWeight ({min}) ≤ HystWeight ({hyst}). Рассмотри увеличение MinWeight.", cfg.MinWeightKg, cfg.ResidualBandKg);
+
+            // ядро FSM
+            var db = sp.GetRequiredService<IDataAccess>();
+            var bus = sp.GetRequiredService<ISignalBus>();
+            var scale = sp.GetRequiredService<IScaleProcessor>();
+
+            var core = new PlateauZeroStateMachine(
+                cfg,
+                log,
+                onRecordAsync: async (net, peak, tail, flags) =>
+                {
+                    await db.SaveWeighingAsync(net);               // без изменения БД
+                    await bus.SendAsync(Enums.ArduinoSignalCode.Completed);
+                },
+                onAlarmAsync: async () => await bus.SendAsync(Enums.ArduinoSignalCode.RedOn),
+                sendTare: () => scale.ResetToZeroAsync().GetAwaiter().GetResult()
+            );
+
+            return new PlateauZeroFsmAdapter(core, log);
         });
 
         services.AddHostedService<ScalemonService>();
