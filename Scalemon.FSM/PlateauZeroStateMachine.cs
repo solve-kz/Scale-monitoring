@@ -202,6 +202,16 @@ namespace Scalemon.FSM
                         _plateauConfirmed = false;
                         Transition(State.Weighing);
                     }
+                    else if (IsResidualStable())
+                    {
+                        _log.LogInformation("Обнаружен стабильный остаточный вес ({weight} кг) в состоянии готовности. Инициирую автоноль.", w);
+                        SendTareAndWait();
+                    }
+                    else if (IsNegativeStable())
+                    {
+                        _log.LogInformation("Обнаружен стабильный отрицательный вес ({weight} кг) в состоянии готовности. Инициирую автоноль.", w);
+                        SendTareAndWait();
+                    }
                     break;
 
                 case State.Weighing:
@@ -350,7 +360,7 @@ namespace Scalemon.FSM
                     break;
                 case State.IdleZero:
                     _peak = 0m; _tail = 0m; _plateauConfirmed = false; _tareRetries = 0; _needTareForNegative = false;
-                    _log.LogDebug("→ IdleZero");
+                    _log.LogInformation("→ IdleZero");
                     break;
                 case State.Weighing:
                     _log.LogDebug("→ Weighing (start), peak={peak:0.###}", _peak);
