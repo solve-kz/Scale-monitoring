@@ -175,12 +175,8 @@ IHost host = Host.CreateDefaultBuilder(args)
             var core = new PlateauZeroStateMachine(
                 cfg,
                 log,
-                onRecordAsync: async (net, peak, tail, flags) =>
-                {
-                    await db.SaveWeighingAsync(net);               // без изменения БД
-                    await bus.SendAsync(Enums.ArduinoSignalCode.Completed);
-                },
-                onAlarmAsync: async () => await bus.SendAsync(Enums.ArduinoSignalCode.RedOn),
+                bus, // <-- ПЕРЕДАЁМ ШИНУ
+                onRecordAsync: async (net) => await db.SaveWeighingAsync(net), // <-- Упрощённый делегат
                 sendTare: () => scale.ResetToZeroAsync().GetAwaiter().GetResult()
             );
 

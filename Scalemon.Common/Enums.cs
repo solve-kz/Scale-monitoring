@@ -160,6 +160,20 @@
             DatabaseRestored
         }
 
+        public enum FsmState
+        {
+            Disconnected,
+            Alarm,
+            IdleZero,        // стабильный ноль; "вооружено"
+            InvalidWeightState, // вес есть, но он некорректен (<M)
+            Weighing,        // валидный вес, копим плато (пока не стабилизировалось)
+            AwaitUnload,     // плато подтверждено (≥M), ждём разгрузки
+            PostUnload,      // определили хвост/ноль/отриц.; готовим запись
+            TarePending,     // отослали SetToZero()
+            WaitZeroAfterTare,
+            ZeroFailed
+        }
+
 
 
 

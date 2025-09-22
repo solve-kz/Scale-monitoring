@@ -1,86 +1,114 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
 using Scalemon.FSM;
-using Scalemon.SerialLink;
-using Scalemon.SignalBus;
-using Scalemon.SqlDataAccess;
-using Serilog;
 using System.Threading;
 using System.Threading.Tasks;
-
+using static Scalemon.Common.Enums;
 
 /// <summary>
-/// Фоновый сервис, который связывает все компоненты системы: 
-/// - опрос весов (_scale)
-/// - конечный автомат обработки состояний (_fsm)
-/// - запись в базу данных (_db)
-/// - управление индикаторами через Arduino (_arduino)
+/// Фоновый сервис, который связывает все компоненты системы.
 /// </summary>
-    public class ScalemonService : BackgroundService
-    {
-        private readonly ILogger<ScalemonService> _logger;
-        private readonly IScaleProcessor _scale;
-        private readonly IScaleStateMachine _fsm;
-        private readonly IDataAccess _db;
-        private readonly ISignalBus _arduino;
+public class ScalemonService : BackgroundService
+{
+    private readonly ILogger<ScalemonService> _logger;
+    private readonly IScaleProcessor _scale;
+    private readonly IScaleStateMachine _fsm;
+    private readonly IDataAccess _db;
+    private readonly ISignalBus _arduino;
 
-    
-    
     private readonly SemaphoreSlim _fsmGate = new(1, 1);
-    private int _consecutiveZeroServiceCount = 0;
 
-    /// <summary>
-    /// Внедрение зависимостей через DI:
-    /// - logger: логирование событий сервиса
-    /// - scale: компонент опроса весов
-    /// - fsm: конечный автомат обработки весов
-    /// - db: хранилище данных (SQL)
-    /// - arduino: шина сигналов для индикаторов
-    /// </summary>
+    // Поле для хранения последнего отправленного сигнала
+    private Enums.ArduinoSignalCode? _lastSentSignal = null;
+
     public ScalemonService(
             ILogger<ScalemonService> logger,
             IScaleProcessor scale,
             IScaleStateMachine fsm,
             IDataAccess db,
             ISignalBus arduino)
+    {
+        _logger = logger;
+        _scale = scale;
+        _fsm = fsm;
+        _db = db;
+        _arduino = arduino;
+    }
+
+    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+    /// <summary>
+    /// Отправляет сигнал на Arduino, только если он отличается от предыдущего.
+    /// Гарантирует, что перед включением новой индикации старая будет погашена.
+    /// </summary>
+    private async Task SendSignalOnceAsync(Enums.ArduinoSignalCode signal)
+    {
+        if (_lastSentSignal == signal)
+            return;
+
+        // Определяем, является ли новый сигнал командой на включение какой-либо лампы
+        bool isNewSignalOnCommand = signal != Enums.ArduinoSignalCode.Unstable &&
+                                    signal != Enums.ArduinoSignalCode.LinkOff;
+
+        // Если мы хотим включить какую-то лампу, сначала всегда отправляем команду "погасить всё".
+        // Это предотвращает "наложение" сигналов (например, зелёного и красного).
+        if (isNewSignalOnCommand)
         {
-            _logger = logger;
-            _scale = scale;
-            _fsm = fsm;
-            _db = db;
-            _arduino = arduino;
+            await _arduino.SendAsync(Enums.ArduinoSignalCode.Unstable);
         }
 
-    // Новый обработчик
+        // Теперь отправляем целевую команду
+        await _arduino.SendAsync(signal);
+
+        // И запоминаем её
+        _lastSentSignal = signal;
+    }
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
     private async Task HandleDataAsync(ScaleDataPoint data)
     {
         if (!_fsmGate.Wait(0)) return;
         try
         {
-            // Получаем всё из одного пакета! Никаких флагов.
             await _fsm.SetConnectionAsync(data.IsConnected);
             await _fsm.SetAlarmAsync(data.IsAlarm);
 
-            // Отправляем вес в FSM, только если весы стабильны
             if (data.IsStable)
             {
-                if (data.WeightKg != 0)
-                {
-                    _consecutiveZeroServiceCount = 0;
-                    _logger.LogDebug("Получен стабильный вес {weightKg} кг. Передаю в FSM.", data.WeightKg);
-                }
-                else
-                {
-                    _consecutiveZeroServiceCount++;
-                    if (_consecutiveZeroServiceCount <= 3)
-                    {
-                        _logger.LogDebug("Получен стабильный вес {weightKg} кг. Передаю в FSM.", data.WeightKg);
-                    }
-                }
                 await _fsm.OnWeightSampleAsync(data.WeightKg);
             }
+
+            var fsmState = _fsm.CurrentState;
+            var signalToSend = Enums.ArduinoSignalCode.Unstable; // По умолчанию - гасим всё
+
+            if (data.IsAlarm)
+            {
+                signalToSend = Enums.ArduinoSignalCode.RedOn;
+            }
+            else if (fsmState == FsmState.Disconnected)
+            {
+                signalToSend = Enums.ArduinoSignalCode.LinkOff;
+            }
+            else if (data.IsStable)
+            {
+                switch (fsmState)
+                {
+                    case FsmState.IdleZero:
+                        signalToSend = Enums.ArduinoSignalCode.Idle;
+                        break;
+                    case FsmState.AwaitUnload:
+                        if (data.WeightKg > 0)
+                            signalToSend = Enums.ArduinoSignalCode.Completed;
+                        else
+                            signalToSend = Enums.ArduinoSignalCode.Unstable;
+                        break;
+                    case FsmState.InvalidWeightState:
+                        signalToSend = Enums.ArduinoSignalCode.YellowRedOn;
+                        break;
+                }
+            }
+
+            await SendSignalOnceAsync(signalToSend);
         }
         finally
         {
@@ -88,19 +116,9 @@ using System.Threading.Tasks;
         }
     }
 
-    /// <summary>
-    /// Основной метод, запускающийся при старте службы.
-    /// Здесь мы:
-    /// 1) Подписываемся на события от компонентов
-    /// 2) Запускаем опрос весов и Arduino
-    /// 3) Блокируем поток до остановки службы
-    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // 1) события ScaleProcessor → обновляем снимок и сразу же шлём в FSM
         _scale.DataReceived += HandleDataAsync;
-
-        // 3) Arduino/БД как было
         _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
         _db.DatabaseFailed += async ex => await _fsm.OnDatabaseFailedAsync(ex);
         _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
@@ -111,21 +129,12 @@ using System.Threading.Tasks;
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    /// <summary>
-    /// Метод вызывается при остановке службы.
-    /// Производится корректная остановка всех компонентов.
-    /// </summary>
     public override Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("ScalemonService: остановка службы.");
-
-        _scale.DataReceived -= HandleDataAsync; // Отписка
-
+        _scale.DataReceived -= HandleDataAsync;
         _scale.Stop();
         _arduino.Stop();
         return base.StopAsync(cancellationToken);
     }
-
-
 }
-

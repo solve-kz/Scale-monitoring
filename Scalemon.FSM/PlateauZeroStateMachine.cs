@@ -1,8 +1,10 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Scalemon.Common;
+using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using static Scalemon.Common.Enums;
 
 namespace Scalemon.FSM
 {
@@ -12,18 +14,6 @@ namespace Scalemon.FSM
     /// </summary>
     public sealed class PlateauZeroStateMachine
     {
-        public enum State
-        {
-            Disconnected,
-            Alarm,
-            IdleZero,        // стабильный ноль; "вооружено"
-            Weighing,        // валидный вес, копим плато (пока не стабилизировалось)
-            AwaitUnload,     // плато подтверждено (≥M), ждём разгрузки
-            PostUnload,      // определили хвост/ноль/отриц.; готовим запись
-            TarePending,     // отослали SetToZero()
-            WaitZeroAfterTare,
-            ZeroFailed
-        }
 
         [Flags]
         public enum Flags
@@ -48,12 +38,12 @@ namespace Scalemon.FSM
         // Внешние зависимости (инъекции):
         private readonly ILogger _log;
         private readonly Settings _cfg;
-        private readonly Func<decimal, decimal, decimal, Flags, Task> _onRecordAsync; // (net, peak, tail, flags)
-        private readonly Func<Task> _onAlarmAsync;  // при входе в Alarm
-        private readonly Action _sendTare;          // SetToZero() на драйвер
+        private readonly Func<decimal, Task> _onRecordAsync;
+        private readonly Action _sendTare;
+        private readonly ISignalBus _bus;// SetToZero() на драйвер
 
         // Служебные поля:
-        private State _st = State.Disconnected;
+        private FsmState _st = FsmState.Disconnected;
         private bool _connected;
         private bool _alarm;
         private int _consecutiveZeroCount = 0;
@@ -74,14 +64,14 @@ namespace Scalemon.FSM
         public PlateauZeroStateMachine(
             Settings cfg,
             ILogger logger,
-            Func<decimal, decimal, decimal, Flags, Task> onRecordAsync,
-            Func<Task> onAlarmAsync,
+            ISignalBus bus, // <-- ПРИНИМАЕМ ЗАВИСИМОСТЬ
+            Func<decimal, Task> onRecordAsync,
             Action sendTare)
         {
             _cfg = cfg;
             _log = logger;
+            _bus = bus; // <-- СОХРАНЯЕМ
             _onRecordAsync = onRecordAsync;
-            _onAlarmAsync = onAlarmAsync;
             _sendTare = sendTare;
 
             // Валидация порогов
@@ -94,6 +84,13 @@ namespace Scalemon.FSM
                 _cfg.PlateauStableSamples, _cfg.ZeroStableSamples, (int)_cfg.TareTimeout.TotalSeconds, _cfg.TareMaxRetries);
         }
 
+        // --- ДОБАВЛЯЕМ НОВОЕ СОСТОЯНИЕ В ENUM ---
+        // Важно: этот enum скорее всего лежит в отдельном файле, например, Scalemon.Common/Enums.cs
+        // Тебе нужно будет добавить `InvalidWeightState` туда.
+        // public enum FsmState { Disconnected, IdleZero, ..., InvalidWeightState }
+
+        public FsmState CurrentState => _st;
+
         // Вызывай это из твоего цикла опроса каждый раз, когда обновился статус соединения
         public void SetConnection(bool nowConnected)
         {
@@ -102,7 +99,7 @@ namespace Scalemon.FSM
 
             if (!_connected)
             {
-                Transition(State.Disconnected);
+                Transition(FsmState.Disconnected);
             }
             else
             {
@@ -112,21 +109,21 @@ namespace Scalemon.FSM
         }
 
         // Вызывай при смене аварийного статуса
-        public async Task SetAlarmAsync(bool alarmOn)
+        public Task SetAlarmAsync(bool alarmOn)
         {
-            if (_alarm == alarmOn) return;
+            if (_alarm == alarmOn) return Task.CompletedTask; // <-- Добавили возврат здесь
             _alarm = alarmOn;
 
             if (_alarm)
             {
-                Transition(State.Alarm);
-                if (_onAlarmAsync != null) await _onAlarmAsync();
+                Transition(FsmState.Alarm);
             }
             else
             {
                 _log.LogInformation("Снята авария весов, продолжаю работу");
-                // Возврат в нормальный поток произойдёт по следующей пробе веса
             }
+
+            return Task.CompletedTask; // <-- Добавили возврат здесь
         }
 
         /// <summary>
@@ -153,12 +150,12 @@ namespace Scalemon.FSM
             }
             if (!_connected)
             {
-                if (_st != State.Disconnected) Transition(State.Disconnected);
+                if (_st != FsmState.Disconnected) Transition(FsmState.Disconnected);
                 return;
             }
             if (_alarm)
             {
-                if (_st != State.Alarm) Transition(State.Alarm);
+                if (_st != FsmState.Alarm) Transition(FsmState.Alarm);
                 return;
             }
 
@@ -167,7 +164,7 @@ namespace Scalemon.FSM
             UpdateStability(cls);
 
             // 2) Тиковая обработка тайм-аута тарирования
-            if (_st == State.WaitZeroAfterTare && DateTime.UtcNow >= _tareDeadlineUtc)
+            if (_st == FsmState.WaitZeroAfterTare && DateTime.UtcNow >= _tareDeadlineUtc)
             {
                 if (_tareRetries < _cfg.TareMaxRetries)
                 {
@@ -178,7 +175,7 @@ namespace Scalemon.FSM
                 else
                 {
                     _log.LogError("Автоноль: все попытки исчерпаны");
-                    Transition(State.ZeroFailed);
+                    Transition(FsmState.ZeroFailed);
                 }
                 return;
             }
@@ -186,21 +183,21 @@ namespace Scalemon.FSM
             // 3) Логика состояний
             switch (_st)
             {
-                case State.Disconnected:
-                    if (IsZeroStable()) Transition(State.IdleZero);
-                    else if (IsValidPlateauStart(cls)) Transition(State.Weighing);
+                case FsmState.Disconnected:
+                    if (IsZeroStable()) Transition(FsmState.IdleZero);
+                    else if (IsValidPlateauStart(cls)) Transition(FsmState.Weighing);
                     break;
 
-                case State.Alarm:
+                case FsmState.Alarm:
                     // Ждём снятия аварии; переход обработается SetAlarmAsync
                     break;
 
-                case State.IdleZero:
+                case FsmState.IdleZero:
                     if (IsValidPlateauStart(cls))
                     {
                         _peak = w;
                         _plateauConfirmed = false;
-                        Transition(State.Weighing);
+                        Transition(FsmState.Weighing);
                     }
                     else if (IsResidualStable())
                     {
@@ -212,27 +209,45 @@ namespace Scalemon.FSM
                         _log.LogInformation("Обнаружен стабильный отрицательный вес ({weight} кг) в состоянии готовности. Инициирую автоноль.", w);
                         SendTareAndWait();
                     }
+                    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                    else if (IsInvalidLightStable())
+                    {
+                        _log.LogWarning("Обнаружен стабильный, но невалидный вес ({weight} кг) в диапазоне ({min}-{max} кг). Переход в состояние ошибки.",
+                            w, _cfg.ResidualBandKg, _cfg.MinWeightKg);
+                        Transition(FsmState.InvalidWeightState);
+                    }
+                    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
                     break;
 
-                case State.Weighing:
+                // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                case FsmState.InvalidWeightState:
+                    if (cls != Class.InvalidLight)
+                    {
+                        _log.LogInformation("Вес изменился ({weight} кг), выход из состояния ошибки.", w);
+                        Transition(FsmState.IdleZero);
+                    }
+                    break;
+                // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+                case FsmState.Weighing:
                     if (cls == Class.ValidHeavy)
                     {
                         if (w > _peak) _peak = w;
                         if (IsPlateauStable())
                         {
                             _plateauConfirmed = true;
-                            Transition(State.AwaitUnload);
+                            Transition(FsmState.AwaitUnload);
                         }
                     }
                     else if (IsZeroishStable(cls))
                     {
                         // плато не подтвердилось — сбрасываем цикл, возвращаемся к нулю
-                        Transition(State.IdleZero);
+                        Transition(FsmState.IdleZero);
                     }
                     // иначе игнорируем промежуточное "InvalidLight"
                     break;
 
-                case State.AwaitUnload:
+                case FsmState.AwaitUnload:
                     if (cls == Class.ValidHeavy)
                     {
                         if (w > _peak) _peak = w; // продолжаем копить пик
@@ -255,24 +270,24 @@ namespace Scalemon.FSM
                     }
                     break;
 
-                case State.PostUnload:
+                case FsmState.PostUnload:
                     // входное действие PostUnload вызывает PrepareRecordAsync → OnRecord → далее в Tare/IdleZero
                     break;
 
-                case State.TarePending:
-                case State.WaitZeroAfterTare:
+                case FsmState.TarePending:
+                case FsmState.WaitZeroAfterTare:
                     if (IsZeroStable())
                     {
                         _log.LogInformation("Автоноль подтверждён стабильным нулём");
-                        Transition(State.IdleZero);
+                        Transition(FsmState.IdleZero);
                     }
                     break;
 
-                case State.ZeroFailed:
+                case FsmState.ZeroFailed:
                     if (IsZeroStable())
                     {
                         _log.LogInformation("Ноль подтверждён, выходим из ZeroFailed");
-                        Transition(State.IdleZero);
+                        Transition(FsmState.IdleZero);
                     }
                     break;
             }
@@ -280,7 +295,14 @@ namespace Scalemon.FSM
 
         private async Task PrepareRecordAsync(Class cls, decimal w)
         {
-            Transition(State.PostUnload);
+
+            if (_peak < _cfg.MinWeightKg)
+            {
+                Transition(FsmState.IdleZero);
+                return;
+            }
+
+            Transition(FsmState.PostUnload);
 
             // 1) Расчёт net
             decimal net = _peak - _tail;
@@ -290,9 +312,10 @@ namespace Scalemon.FSM
             {
                 _log.LogWarning("FSM ПРОПУСК ЗАПИСИ: Рассчитанный вес НЕТТО ({net} кг) меньше минимального порога ({minWeight} кг). Пик={peak}, Хвост={tail}",
                         net, _cfg.MinWeightKg, _peak, _tail);
+                await _bus.SendAsync(Enums.ArduinoSignalCode.YellowRedOn); // <-- ОШИБКА ВЗВЕШИВАНИЯ
                 // Возврат в IdleZero или Tare в зависимости от хвоста/отрицательного
                 if (_tail > 0m || _needTareForNegative) SendTareAndWait();
-                else Transition(State.IdleZero);
+                else Transition(FsmState.IdleZero);
                 return;
             }
 
@@ -306,13 +329,14 @@ namespace Scalemon.FSM
                 _log.LogInformation("Запись взвешивания: net={net:0.###}kg (peak={peak:0.###}, tail={tail:0.###}, flags={flags})",
                     net, _peak, _tail, flags);
                 if (_onRecordAsync != null)
-                    await _onRecordAsync(net, _peak, _tail, flags);
+                    await _onRecordAsync(net);
+
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Ошибка записи взвешивания в БД");
                 // при ошибке записи не тарируем автоматически
-                Transition(State.IdleZero);
+                Transition(FsmState.IdleZero);
                 return;
             }
 
@@ -320,13 +344,13 @@ namespace Scalemon.FSM
             if (_tail > 0m || _needTareForNegative)
                 SendTareAndWait();
             else
-                Transition(State.IdleZero);
+                Transition(FsmState.IdleZero);
         }
 
         private void SendTareAndWait()
         {
             _needTareForNegative = false; // сбрасываем флаг: тарирование будет выполнено
-            Transition(State.TarePending);
+            Transition(FsmState.TarePending);
             try
             {
                 _sendTare?.Invoke();
@@ -334,18 +358,18 @@ namespace Scalemon.FSM
             catch (Exception ex)
             {
                 _log.LogError(ex, "Ошибка отправки SetToZero()");
-                Transition(State.ZeroFailed);
+                Transition(FsmState.ZeroFailed);
                 return;
             }
             _tareDeadlineUtc = DateTime.UtcNow + _cfg.TareTimeout;
-            Transition(State.WaitZeroAfterTare);
+            Transition(FsmState.WaitZeroAfterTare);
         }
 
         // ----------------- Вспомогательные методы -----------------
 
-        private void Transition(State to)
+        private void Transition(FsmState to)
         {
-            
+
             if (_st == to) return;
 
             var from = _st;
@@ -355,32 +379,36 @@ namespace Scalemon.FSM
             // При входе в ключевые состояния — один раз в лог
             switch (to)
             {
-                case State.Disconnected:
+                case FsmState.Disconnected:
                     _log.LogWarning("Связь с весами потеряна");
+                    _bus.SendAsync(Enums.ArduinoSignalCode.LinkOff); // <-- ВЫКЛЮЧИТЬ ВСЁ
                     break;
-                case State.IdleZero:
+                case FsmState.IdleZero:
                     _peak = 0m; _tail = 0m; _plateauConfirmed = false; _tareRetries = 0; _needTareForNegative = false;
                     _log.LogInformation("→ IdleZero");
                     break;
-                case State.Weighing:
+                case FsmState.InvalidWeightState: // --- ДОБАВЛЕНО ---
+                    _log.LogWarning("→ InvalidWeightState (обнаружен некорректный стабильный вес)");
+                    break;
+                case FsmState.Weighing:
                     _log.LogDebug("→ Weighing (start), peak={peak:0.###}", _peak);
                     break;
-                case State.AwaitUnload:
+                case FsmState.AwaitUnload:
                     _log.LogDebug("→ AwaitUnload (plateau confirmed), peak≈{peak:0.###}", _peak);
                     break;
-                case State.PostUnload:
+                case FsmState.PostUnload:
                     _log.LogDebug("→ PostUnload");
                     break;
-                case State.TarePending:
+                case FsmState.TarePending:
                     _log.LogDebug("→ TarePending");
                     break;
-                case State.WaitZeroAfterTare:
+                case FsmState.WaitZeroAfterTare:
                     _log.LogDebug("→ WaitZeroAfterTare (timeout at {deadline:o})", _tareDeadlineUtc);
                     break;
-                case State.ZeroFailed:
+                case FsmState.ZeroFailed:
                     _log.LogError("→ ZeroFailed (автоноль не удался)");
                     break;
-                case State.Alarm:
+                case FsmState.Alarm:
                     _log.LogError("→ Alarm");
                     break;
             }
@@ -402,7 +430,7 @@ namespace Scalemon.FSM
 
             if (w <= _cfg.ZeroBandKg) return Class.Zero;
             if (w <= _cfg.ResidualBandKg) return Class.ResidualPos;
-            if (w <= _cfg.MinWeightKg) return Class.InvalidLight;
+            if (w < _cfg.MinWeightKg) return Class.InvalidLight; // --- ИЗМЕНЕНО --- было w <= ...
             return Class.ValidHeavy;
         }
 
@@ -416,6 +444,8 @@ namespace Scalemon.FSM
         private bool IsZeroStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.Zero;
         private bool IsResidualStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.ResidualPos;
         private bool IsNegativeStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.Negative;
+        // --- ДОБАВЛЕНО ---
+        private bool IsInvalidLightStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.InvalidLight;
 
         private static decimal RoundToScaleStep(decimal x)
         {

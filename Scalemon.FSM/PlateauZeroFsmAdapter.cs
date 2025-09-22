@@ -1,7 +1,8 @@
-﻿using System;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Scalemon.Common;
+using System;
+using System.Threading.Tasks;
+using static Scalemon.Common.Enums;
 
 namespace Scalemon.FSM
 {
@@ -15,7 +16,7 @@ namespace Scalemon.FSM
             _core = core;
             _log = logger;
         }
-
+        public FsmState CurrentState => _core.CurrentState;
         public Task SetConnectionAsync(bool isConnected) 
         { 
             _core.SetConnection(isConnected); 

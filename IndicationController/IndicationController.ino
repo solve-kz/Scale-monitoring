@@ -80,7 +80,7 @@ void resetAllLamps() {
 }
 
 void setOnly(byte pin) {
-    digitalWrite(PIN_LINK, LOW);
+    digitalWrite(PIN_LINK, HIGH);
     digitalWrite(PIN_GREEN, LOW);
     digitalWrite(PIN_YELLOW, LOW);
     digitalWrite(PIN_RED, LOW);

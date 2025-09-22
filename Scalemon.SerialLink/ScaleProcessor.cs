@@ -25,7 +25,7 @@ namespace Scalemon.SerialLink
         private long _lastGoodTick;                     // когда был последний удачный кадр
         private int _goodStreak;                        // сколько удачных подряд
         private int _openPortErrorLogged = 0;           // одноразовый лог TryOpenPort
-        private int _connectionBreakdownLogged = 0;           // одноразовый лог connection breakdown
+        private int _connectionBreakdownLogged = 0;     // одноразовый лог connection breakdown
 
         private int _consecutiveZeroPacketCount = 0;
 
@@ -39,7 +39,7 @@ namespace Scalemon.SerialLink
 
         private DateTime _lastNoConnLog = DateTime.MinValue;
         private static readonly TimeSpan NoConnLogInterval = TimeSpan.FromSeconds(5);
-        
+
 
         public ScaleProcessor(
             ILogger<ScaleProcessor> log,
@@ -115,7 +115,6 @@ namespace Scalemon.SerialLink
 
         private async Task LoopAsync(CancellationToken ct)
         {
-
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingIntervalMs));
             while (!ct.IsCancellationRequested)
             {
@@ -130,47 +129,53 @@ namespace Scalemon.SerialLink
 
                     // 3) Разбор результата
                     ProcessConnectionTransition(nowConnected: _driver.IsConnected);
-
-
-                    // 2) события только при устойчивом соединении
-                    if (DataReceived != null)
-                    {
-                        {
-                            var dataPoint = new ScaleDataPoint(
-                                weightKg: _driver.Weight,
-                                isStable: _driver.Stable,
-                                isConnected: _connected, // <-- Используем актуальное состояние из процессора!
-                                isAlarm: _driver.IsScaleAlarm
-                            );
-                            if (dataPoint.WeightKg != 0)
-                            {
-                                _consecutiveZeroPacketCount = 0;
-                                _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
-                                              dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
-                            }
-                            else
-                            {
-                                _consecutiveZeroPacketCount++;
-                                if (_consecutiveZeroPacketCount <= 3)
-                                {
-                                    _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
-                                                  dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
-                                }
-                            }
-                            await InvokeAll(DataReceived, dataPoint);
-                        }
-                    }
                 }
                 catch (Exception ex)
                 {
-                    // Любое исключение при обмене — считаем обрывом связи
-                    ProcessConnectionTransition(nowConnected: false);
-                    // Одноразовый лог "не удалось открыть порт"
+                    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                    // Любое исключение при обмене — считаем обрывом связи НЕМЕДЛЕННО
+                    if (_connected)
+                    {
+                        _connected = false;
+                        _log.LogWarning("Соединение с весами потеряно (по причине: {message})", ex.Message);
+                        // Сбрасываем счетчики, чтобы не было ложного таймаута в ProcessConnectionTransition
+                        _goodStreak = 0;
+                    }
+                    // Одноразовый лог "обрыв связи"
                     if (Interlocked.Exchange(ref _connectionBreakdownLogged, 1) == 0)
                         _log.LogInformation("Обрыв связи: {message}", ex.Message);
+                    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
                 }
                 finally
                 {
+                    // В любом случае (успех или ошибка) отправляем подписчикам актуальное состояние
+                    if (DataReceived != null)
+                    {
+                        var dataPoint = new ScaleDataPoint(
+                            weightKg: _driver.Weight,
+                            isStable: _driver.Stable,
+                            isConnected: _connected, // <-- Используем актуальное состояние из процессора!
+                            isAlarm: _driver.IsScaleAlarm
+                        );
+
+                        if (dataPoint.WeightKg != 0)
+                        {
+                            _consecutiveZeroPacketCount = 0;
+                            _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
+                                          dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
+                        }
+                        else
+                        {
+                            _consecutiveZeroPacketCount++;
+                            if (_consecutiveZeroPacketCount <= 3)
+                            {
+                                _log.LogDebug("Отправляю пакет данных: Вес={weight}, Стабилен={stable}, Подключено={conn}, Авария={alarm}",
+                                              dataPoint.WeightKg, dataPoint.IsStable, dataPoint.IsConnected, dataPoint.IsAlarm);
+                            }
+                        }
+                        await InvokeAll(DataReceived, dataPoint);
+                    }
+
                     var took = (int)(Environment.TickCount64 - started);
                     _log.LogTrace("Iteration took {ms} ms", took);
                 }
@@ -178,7 +183,6 @@ namespace Scalemon.SerialLink
                 // ждём следующий тик
                 if (!await timer.WaitForNextTickAsync(ct)) break;
             }
-
         }
 
         private void TryOpenPort()
@@ -186,18 +190,16 @@ namespace Scalemon.SerialLink
             try
             {
                 _driver.OpenConnection(); // безопасно вызывать многократно
-                                          // Ничего не логируем здесь
+                // Ничего не логируем здесь, чтобы не спамить
             }
             catch (Exception ex)
             {
-                // Сэмпл "не подключено" — но устойчивый переход решит ProcessConnectionTransition()
-                ProcessConnectionTransition(nowConnected: false);
-
                 // Одноразовый лог "не удалось открыть порт"
                 if (Interlocked.Exchange(ref _openPortErrorLogged, 1) == 0)
                     _log.LogInformation("Не удалось открыть порт: {message}", ex.Message);
 
-                // дальше пусть цикл попробует ещё раз
+                // Генерируем исключение выше, чтобы его поймал основной обработчик
+                throw;
             }
         }
 
@@ -215,8 +217,9 @@ namespace Scalemon.SerialLink
                 if (!_connected && _goodStreak >= _connectStreakThreshold)
                 {
                     _connected = true;
-                    // разрешаем в будущем снова единоразово логировать ошибку открытия
+                    // разрешаем в будущем снова единоразово логировать ошибки
                     Interlocked.Exchange(ref _openPortErrorLogged, 0);
+                    Interlocked.Exchange(ref _connectionBreakdownLogged, 0);
 
                     _log.LogInformation("Соединение с весами установлено");
                 }
@@ -227,13 +230,14 @@ namespace Scalemon.SerialLink
                 _goodStreak = 0;
 
                 // если были в "подключено" — ждём таймаут молчания, затем считаем "потеряно"
+                // Исключения (полный обрыв) обрабатываются в LoopAsync и приводят к немедленному разрыву
                 if (_connected)
                 {
                     var msSinceGood = unchecked((int)(now - _lastGoodTick));
                     if (msSinceGood >= LostTimeoutMs)
                     {
                         _connected = false;
-                        _log.LogWarning("Соединение с весами потеряно");
+                        _log.LogWarning("Соединение с весами потеряно (таймаут ответа)");
                     }
                 }
                 // если уже "отключено" — ничего не пишем
@@ -247,12 +251,6 @@ namespace Scalemon.SerialLink
         {
             foreach (var d in ev.GetInvocationList())
                 await ((Func<ScaleDataPoint, Task>)d)(arg);
-        }
-
-        private static async Task InvokeAll(Func<decimal, Task> ev, decimal arg)
-        {
-            foreach (var d in ev.GetInvocationList())
-                await ((Func<decimal, Task>)d)(arg);
         }
     }
 }
