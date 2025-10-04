@@ -72,6 +72,16 @@
             } catch (e) { }
         },
 
+        triggerFileDialog(element) {
+            if (element) {
+                element.click();
+            }
+        },
+        resetFileInput(element) {
+            if (element) {
+                element.value = "";
+            }
+        },
         localTodayIso: function () {
             var d = new Date();
             var y = d.getFullYear();

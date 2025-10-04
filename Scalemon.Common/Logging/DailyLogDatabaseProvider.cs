@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text;
 
 namespace Scalemon.Common.Logging;
 
@@ -52,6 +53,27 @@ public sealed class DailyLogDatabaseProvider
     {
         var name = _prefix + date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + _extension;
         return Path.Combine(_directory, name);
+    }
+
+    public string GetImportPath(string? requestedName, string fallbackFileName, out string databaseFileName)
+    {
+        var baseName = string.IsNullOrWhiteSpace(requestedName) ? fallbackFileName : requestedName;
+        baseName = Path.GetFileNameWithoutExtension(baseName);
+
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "import_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        }
+
+        baseName = Sanitize(baseName);
+
+        if (!baseName.StartsWith(_prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            baseName = _prefix + "_" + baseName;
+        }
+
+        databaseFileName = baseName + _extension;
+        return Path.Combine(_directory, databaseFileName);
     }
 
     public IReadOnlyList<LogDatabaseFile> EnumerateDatabases(DateTime? from = null, DateTime? to = null)
@@ -112,6 +134,29 @@ public sealed class DailyLogDatabaseProvider
     {
         LogDatabaseInitializer.EnsureDatabase(path);
         return LogDatabaseInitializer.BuildConnectionString(path);
+    }
+
+    private static string Sanitize(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsLetterOrDigit(ch) || ch == '-' || ch == '_')
+            {
+                builder.Append(ch);
+            }
+            else
+            {
+                builder.Append('_');
+            }
+        }
+
+        if (builder.Length == 0)
+        {
+            builder.Append('0');
+        }
+
+        return builder.ToString();
     }
 
     public readonly record struct LogDatabaseFile(string Path, DateTime Date);

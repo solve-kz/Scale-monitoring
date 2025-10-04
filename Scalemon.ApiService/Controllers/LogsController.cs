@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.IO;
@@ -20,22 +20,14 @@ public sealed class LogsController : ControllerBase
 {
     private readonly ILogger<LogsController> _logger;
     private readonly SqliteLogRepository _repository;
-    private readonly string _legacyLogPath;
     static readonly string[] LevelOrder = { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
     static int Rank(string s) => Array.IndexOf(LevelOrder, NormalizeLevel(s));
 
-    public LogsController(SqliteLogRepository repository, IConfiguration config, ILogger<LogsController> logger)
+    public LogsController(SqliteLogRepository repository, ILogger<LogsController> logger)
     {
         _logger = logger;
         _repository = repository;
-
-        var fromConfig = config["Logging:FilePath:MainLogPath"];
-        var def = Path.Combine(AppContext.BaseDirectory, "logs", "main.log");
-        _legacyLogPath = string.IsNullOrWhiteSpace(fromConfig) ? def : fromConfig;
     }
-
-    // Если пришёл path в query — используем его, иначе путь из конфигурации/дефолта
-    private string ResolvePath(string? q) => string.IsNullOrWhiteSpace(q) ? _legacyLogPath : q;
 
     private static string NormalizeLevel(string? level)
     {
@@ -212,51 +204,41 @@ public sealed class LogsController : ControllerBase
 
     // -----------------------------------------------------------------------
     // ИМПОРТ ТЕКСТОВОГО ЛОГА В SQLite
-    // POST /api/logs/import?path=..
+    // POST /api/logs/import
     [HttpPost("import")]
-    public async Task<IActionResult> Import([FromQuery] string? path)
+    [RequestFormLimits(ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = long.MaxValue)]
+    public async Task<IActionResult> Import([FromForm] List<IFormFile> files, [FromForm] List<string>? fileNames)
     {
-        var target = ResolvePath(path);
-        if (!System.IO.File.Exists(target))
+        if (files is null || files.Count == 0)
         {
-            return NotFound("Log file not found.");
+            return BadRequest("No files uploaded.");
         }
 
         var ct = HttpContext.RequestAborted;
-        var batch = new List<LogEntry>(2048);
-        var imported = 0;
+        var results = new List<ImportResponse>(files.Count);
 
-        try
+        for (var i = 0; i < files.Count; i++)
         {
-            await foreach (var entry in ReadEntriesAsync(target, ct))
+            var file = files[i];
+            var requestedName = fileNames is { Count: > 0 } && i < fileNames.Count ? fileNames[i] : null;
+
+            try
             {
-                batch.Add(entry);
-                if (batch.Count >= 2000)
-                {
-                    await _repository.AppendAsync(batch, ct);
-                    imported += batch.Count;
-                    batch.Clear();
-                }
+                var summary = await _repository.ImportAsync(ReadEntriesAsync(file, ct), file.FileName, requestedName, ct);
+                results.Add(new ImportResponse(file.FileName, summary.DatabaseFileName, summary.DatabasePath, summary.ImportedCount, null));
             }
-
-            if (batch.Count > 0)
+            catch (OperationCanceledException)
             {
-                await _repository.AppendAsync(batch, ct);
-                imported += batch.Count;
-                batch.Clear();
+                return StatusCode(StatusCodes.Status499ClientClosedRequest);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to import uploaded log {File}", file.FileName);
+                results.Add(new ImportResponse(file.FileName, null, null, 0, ex.Message));
             }
         }
-        catch (OperationCanceledException)
-        {
-            return StatusCode(StatusCodes.Status499ClientClosedRequest);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to import log file {File}", target);
-            return Problem($"Failed to import log file: {ex.Message}");
-        }
 
-        return Ok(new { Imported = imported });
+        return Ok(results);
     }
 
     private static IReadOnlyList<string>? BuildLevelFilter(string? levels)
@@ -283,21 +265,26 @@ public sealed class LogsController : ControllerBase
         return tokens;
     }
 
-    private async IAsyncEnumerable<LogEntry> ReadEntriesAsync(string path, [EnumeratorCancellation] CancellationToken ct)
+    private const long MaxUploadedLogSize = 512L * 1024 * 1024;
+
+    private async IAsyncEnumerable<LogEntry> ReadEntriesAsync(IFormFile upload, [EnumeratorCancellation] CancellationToken ct)
     {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var sr = new StreamReader(fs, detectEncodingFromByteOrderMarks: true);
+        await using var stream = upload.OpenReadStream(MaxUploadedLogSize);
+        using var sr = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
 
         while (!sr.EndOfStream)
         {
             ct.ThrowIfCancellationRequested();
             var line = await sr.ReadLineAsync();
-            if (line is null) break;
+            if (line is null)
+                yield break;
 
             if (TryParseLine(line, out var entry))
                 yield return entry;
         }
     }
+
+    private sealed record ImportResponse(string File, string? Database, string? Path, int Imported, string? Error);
 
     // -----------------------------------------------------------------------
     // ПРОСТОЙ ПАРСЕР (универсальный, не привязан к формату; строка = Message)

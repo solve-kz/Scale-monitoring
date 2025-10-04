@@ -3,7 +3,10 @@ using Scalemon.ApiService.Models;
 using Scalemon.Common.Logging;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace Scalemon.ApiService.Services;
 
@@ -214,6 +217,79 @@ VALUES ($ts, $level, $source, $message, $exception);";
             await cmd.ExecuteNonQueryAsync(ct);
         }
     }
+
+    public async Task<ImportSummary> ImportAsync(
+        IAsyncEnumerable<LogEntry> entries,
+        string originalFileName,
+        string? requestedName,
+        CancellationToken ct)
+    {
+        var path = _databaseProvider.GetImportPath(requestedName, originalFileName, out var databaseFileName);
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new IOException($"Failed to reset target database '{path}': {ex.Message}", ex);
+        }
+
+        LogDatabaseInitializer.EnsureDatabase(path);
+
+        await using var connection = new SqliteConnection(_databaseProvider.GetConnectionStringForPath(path));
+        await connection.OpenAsync(ct);
+        LogDatabaseInitializer.EnsureSchema(connection);
+
+        await using DbTransaction transaction = await connection.BeginTransactionAsync(ct);
+        await using DbCommand cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = $@"INSERT INTO {LogDatabaseInitializer.TableName}
+(Timestamp, Level, Source, Message, Exception)
+VALUES ($ts, $level, $source, $message, $exception);";
+
+        var tsParam = cmd.CreateParameter();
+        tsParam.ParameterName = "$ts";
+        cmd.Parameters.Add(tsParam);
+
+        var levelParam = cmd.CreateParameter();
+        levelParam.ParameterName = "$level";
+        cmd.Parameters.Add(levelParam);
+
+        var sourceParam = cmd.CreateParameter();
+        sourceParam.ParameterName = "$source";
+        cmd.Parameters.Add(sourceParam);
+
+        var messageParam = cmd.CreateParameter();
+        messageParam.ParameterName = "$message";
+        cmd.Parameters.Add(messageParam);
+
+        var exceptionParam = cmd.CreateParameter();
+        exceptionParam.ParameterName = "$exception";
+        cmd.Parameters.Add(exceptionParam);
+
+        var inserted = 0;
+
+        await foreach (var entry in entries.WithCancellation(ct))
+        {
+            tsParam.Value = ToIsoString(entry.Timestamp);
+            levelParam.Value = entry.Level ?? string.Empty;
+            sourceParam.Value = ToDbValue(entry.Source);
+            messageParam.Value = ToDbValue(entry.Message);
+            exceptionParam.Value = ToDbValue(entry.Exception);
+            await cmd.ExecuteNonQueryAsync(ct);
+            inserted++;
+        }
+
+        await transaction.CommitAsync(ct);
+
+        return new ImportSummary(originalFileName, databaseFileName, path, inserted);
+    }
+
+    public readonly record struct ImportSummary(string SourceFile, string DatabaseFileName, string DatabasePath, int ImportedCount);
 
     private static void AddParameters(SqliteCommand command, IEnumerable<(string Name, object? Value)> parameters)
     {

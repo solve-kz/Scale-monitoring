@@ -1,4 +1,8 @@
-﻿using System.Net.Http.Json;
+﻿using System.IO;
+using System.Collections.Generic;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Threading;
 using System.Web;
 
 namespace Scalemon.WebApp;
@@ -15,6 +19,8 @@ public sealed class ApiClient
     public sealed record LogPaths(string MainLogPath, string DetailedLogPath);
     public sealed record LogEntry(DateTime Timestamp, string Level, string Source, string Message, string? Exception);
     public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
+    public sealed record ImportLogResponse(string File, string? Database, string? Path, int Imported, string? Error);
+    public readonly record struct UploadFilePayload(Stream Stream, string FileName, string? ContentType = null, string? TargetName = null);
 
     // ---------- методы, которые вызывает UI ----------
     // /api/service/status  -> JSON-строка ("Running"/"Paused"/"Stopped")
@@ -44,8 +50,8 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
-    // ---------- SettingsController: logging ----------
-    // /api/settings/logging/levels
+
+
     public async Task<string[]> GetLoggingLevelsAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<string[]>("api/settings/logging/levels", ct) ?? Array.Empty<string>();
 
@@ -107,4 +113,40 @@ public sealed class ApiClient
         var resp = await _http.DeleteAsync(url, ct);
         resp.EnsureSuccessStatusCode();
     }
+
+    public async Task<IReadOnlyList<ImportLogResponse>> ImportLogsAsync(IEnumerable<UploadFilePayload> files, CancellationToken ct = default)
+    {
+        using var content = new MultipartFormDataContent();
+        var hasFiles = false;
+
+        foreach (var file in files)
+        {
+            var streamContent = new StreamContent(file.Stream);
+            if (!string.IsNullOrWhiteSpace(file.ContentType))
+            {
+                streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+            }
+
+            var targetName = string.IsNullOrWhiteSpace(file.TargetName) ? file.FileName : file.TargetName!;
+
+            content.Add(streamContent, "files", file.FileName);
+            content.Add(new StringContent(targetName), "fileNames");
+            hasFiles = true;
+        }
+
+        if (!hasFiles)
+        {
+            return Array.Empty<ImportLogResponse>();
+        }
+
+        var response = await _http.PostAsync("api/logs/import", content, ct);
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<ImportLogResponse[]>(cancellationToken: ct);
+        return payload ?? Array.Empty<ImportLogResponse>();
+    }
+
+    // ---------- SettingsController: logging ----------
+    // /api/settings/logging/levels
+
 }
