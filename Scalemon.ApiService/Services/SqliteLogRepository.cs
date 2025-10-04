@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Scalemon.ApiService.Models;
 using Scalemon.Common.Logging;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
 
 namespace Scalemon.ApiService.Services;
@@ -158,9 +159,9 @@ ORDER BY datetime(Timestamp) DESC;";
             var connectionString = _databaseProvider.GetConnectionString(group.Key);
             await using var connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(ct);
-            await using var transaction = await connection.BeginTransactionAsync(ct);
+            await using DbTransaction transaction = await connection.BeginTransactionAsync(ct);
 
-            await using var cmd = connection.CreateCommand();
+            await using DbCommand cmd = connection.CreateCommand();
             cmd.Transaction = transaction;
             cmd.CommandText = $@"INSERT INTO {LogDatabaseInitializer.TableName}
 (Timestamp, Level, Source, Message, Exception)
