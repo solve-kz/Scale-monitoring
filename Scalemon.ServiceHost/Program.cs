@@ -35,8 +35,8 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
-var logDatabasePath = LogDatabaseInitializer.NormalizeDatabasePath(config["Logging:Database:MainDatabasePath"]);
-LogDatabaseInitializer.EnsureDatabase(logDatabasePath);
+var logDatabaseProvider = new DailyLogDatabaseProvider(config["Logging:Database:MainDatabasePath"]);
+logDatabaseProvider.EnsureCurrentDatabase();
 
 
 // --- 2. НАСТРОЙКА ЛОГИРОВАНИЯ (SERILOG) ---
@@ -54,7 +54,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .WriteTo.Sink(new SqliteLogSink(logDatabasePath))
+    .WriteTo.Sink(new SqliteLogSink(logDatabaseProvider))
     .CreateLogger();
 
 builder.Logging.ClearProviders();
@@ -66,7 +66,8 @@ builder.Services.AddSingleton(levelSwitch);
 
 // Основные настройки
 builder.Services.AddOptions<ServiceSettings>().Bind(config);
-builder.Services.AddSingleton<SqliteLogRepository>(_ => new SqliteLogRepository(logDatabasePath));
+builder.Services.AddSingleton(logDatabaseProvider);
+builder.Services.AddSingleton<SqliteLogRepository>();
 
 // Фоновые сервисы (ядро системы)
 builder.Services.AddSingleton<IScaleProcessor>(sp =>

@@ -1,43 +1,60 @@
 using Microsoft.Data.Sqlite;
 using Scalemon.ApiService.Models;
 using Scalemon.Common.Logging;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Scalemon.ApiService.Services;
 
 public sealed class SqliteLogRepository
 {
-    private readonly string _connectionString;
+    private readonly DailyLogDatabaseProvider _databaseProvider;
 
-    public SqliteLogRepository(string databasePath)
+    public SqliteLogRepository(DailyLogDatabaseProvider databaseProvider)
     {
-        LogDatabaseInitializer.EnsureDatabase(databasePath);
-        _connectionString = LogDatabaseInitializer.BuildConnectionString(databasePath);
+        _databaseProvider = databaseProvider;
+        _databaseProvider.EnsureCurrentDatabase();
     }
 
-    private SqliteConnection CreateConnection() => new(_connectionString);
+    private SqliteConnection CreateConnection(string path)
+        => new(_databaseProvider.GetConnectionStringForPath(path));
 
     public async Task<IReadOnlyList<LogEntry>> GetRecentAsync(int limit, CancellationToken ct)
     {
         if (limit <= 0) return Array.Empty<LogEntry>();
 
-        await using var connection = CreateConnection();
-        await connection.OpenAsync(ct);
+        var dbFiles = _databaseProvider.EnumerateDatabases();
+        var aggregated = new List<LogEntry>(limit);
 
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
+        foreach (var db in dbFiles)
+        {
+            var remaining = limit - aggregated.Count;
+            if (remaining <= 0) break;
+
+            await using var connection = CreateConnection(db.Path);
+            await connection.OpenAsync(ct);
+
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
 FROM {LogDatabaseInitializer.TableName}
 ORDER BY datetime(Timestamp) DESC
 LIMIT $limit;";
-        cmd.Parameters.Add(new SqliteParameter("$limit", limit));
+            cmd.Parameters.Add(new SqliteParameter("$limit", remaining));
 
-        var result = new List<LogEntry>(limit);
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            result.Add(ReadEntry(reader));
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                aggregated.Add(ReadEntry(reader));
+            }
         }
 
-        return result;
+        aggregated.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
+        if (aggregated.Count > limit)
+        {
+            aggregated.RemoveRange(limit, aggregated.Count - limit);
+        }
+
+        return aggregated;
     }
 
     public async Task<PagedResult<LogEntry>> GetPagedAsync(
@@ -52,41 +69,46 @@ LIMIT $limit;";
         skip = Math.Max(0, skip);
         take = Math.Clamp(take, 1, 5000);
 
-        await using var connection = CreateConnection();
-        await connection.OpenAsync(ct);
-
         var filterParameters = new List<(string Name, object? Value)>();
         var whereClause = BuildWhereClause(allowedLevels, search, from, to, filterParameters);
 
+        var dbFiles = _databaseProvider.EnumerateDatabases(from, to);
+        var items = new List<LogEntry>(take * Math.Max(1, dbFiles.Count));
         long total = 0;
-        await using (var countCmd = connection.CreateCommand())
-        {
-            countCmd.CommandText = $"SELECT COUNT(*) FROM {LogDatabaseInitializer.TableName} {whereClause};";
-            AddParameters(countCmd, filterParameters);
-            var scalar = await countCmd.ExecuteScalarAsync(ct);
-            total = scalar is long l ? l : Convert.ToInt64(scalar ?? 0);
-        }
 
-        var items = new List<LogEntry>(take);
-        await using (var dataCmd = connection.CreateCommand())
+        foreach (var db in dbFiles)
         {
-            dataCmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
+            await using var connection = CreateConnection(db.Path);
+            await connection.OpenAsync(ct);
+
+            await using (var countCmd = connection.CreateCommand())
+            {
+                countCmd.CommandText = $"SELECT COUNT(*) FROM {LogDatabaseInitializer.TableName} {whereClause};";
+                AddParameters(countCmd, filterParameters);
+                var scalar = await countCmd.ExecuteScalarAsync(ct);
+                total += scalar is long l ? l : Convert.ToInt64(scalar ?? 0);
+            }
+
+            await using (var dataCmd = connection.CreateCommand())
+            {
+                dataCmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
 FROM {LogDatabaseInitializer.TableName}
 {whereClause}
-ORDER BY datetime(Timestamp) DESC
-LIMIT $take OFFSET $skip;";
-            AddParameters(dataCmd, filterParameters);
-            dataCmd.Parameters.Add(new SqliteParameter("$take", take));
-            dataCmd.Parameters.Add(new SqliteParameter("$skip", skip));
+ORDER BY datetime(Timestamp) DESC;";
+                AddParameters(dataCmd, filterParameters);
 
-            await using var reader = await dataCmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                items.Add(ReadEntry(reader));
+                await using var reader = await dataCmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    items.Add(ReadEntry(reader));
+                }
             }
         }
 
-        return new PagedResult<LogEntry>(items, (int)Math.Min(int.MaxValue, total));
+        items.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
+        var pageItems = items.Skip(skip).Take(take).ToList();
+
+        return new PagedResult<LogEntry>(pageItems, (int)Math.Min(int.MaxValue, total));
     }
 
     public async Task<IReadOnlyList<LogEntry>> GetAllAsync(
@@ -96,26 +118,32 @@ LIMIT $take OFFSET $skip;";
         DateTime? to,
         CancellationToken ct)
     {
-        await using var connection = CreateConnection();
-        await connection.OpenAsync(ct);
-
         var filterParameters = new List<(string Name, object? Value)>();
         var whereClause = BuildWhereClause(allowedLevels, search, from, to, filterParameters);
 
-        var items = new List<LogEntry>(1024);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
+        var dbFiles = _databaseProvider.EnumerateDatabases(from, to);
+        var items = new List<LogEntry>(1024 * Math.Max(1, dbFiles.Count));
+
+        foreach (var db in dbFiles)
+        {
+            await using var connection = CreateConnection(db.Path);
+            await connection.OpenAsync(ct);
+
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
 FROM {LogDatabaseInitializer.TableName}
 {whereClause}
 ORDER BY datetime(Timestamp) DESC;";
-        AddParameters(cmd, filterParameters);
+            AddParameters(cmd, filterParameters);
 
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            items.Add(ReadEntry(reader));
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                items.Add(ReadEntry(reader));
+            }
         }
 
+        items.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
         return items;
     }
 
@@ -123,56 +151,67 @@ ORDER BY datetime(Timestamp) DESC;";
     {
         if (entries.Count == 0) return;
 
-        await using var connection = CreateConnection();
-        await connection.OpenAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        var grouped = entries.GroupBy(e => e.Timestamp.Date);
 
-        await using var cmd = connection.CreateCommand();
-        cmd.Transaction = transaction;
-        cmd.CommandText = $@"INSERT INTO {LogDatabaseInitializer.TableName}
+        foreach (var group in grouped)
+        {
+            var connectionString = _databaseProvider.GetConnectionString(group.Key);
+            await using var connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(ct);
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = transaction;
+            cmd.CommandText = $@"INSERT INTO {LogDatabaseInitializer.TableName}
 (Timestamp, Level, Source, Message, Exception)
 VALUES ($ts, $level, $source, $message, $exception);";
 
-        var tsParam = cmd.CreateParameter();
-        tsParam.ParameterName = "$ts";
-        cmd.Parameters.Add(tsParam);
+            var tsParam = cmd.CreateParameter();
+            tsParam.ParameterName = "$ts";
+            cmd.Parameters.Add(tsParam);
 
-        var levelParam = cmd.CreateParameter();
-        levelParam.ParameterName = "$level";
-        cmd.Parameters.Add(levelParam);
+            var levelParam = cmd.CreateParameter();
+            levelParam.ParameterName = "$level";
+            cmd.Parameters.Add(levelParam);
 
-        var sourceParam = cmd.CreateParameter();
-        sourceParam.ParameterName = "$source";
-        cmd.Parameters.Add(sourceParam);
+            var sourceParam = cmd.CreateParameter();
+            sourceParam.ParameterName = "$source";
+            cmd.Parameters.Add(sourceParam);
 
-        var messageParam = cmd.CreateParameter();
-        messageParam.ParameterName = "$message";
-        cmd.Parameters.Add(messageParam);
+            var messageParam = cmd.CreateParameter();
+            messageParam.ParameterName = "$message";
+            cmd.Parameters.Add(messageParam);
 
-        var exceptionParam = cmd.CreateParameter();
-        exceptionParam.ParameterName = "$exception";
-        cmd.Parameters.Add(exceptionParam);
+            var exceptionParam = cmd.CreateParameter();
+            exceptionParam.ParameterName = "$exception";
+            cmd.Parameters.Add(exceptionParam);
 
-        foreach (var entry in entries)
-        {
-            tsParam.Value = ToIsoString(entry.Timestamp);
-            levelParam.Value = entry.Level ?? string.Empty;
-            sourceParam.Value = ToDbValue(entry.Source);
-            messageParam.Value = ToDbValue(entry.Message);
-            exceptionParam.Value = ToDbValue(entry.Exception);
-            await cmd.ExecuteNonQueryAsync(ct);
+            foreach (var entry in group)
+            {
+                tsParam.Value = ToIsoString(entry.Timestamp);
+                levelParam.Value = entry.Level ?? string.Empty;
+                sourceParam.Value = ToDbValue(entry.Source);
+                messageParam.Value = ToDbValue(entry.Message);
+                exceptionParam.Value = ToDbValue(entry.Exception);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+
+            await transaction.CommitAsync(ct);
         }
-
-        await transaction.CommitAsync(ct);
     }
 
     public async Task ClearAsync(CancellationToken ct)
     {
-        await using var connection = CreateConnection();
-        await connection.OpenAsync(ct);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = $"DELETE FROM {LogDatabaseInitializer.TableName};";
-        await cmd.ExecuteNonQueryAsync(ct);
+        var dbFiles = _databaseProvider.EnumerateDatabases();
+
+        foreach (var db in dbFiles)
+        {
+            await using var connection = CreateConnection(db.Path);
+            await connection.OpenAsync(ct);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = $"DELETE FROM {LogDatabaseInitializer.TableName};";
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
     }
 
     private static void AddParameters(SqliteCommand command, IEnumerable<(string Name, object? Value)> parameters)

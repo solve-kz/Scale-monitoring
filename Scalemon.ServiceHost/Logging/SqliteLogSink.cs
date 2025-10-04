@@ -9,19 +9,20 @@ namespace Scalemon.ServiceHost.Logging;
 
 public sealed class SqliteLogSink : ILogEventSink
 {
-    private readonly string _connectionString;
+    private readonly DailyLogDatabaseProvider _databaseProvider;
 
-    public SqliteLogSink(string databasePath)
+    public SqliteLogSink(DailyLogDatabaseProvider databaseProvider)
     {
-        LogDatabaseInitializer.EnsureDatabase(databasePath);
-        _connectionString = LogDatabaseInitializer.BuildConnectionString(databasePath);
+        _databaseProvider = databaseProvider;
     }
 
     public void Emit(LogEvent logEvent)
     {
         try
         {
-            using var connection = new SqliteConnection(_connectionString);
+            var localDate = logEvent.Timestamp.ToLocalTime().Date;
+            var connectionString = _databaseProvider.GetConnectionString(localDate);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
 
             using var command = connection.CreateCommand();
