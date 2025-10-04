@@ -10,8 +10,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Radzen;
 using Scalemon.ApiService.Controllers;
+using Scalemon.ApiService.Services;
 using Scalemon.Common;
 using Scalemon.Common.Auth;
+using Scalemon.Common.Logging;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
@@ -19,6 +21,7 @@ using Scalemon.SqlDataAccess;
 using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
 using Scalemon.WebApp.Data;
+using Scalemon.ServiceHost.Logging;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -31,6 +34,9 @@ using System.Text;
 // WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+
+var logDatabasePath = LogDatabaseInitializer.NormalizeDatabasePath(config["Logging:Database:MainDatabasePath"]);
+LogDatabaseInitializer.EnsureDatabase(logDatabasePath);
 
 
 // --- 2. НАСТРОЙКА ЛОГИРОВАНИЯ (SERILOG) ---
@@ -48,10 +54,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .WriteTo.File(
-        new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
-        config["Logging:FilePath:MainLogPath"] ?? "C:\\Logs\\main.log",
-        rollingInterval: RollingInterval.Day)
+    .WriteTo.Sink(new SqliteLogSink(logDatabasePath))
     .CreateLogger();
 
 builder.Logging.ClearProviders();
@@ -63,6 +66,7 @@ builder.Services.AddSingleton(levelSwitch);
 
 // Основные настройки
 builder.Services.AddOptions<ServiceSettings>().Bind(config);
+builder.Services.AddSingleton<SqliteLogRepository>(_ => new SqliteLogRepository(logDatabasePath));
 
 // Фоновые сервисы (ядро системы)
 builder.Services.AddSingleton<IScaleProcessor>(sp =>
