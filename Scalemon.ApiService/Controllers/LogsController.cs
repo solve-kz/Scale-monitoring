@@ -269,10 +269,10 @@ public sealed class LogsController : ControllerBase
 
     private async IAsyncEnumerable<LogEntry> ReadEntriesAsync(IFormFile upload, [EnumeratorCancellation] CancellationToken ct)
     {
-        await using var stream = upload.OpenReadStream(MaxUploadedLogSize);
+        await using var stream = upload.OpenReadStream(MaxUploadedLogSize, ct);
         using var sr = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
 
-        while (!sr.EndOfStream)
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
             var line = await sr.ReadLineAsync();
