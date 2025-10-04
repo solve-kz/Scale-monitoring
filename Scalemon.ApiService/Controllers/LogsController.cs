@@ -269,7 +269,12 @@ public sealed class LogsController : ControllerBase
 
     private async IAsyncEnumerable<LogEntry> ReadEntriesAsync(IFormFile upload, [EnumeratorCancellation] CancellationToken ct)
     {
-        await using var stream = upload.OpenReadStream(MaxUploadedLogSize, ct);
+        if (upload.Length > MaxUploadedLogSize)
+        {
+            throw new InvalidOperationException($"Uploaded file '{upload.FileName}' exceeds the maximum allowed size of {MaxUploadedLogSize} bytes.");
+        }
+
+        await using var stream = upload.OpenReadStream();
         using var sr = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
 
         while (true)
