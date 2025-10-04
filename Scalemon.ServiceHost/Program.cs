@@ -1,255 +1,300 @@
-using AspNetCore.Authentication.Basic;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Radzen;
 using Scalemon.ApiService.Controllers;
 using Scalemon.Common;
+using Scalemon.Common.Auth;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
 using Scalemon.SqlDataAccess;
-// --- ДОБАВЛЯЕМ USING ДЛЯ BLAZOR ---
-// Убедитесь, что namespace соответствует вашему проекту веб-приложения
+using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
+using Scalemon.WebApp.Data;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using Serilog.Filters;
-using Serilog.Formatting.Json;
-using System;
-using System.IO;
-using System.Threading.Tasks;
-// -----------------------------------
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text;
+
+// --- 1. СОЗДАНИЕ УНИВЕРСАЛЬНОГО ПОСТРОИТЕЛЯ ПРИЛОЖЕНИЯ ---
+// WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
+var builder = WebApplication.CreateBuilder(args);
+var config = builder.Configuration;
 
 
-
-
-// 1) Считываем конфигурацию
-var config = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-    .Build();
-
-var settings = config.Get<ServiceSettings>();
-
-// 2) Создаём LevelSwitch, задав начальный уровень из конфига
+// --- 2. НАСТРОЙКА ЛОГИРОВАНИЯ (SERILOG) ---
 var levelSwitch = new LoggingLevelSwitch();
-var initialLevel = config.GetSection("Logging:Level:Default").Value!;
-levelSwitch.MinimumLevel = Enum.Parse<LogEventLevel>(initialLevel, ignoreCase: true);
+levelSwitch.MinimumLevel = Enum.Parse<LogEventLevel>(config["Logging:Level:Default"] ?? "Information", ignoreCase: true);
 
-// Привязываем JSON в POCO
-var serviceSettings = new Scalemon.Common.ServiceSettings();
-config.Bind(serviceSettings);
-
-// Сразу читаем то, что нужно для Serilog и WebHost
-var mainLogPath = serviceSettings.Logging.FilePath.MainLogPath;
-var apiPort = serviceSettings.Api.Port;
-var apiUser = serviceSettings.Authentication.Basic.Username;
-var apiPass = serviceSettings.Authentication.Basic.Password;
-
-
-
-// Настраиваем Serilog
 Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(config)               // ← СНАЧАЛА читаем из appsettings
+    .ReadFrom.Configuration(config)
     .MinimumLevel.ControlledBy(levelSwitch)
-
-    // Меньше системного шума
+    // ↓ глушим болтливый HttpClient
+    .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.SocketsHttpHandler", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.Extensions.Http", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.HttpClient.ApiClient", LogEventLevel.Warning) // точечно для вашего typed-клиента
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
-    .MinimumLevel.Override("Microsoft.AspNetCore.Authentication", LogEventLevel.Information)
-    .MinimumLevel.Override("AspNetCore.Authentication", LogEventLevel.Information) // ← добавили
-
-    // Жёстко вырезаем всю ветку Authentication вне зависимости от уровня
-    .Filter.ByExcluding(Matching.FromSource("Microsoft.AspNetCore.Authentication"))
-    .Filter.ByExcluding(Matching.FromSource("AspNetCore.Authentication"))          // ← добавили
-
-    // На всякий случай вырежем именно эту фразу на Debug, если вдруг придёт из другой категории
-    .Filter.ByExcluding(le => le.Level == LogEventLevel.Debug
-        && le.MessageTemplate.Text.Contains("was successfully authenticated", StringComparison.OrdinalIgnoreCase))
-
-    .WriteTo.File(new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
-                  mainLogPath,
-                  rollingInterval: RollingInterval.Day)
+    .Enrich.FromLogContext()
+    .WriteTo.File(
+        new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
+        config["Logging:FilePath:MainLogPath"] ?? "C:\\Logs\\main.log",
+        rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
-IHost host = Host.CreateDefaultBuilder(args)
-    .UseWindowsService()
-    .UseSerilog()
-    .ConfigureServices((hostContext, services) =>
+builder.Logging.ClearProviders();
+builder.Host.UseSerilog(); // Используем Serilog для всего хоста
+builder.Services.AddSingleton(levelSwitch);
+
+
+// --- 3. РЕГИСТРАЦИЯ СЕРВИСОВ ПРИЛОЖЕНИЯ ---
+
+// Основные настройки
+builder.Services.AddOptions<ServiceSettings>().Bind(config);
+
+// Фоновые сервисы (ядро системы)
+builder.Services.AddSingleton<IScaleProcessor>(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings;
+    var driver = new SerialPortScaleDriver100(sp.GetRequiredService<ILogger<SerialPortScaleDriver100>>());
+    return new ScaleProcessor(
+        sp.GetRequiredService<ILogger<ScaleProcessor>>(), driver, settings.PortName,
+        settings.StableThreshold, settings.UnstableThreshold, settings.PollingIntervalMs);
+});
+
+builder.Services.AddSingleton<IAuthService, InMemoryAuthService>();
+
+builder.Services.AddSingleton<IDataAccess>(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.DatabaseSettings;
+    return new SqlDataAccess(
+        sp.GetRequiredService<ILogger<SqlDataAccess>>(), settings.ConnectionString, settings.TableName,
+        settings.MaxRetryQueueSize, settings.AlarmSize, sp.GetRequiredService<IHostApplicationLifetime>());
+});
+
+builder.Services.AddSingleton<ISignalBus>(sp =>
+{
+    var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.PlcSettings;
+    return new SignalBus(
+        sp.GetRequiredService<ILogger<SignalBus>>(), settings.PortName, settings.BaudRate, settings.ReconnectIntervalMs);
+});
+
+builder.Services.AddSingleton<IScaleStateMachine>(sp =>
+{
+    var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();
+    var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value;
+    var cfg = new PlateauZeroStateMachine.Settings(
+        ZeroBandKg: (decimal)settings.SystemSettings.HystWeight * 0.2m,
+        ResidualBandKg: (decimal)settings.SystemSettings.HystWeight,
+        NegativeBandKg: (decimal)settings.SystemSettings.HystWeight,
+        MinWeightKg: (decimal)settings.SystemSettings.MinWeight,
+        PlateauStableSamples: Math.Max(1, settings.ScaleSettings.StableThreshold),
+        ZeroStableSamples: Math.Max(2, settings.ScaleSettings.UnstableThreshold),
+        TareTimeout: TimeSpan.FromMilliseconds(Math.Clamp(settings.SystemSettings.SemaphoreTimeMs, 1500, 5000)),
+        TareMaxRetries: 2);
+
+    var db = sp.GetRequiredService<IDataAccess>();
+    var bus = sp.GetRequiredService<ISignalBus>();
+    var scale = sp.GetRequiredService<IScaleProcessor>();
+
+    var core = new PlateauZeroStateMachine(cfg, log, bus, onRecordAsync: net => db.SaveWeighingAsync(net),
+        sendTare: () => scale.ResetToZeroAsync().GetAwaiter().GetResult());
+
+    return new PlateauZeroFsmAdapter(core, log);
+});
+
+// Главный фоновый сервис, который всё связывает
+builder.Services.AddHostedService<ScalemonService>();
+
+// Добавляем сервис аутентификации для WebApp
+builder.Services.AddSingleton<IAuthService, InMemoryAuthService>();
+
+builder.Services.AddSingleton<IUsersStore>(sp => sp.GetRequiredService<InMemoryAuthService>());
+
+
+
+// Сервисы для Web-части
+builder.Services.AddControllers().AddApplicationPart(typeof(ServiceApiController).Assembly);
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Аутентификация через Cookies для веб-интерфейса
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
     {
-        // 1) Регистрация IOptions<ServiceSettings>
-        services.Configure<ServiceSettings>(config);
-        
-
-        // Регистрируем сам LevelSwitch как singleton, чтобы его можно было обновлять из контроллера
-        services.AddSingleton(levelSwitch);
-
-
-        // 2) Фоновые сервисы (Ваша существующая логика без изменений)
-        services.AddSingleton<Scalemon.Common.IScaleProcessor>(sp =>
+        options.Cookie.Name = "ScalemonAuth";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = context =>
         {
-            var system = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.ScaleSettings;
+            if (context.Request.Path.StartsWithSegments("/api"))
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            else
+                context.Response.Redirect(context.RedirectUri);
+            return Task.CompletedTask;
+        };
+    });
+builder.Services.AddAuthorization(options =>
+{
+    // Политики доступа к страницам/функциям
+    options.AddPolicy("CanViewMonitoring", p => p.RequireRole("Viewer", "Editor", "Admin"));
+    options.AddPolicy("CanEdit", p => p.RequireRole("Editor", "Admin"));
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    // Добавьте другие политики, если они вам нужны
+});
 
-            var driver = new Scalemon.SerialLink.SerialPortScaleDriver100(
-                sp.GetRequiredService<ILogger<Scalemon.SerialLink.SerialPortScaleDriver100>>());
+// Сервисы для Blazor и Radzen UI
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+builder.Services.AddRadzenComponents();
 
-            return new ScaleProcessor(
-                sp.GetRequiredService<ILogger<ScaleProcessor>>(),
-                driver,
-                system.PortName,
-                system.StableThreshold,
-                system.UnstableThreshold,
-                system.PollingIntervalMs
-            );
-        });
+// Добавляем сервис для сохранения темы в cookie
+builder.Services.AddRadzenCookieThemeService(options =>
+{
+    options.Name = "ScalemonTheme"; // Имя cookie
+    options.Duration = TimeSpan.FromDays(365); // Срок жизни cookie
+});
 
-        services.AddSingleton<Scalemon.Common.IDataAccess>(sp =>
-        {
-            var db = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.DatabaseSettings;
-            return new SqlDataAccess(
-                sp.GetRequiredService<ILogger<SqlDataAccess>>(),
-                db.ConnectionString,
-                db.TableName,
-                db.MaxRetryQueueSize,
-                db.AlarmSize,
-                sp.GetRequiredService<IHostApplicationLifetime>()
-            );
-        });
-
-        services.AddSingleton<Scalemon.Common.ISignalBus>(sp =>
-        {
-            var plc = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.PlcSettings;
-            return new SignalBus(
-                sp.GetRequiredService<ILogger<SignalBus>>(),
-                plc.PortName,
-                plc.BaudRate,
-                plc.ReconnectIntervalMs
-            );
-        });
-
-        services.AddSingleton<IScaleStateMachine>(sp =>
-        {
-            var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();
-
-            // возьми ServiceSettings так, как у тебя принято:
-            // 1) если ты уже сделал var settings = config.Get<ServiceSettings>(); выше — просто используй его из замыкания
-            // ИЛИ
-            // 2) через options:
-            var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServiceSettings>>().Value;
-
-            // === СБОРОЧКА cfg (прямо тут, без всяких BuildFsmSettings) ===
-            decimal minW = (decimal)settings.SystemSettings.MinWeight;
-            decimal hyst = (decimal)settings.SystemSettings.HystWeight;
-            int M = Math.Max(1, settings.ScaleSettings.StableThreshold);
-            int K = Math.Max(2, settings.ScaleSettings.UnstableThreshold);
-            int tareMs = Math.Clamp(settings.SystemSettings.SemaphoreTimeMs, 1500, 5000);
-
-            decimal zeroBand = hyst * 0.2m;
-            if (zeroBand < 0.005m) zeroBand = 0.005m;
-            if (zeroBand > hyst * 0.5m) zeroBand = hyst * 0.5m;
-
-            var cfg = new PlateauZeroStateMachine.Settings(
-                ZeroBandKg: zeroBand,
-                ResidualBandKg: hyst,
-                NegativeBandKg: hyst,
-                MinWeightKg: minW,
-                PlateauStableSamples: M,
-                ZeroStableSamples: K,
-                TareTimeout: TimeSpan.FromMilliseconds(tareMs),
-                TareMaxRetries: 2
-            );
-
-            if (cfg.MinWeightKg <= cfg.ResidualBandKg)
-                log.LogWarning("MinWeight ({min}) ≤ HystWeight ({hyst}). Рассмотри увеличение MinWeight.", cfg.MinWeightKg, cfg.ResidualBandKg);
-
-            // ядро FSM
-            var db = sp.GetRequiredService<IDataAccess>();
-            var bus = sp.GetRequiredService<ISignalBus>();
-            var scale = sp.GetRequiredService<IScaleProcessor>();
-
-            var core = new PlateauZeroStateMachine(
-                cfg,
-                log,
-                bus, // <-- ПЕРЕДАЁМ ШИНУ
-                onRecordAsync: async (net) => await db.SaveWeighingAsync(net), // <-- Упрощённый делегат
-                sendTare: () => scale.ResetToZeroAsync().GetAwaiter().GetResult()
-            );
-
-            return new PlateauZeroFsmAdapter(core, log);
-        });
-
-        services.AddHostedService<ScalemonService>();
-
-        // 3) Web API и UI
-        services.AddControllers()
-            .PartManager.ApplicationParts.Add(
-                new Microsoft.AspNetCore.Mvc.ApplicationParts
-                    .AssemblyPart(typeof(ServiceApiController).Assembly));
-            
-
-
-
-        // --- ДОБАВЛЯЕМ СЕРВИСЫ ДЛЯ BLAZOR ---
-        services.AddRazorComponents()
-                .AddInteractiveServerComponents();
-        // ------------------------------------
-
-        services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen();
-
-        services.AddAuthentication(BasicDefaults.AuthenticationScheme)
-            .AddBasic(opts =>
-            {
-                opts.Realm = "Scalemon API";
-                opts.Events = new BasicEvents
-                {
-                    OnValidateCredentials = ctx =>
-                    {
-                        if (ctx.Username == apiUser && ctx.Password == apiPass)
-                            ctx.ValidationSucceeded();
-                        else
-                            ctx.ValidationFailed();
-                        return Task.CompletedTask;
-                    }
-                };
-            });
-        services.AddAuthorization();
-    })
-    .ConfigureWebHostDefaults(web =>
+// Библиотечные сервисы UI
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient();                        // если ApiClient использует HttpClient
+builder.Services.AddScoped<ApiClient>();                 // если он есть и используется из компонентов
+builder.Services.AddHttpClient<ApiClient>((sp, http) =>
+{
+    // same-origin базовый адрес
+    var ctx = sp.GetRequiredService<IHttpContextAccessor>().HttpContext;
+    if (ctx?.Request is { } r)
     {
-        web.UseKestrel()
-            .UseUrls($"http://0.0.0.0:{apiPort}")
-            .Configure(app =>
-            {
-                app.UseSwagger();
-                app.UseSwaggerUI(c =>
-                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Scalemon API v1"));
+        http.BaseAddress = new Uri($"{r.Scheme}://{r.Host}{r.PathBase}/");
+    }
+    else
+    {
+        // надёжный фолбэк на appsettings
+        var s = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.Api;
+        var basePath = (s.BasePath ?? "").Trim('/');
+        var uri = s.Port > 0
+            ? $"{s.Scheme}://{s.Host}:{s.Port}/{basePath}"
+            : $"{s.Scheme}://{s.Host}/{basePath}";
+        http.BaseAddress = new Uri(uri);
+    }
 
-                // --- ДОБАВЛЯЕМ MIDDLEWARE ДЛЯ BLAZOR ---
-                // Позволяет использовать статические файлы (CSS, JS) из папки wwwroot
-                app.UseStaticFiles();
-                // ---------------------------------------
+    // Basic для контроллеров (политика ApiBasic)
+    var cfg = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.Authentication.Basic;
+    var raw = $"{cfg.Username}:{cfg.Password}";
+    http.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
+});
 
-                app.UseRouting();
-                app.UseAuthentication();
-                app.UseAuthorization();
-                app.UseAntiforgery();
-                app.UseEndpoints(endpoints =>
-                {
-                    // Существующая конечная точка для API
-                    endpoints.MapControllers().RequireAuthorization();
-                    // --- ДОБАВЛЯЕМ КОНЕЧНУЮ ТОЧКУ ДЛЯ BLAZOR ---
-                    // App - это корневой компонент вашего WebApp
-                    endpoints.MapRazorComponents<App>();
-                    // -----------------------------------------
-                });
-            });
-    })
-    .Build();
+// Источник настроек UI (если используешь JsonFileSettingsSource)
+builder.Services.AddScoped<ISettingsSource, JsonFileSettingsSource>();
+builder.Services.Configure<JsonFileSettingsSource.WebAppOptions>(
+    builder.Configuration.GetSection("WebApp"));
 
-host.Run();
+// ВОТ ГЛАВНОЕ: регистрация сервиса данных, который требует Monitoring
+builder.Services.AddScoped<IWeighingDataService, SqlWeighingDataService>();
+
+// Настройка для запуска в качестве службы Windows
+builder.Host.UseWindowsService();
+
+
+// --- 4. ПОСТРОЕНИЕ И КОНФИГУРАЦИЯ КОНВЕЙЕРА HTTP-ЗАПРОСОВ ---
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+
+app.UseStaticFiles();
+app.UseRouting();
+
+// Swagger (только для удобства разработки и тестирования)
+app.UseSwagger();
+app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Scalemon API v1"));
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseAntiforgery();
+
+// Конечные точки (API и Blazor UI)
+app.MapControllers();
+
+app.MapPost("/api/auth/login", async (HttpContext http, [FromBody] AuthController.LoginModel model, [FromServices] IAuthService authService) =>
+{
+    var (isValid, role) = await authService.ValidateAsync(model.Username, model.Password);
+    if (isValid)
+    {
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.Name, model.Username),
+            new Claim(ClaimTypes.Role, role!) // Добавляем роль пользователя
+        };
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+        await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+        return Results.Ok();
+    }
+    return Results.Unauthorized();
+}).DisableAntiforgery();
+
+app.MapPost("/api/auth/logout", async (HttpContext http) =>
+{
+    await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    return Results.Ok();
+}).DisableAntiforgery();
+
+// === Admin-only: управление пользователями через cookie-аутентификацию ===
+var users = app.MapGroup("/api/auth/users")
+               .RequireAuthorization(policy => policy.RequireRole("Admin"));
+
+users.MapGet("/", (IUsersStore store) => Results.Ok(store.List()));
+
+users.MapPost("/", (IUsersStore store, UserUpsert dto) =>
+{
+    if (string.IsNullOrWhiteSpace(dto.Login) ||
+        string.IsNullOrWhiteSpace(dto.Password) ||
+        string.IsNullOrWhiteSpace(dto.Role))
+        return Results.BadRequest("login/password/role required");
+
+    return store.TryAdd(dto.Login, dto.Password, dto.Role)
+        ? Results.Created($"/api/auth/users/{dto.Login}", null)
+        : Results.Conflict("User exists");
+}).DisableAntiforgery();
+
+users.MapPut("/{login}", (IUsersStore store, string login, UserUpdate dto) =>
+{
+    return store.TryUpdate(login, dto.Password, dto.Role)
+        ? Results.NoContent()
+        : Results.NotFound();
+}).DisableAntiforgery();
+
+users.MapDelete("/{login}", (IUsersStore store, string login) =>
+{
+    return store.Remove(login)
+        ? Results.NoContent()
+        : Results.NotFound();
+}).DisableAntiforgery();
+
+
+app.MapRazorComponents<App>()
+   .AddInteractiveServerRenderMode();
+
+
+// --- 5. ЗАПУСК ПРИЛОЖЕНИЯ ---
+app.Run();
+
+public sealed record UserUpsert(string Login, string Password, string Role);
+public sealed record UserUpdate(string? Password, string? Role);
+

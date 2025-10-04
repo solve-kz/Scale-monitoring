@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using System.Timers;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
-
+#nullable enable
 namespace Scalemon.SignalBus
 {
     public class SignalBus : ISignalBus, IDisposable
@@ -34,6 +34,7 @@ namespace Scalemon.SignalBus
         }
 
         public event Action? ConnectionEstablished;
+        
         public event Action? ConnectionLost;
 
         public void Start()

@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
+    <ProjectReference Include="..\Scalemon.SignalBus\Scalemon.SignalBus.csproj" />
   </ItemGroup>
 </Project>

@@ -57,7 +57,58 @@ namespace Scalemon.SqlDataAccess
             // нормально завершаемся
             // Финальная попытка сохранить оставшиеся данные
 
-            Task.Run(async () => { try { while (!cancellationToken.IsCancellationRequested) { await Task.Delay(TimeSpan.FromSeconds(30d), cancellationToken); var localList = new List<decimal>(); decimal w; while (_retryQueue.TryDequeue(out w)) localList.Add(w); foreach (var weight in localList) { try { await WriteToDatabaseAsync(weight); bool wasDown = false; lock (_syncLock) { if (_isDbDown) { _isDbDown = false; wasDown = true; } } if (wasDown) { DatabaseRestored?.Invoke(); } } catch { _retryQueue.Enqueue(weight); } } } } catch (TaskCanceledException ex) { } finally { var finalItems = new List<decimal>(); decimal w; while (_retryQueue.TryDequeue(out w)) finalItems.Add(w); foreach (var weight in finalItems) { try { using (var conn = new SqlConnection(_connString)) { conn.Open(); string sql = $"INSERT INTO {_tableName} (Weight, RecordedAt) VALUES (@weight, GETDATE());"; using (var cmd = new SqlCommand(sql, conn)) { cmd.Parameters.Add("@weight", SqlDbType.Decimal).Value = weight; cmd.ExecuteNonQuery(); } } } catch { _logger.LogError("Потеря данных при выключении: {weight}", weight); } } } });
+            Task.Run(async () => { 
+                try 
+                { 
+                    while (!cancellationToken.IsCancellationRequested) { 
+                        await Task.Delay(TimeSpan.FromSeconds(30d), cancellationToken); 
+                        var localList = new List<decimal>(); 
+                        decimal w; 
+                        while (_retryQueue.TryDequeue(out w)) localList.Add(w); 
+                        foreach (var weight in localList) { 
+                            try { 
+                                await WriteToDatabaseAsync(weight); 
+                                bool wasDown = false; 
+                                lock (_syncLock) { 
+                                    if (_isDbDown) { 
+                                        _isDbDown = false; 
+                                        wasDown = true; 
+                                    } 
+                                } 
+                                if (wasDown) { 
+                                    DatabaseRestored?.Invoke(); 
+                                } 
+                            } 
+                            catch { 
+                                _retryQueue.Enqueue(weight); 
+                            } 
+                        } 
+                    } 
+                } 
+                catch (TaskCanceledException ex) {
+                    _logger.LogError(ex, "Ошибка записи");
+                } 
+                finally { 
+                    var finalItems = new List<decimal>(); 
+                    decimal w; 
+                    while (_retryQueue.TryDequeue(out w)) finalItems.Add(w); 
+                    foreach (var weight in finalItems) { 
+                        try { 
+                            using (var conn = new SqlConnection(_connString)) { 
+                                conn.Open(); 
+                                string sql = $"INSERT INTO {_tableName} (Weight, RecordedAt) VALUES (@weight, GETDATE());"; 
+                                using (var cmd = new SqlCommand(sql, conn)) { 
+                                    cmd.Parameters.Add("@weight", SqlDbType.Decimal).Value = weight; 
+                                    cmd.ExecuteNonQuery(); 
+                                } 
+                            } 
+                        } 
+                        catch { 
+                            _logger.LogError("Потеря данных при выключении: {weight}", weight); 
+                        } 
+                    } 
+                } 
+            });
         }
 
         public async Task SaveWeighingAsync(decimal weight)

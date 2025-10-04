@@ -14,14 +14,18 @@
 
     public class ApiSettings
     {
+        public string Scheme { get; set; } = "http";       // NEW
+        public string Host { get; set; } = "localhost";  // NEW
         // по умолчанию 5000, но при биндинге возьмётся из конфигурации
-        public int Port { get; set; } = 5000;        
+        public int Port { get; set; } = 5000;
+        public string? BasePath { get; set; } = null;      // NEW (опционально)
         public string ServiceName { get; set; } = "ScalemonService"; 
     }
 
     public class AuthenticationSettings
     {
         public BasicAuthSettings Basic { get; set; } = new BasicAuthSettings();
+        public string? UsersFilePath { get; set; }  // ← новое поле
     }
 
     public class BasicAuthSettings
