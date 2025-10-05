@@ -38,6 +38,7 @@
     {
         public LogLevelSettings Level { get; set; } = new LogLevelSettings();
         public LogFilePathSettings FilePath { get; set; } = new LogFilePathSettings();
+        public LogDatabaseSettings Database { get; set; } = new LogDatabaseSettings();
     }
 
     public class LogLevelSettings
@@ -50,6 +51,11 @@
     {
         public string MainLogPath { get; set; } = @"C:\Logs\main.log";
         public string DetailedLogPath { get; set; } = @"C:\Logs\detailed.log";
+    }
+
+    public class LogDatabaseSettings
+    {
+        public string MainDatabasePath { get; set; } = @"C:\Logs\mainlogs.db";
     }
 
     public class DatabaseSettings

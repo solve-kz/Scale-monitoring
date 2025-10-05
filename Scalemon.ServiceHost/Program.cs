@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,8 +11,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Radzen;
 using Scalemon.ApiService.Controllers;
+using Scalemon.ApiService.Services;
 using Scalemon.Common;
 using Scalemon.Common.Auth;
+using Scalemon.Common.Logging;
 using Scalemon.FSM;
 using Scalemon.SerialLink;
 using Scalemon.SignalBus;
@@ -19,6 +22,7 @@ using Scalemon.SqlDataAccess;
 using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
 using Scalemon.WebApp.Data;
+using Scalemon.ServiceHost.Logging;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -27,10 +31,25 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 
+const long LogUploadLimitBytes = 256L * 1024 * 1024;
+
 // --- 1. СОЗДАНИЕ УНИВЕРСАЛЬНОГО ПОСТРОИТЕЛЯ ПРИЛОЖЕНИЯ ---
 // WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = LogUploadLimitBytes;
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = LogUploadLimitBytes;
+});
+
+var logDatabaseProvider = new DailyLogDatabaseProvider(config["Logging:Database:MainDatabasePath"]);
+logDatabaseProvider.EnsureCurrentDatabase();
 
 
 // --- 2. НАСТРОЙКА ЛОГИРОВАНИЯ (SERILOG) ---
@@ -48,10 +67,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
-    .WriteTo.File(
-        new Serilog.Formatting.Json.JsonFormatter(renderMessage: true),
-        config["Logging:FilePath:MainLogPath"] ?? "C:\\Logs\\main.log",
-        rollingInterval: RollingInterval.Day)
+    .WriteTo.Sink(new SqliteLogSink(logDatabaseProvider))
     .CreateLogger();
 
 builder.Logging.ClearProviders();
@@ -63,6 +79,8 @@ builder.Services.AddSingleton(levelSwitch);
 
 // Основные настройки
 builder.Services.AddOptions<ServiceSettings>().Bind(config);
+builder.Services.AddSingleton(logDatabaseProvider);
+builder.Services.AddSingleton<SqliteLogRepository>();
 
 // Фоновые сервисы (ядро системы)
 builder.Services.AddSingleton<IScaleProcessor>(sp =>
