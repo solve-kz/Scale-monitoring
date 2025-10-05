@@ -205,8 +205,11 @@ public sealed class LogsController : ControllerBase
     // -----------------------------------------------------------------------
     // ИМПОРТ ТЕКСТОВОГО ЛОГА В SQLite
     // POST /api/logs/import
+    private const long MaxLogImportSizeBytes = 256L * 1024 * 1024;
+
     [HttpPost("import")]
-    [RequestFormLimits(ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = long.MaxValue)]
+    [RequestSizeLimit(MaxLogImportSizeBytes)]
+    [RequestFormLimits(ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = MaxLogImportSizeBytes)]
     public async Task<IActionResult> Import([FromForm] List<IFormFile> files, [FromForm] List<string>? fileNames)
     {
         if (files is null || files.Count == 0)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -30,10 +31,22 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 
+const long LogUploadLimitBytes = 256L * 1024 * 1024;
+
 // --- 1. СОЗДАНИЕ УНИВЕРСАЛЬНОГО ПОСТРОИТЕЛЯ ПРИЛОЖЕНИЯ ---
 // WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = LogUploadLimitBytes;
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = LogUploadLimitBytes;
+});
 
 var logDatabaseProvider = new DailyLogDatabaseProvider(config["Logging:Database:MainDatabasePath"]);
 logDatabaseProvider.EnsureCurrentDatabase();
