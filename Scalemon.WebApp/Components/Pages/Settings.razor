@@ -525,9 +525,14 @@
         var path = Model.LogSettings.FilePath?.MainLogPath;
         var items = (await Api.GetLogPreviewAsync(path, _cts?.Token ?? default)).ToList();
 
-        await DialogService.OpenAsync<LogPreviewDialog>(
-            "Журнал событий",
-            new Dictionary<string, object?>
+        await DialogService.OpenAsync("Журнал событий", builder =>
+        {
+            builder.OpenComponent(0, typeof(RadzenDataGrid<ApiClient.LogEntry>));
+            builder.AddAttribute(1, "Data", items);
+            builder.AddAttribute(2, "AllowPaging", true);
+            builder.AddAttribute(3, "PageSize", 20);
+
+            builder.AddAttribute(4, "Columns", (RenderFragment)((cols) =>
             {
                 [nameof(LogPreviewDialog.Items)] = items
             },
