@@ -3,7 +3,10 @@
 @using Microsoft.AspNetCore.Authorization
 @using Scalemon.Common
 @using Scalemon.WebApp.Models
+@using Radzen
 @using System.IO.Ports
+@using System.Linq
+@using System.Collections.Generic
 
 
 @attribute [Authorize(Policy = "AdminOnly")]
@@ -15,7 +18,9 @@
 @inject IWebHostEnvironment Env
 @inject ThemeService ThemeService
 
-<RadzenTabs RenderMode="TabRenderMode.Server">
+<RadzenTabs RenderMode="TabRenderMode.Server"
+            @bind-Value="_activeTabIndex"
+            Change="@OnTabChanged">
   <Tabs>
 
     <!-- 1) ВЕБ-ИНТЕРФЕЙС -->
@@ -363,103 +368,11 @@
 
     <!-- 4) ПОЛЬЗОВАТЕЛИ -->
     <RadzenTabsItem Text="Пользователи">
-            <RadzenTemplateForm TItem="SettingsDto"
-                                Data="@Model"
-                                Submit="@OnValidSubmit"
-                                InvalidSubmit="@OnInvalidSubmit">
-
-        <RadzenFieldset Text="Параметры">
-          <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Зеркалировать в SQL" HelpText="Создавать/обновлять пользователя в БД при изменении в UI">
-                
-                  <RadzenSwitch @bind-Value="Model.UsersSettings.SqlMirror" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Роли БД по умолчанию"
-                               HelpText="Будут назначаться при создании нового пользователя">
-                
-                  <RadzenDropDown Multiple="true" Data="@DbRolesCatalog"
-                                  @bind-Value="Model.UsersSettings.DefaultDbRoles"
-                                  Style="width:100%" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Тайм-аут сессии, мин" HelpText="Время жизни cookie-сессии пользователя">
-                
-                  <RadzenNumeric @bind-Value="Model.UsersSettings.SessionTimeoutMinutes"
-                                 Name="SessTo" Min="1" Step="1" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="SessTo" Min="1" Text="Минимум 1 минута" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-          </RadzenRow>
-        </RadzenFieldset>
-
-        <RadzenDataGrid TItem="UserDto" Data="@Model.UsersSettings.Users" @ref="UsersGrid"
-                        AllowPaging="true" PageSize="8"
-                        AllowFiltering="false" AllowSorting="true"
-                        EditMode="DataGridEditMode.Single"
-                        RowCreate="@OnUserCreate"
-                        RowUpdate="@OnUserUpdate">
-          <Columns>
-            <RadzenDataGridColumn TItem="UserDto" Property="UserName" Title="Логин" Width="160px">
-              <EditTemplate Context="u">
-                <RadzenTextBox @bind-Value="u.UserName" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Property="DisplayName" Title="Имя" Width="180px">
-              <EditTemplate Context="u">
-                <RadzenTextBox @bind-Value="u.DisplayName" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Роли (UI)">
-              <Template Context="u">@string.Join(", ", u.Roles ?? new())</Template>
-              <EditTemplate Context="u">
-                <RadzenDropDown Multiple="true" Data="@UiRolesCatalog" @bind-Value="u.Roles" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Роли БД">
-              <Template Context="u">@string.Join(", ", u.DbRolesOverride ?? new())</Template>
-              <EditTemplate Context="u">
-                <RadzenDropDown Multiple="true" Data="@DbRolesCatalog" @bind-Value="u.DbRolesOverride" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Действия" Width="180px">
-              <Template Context="u">
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
-                              Click="@(() => UsersGrid!.EditRow(u))" />
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="delete" Size="ButtonSize.Small" Style="margin-left:6px"/>
-              </Template>
-              <EditTemplate Context="u">
-                <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Size="ButtonSize.Small"
-                              Click="@(async args => await UsersGrid!.UpdateRow(u))" />
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Size="ButtonSize.Small" Style="margin-left:6px"
-                              Click="@((args) => UsersGrid!.CancelEditRow(u))" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-          </Columns>
-        </RadzenDataGrid>
-
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
-          <RadzenButton Text="Добавить" Icon="add" Click="@AddUser" />
-                    <RadzenButton Text="Сохранить"
-                                  ButtonStyle="ButtonStyle.Primary"
-                                  Icon="save"
-                                  ButtonType="ButtonType.Submit"
-                                  Disabled="@_saving" />
-                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
-        </RadzenStack>
-      </RadzenTemplateForm>
+      <SettingsUsersTab @ref="_usersTab"
+                        RolesCatalog="UiRolesCatalog"
+                        RequestToken="GetCancellationToken"
+                        DialogTitleForNewUser="Новый пользователь"
+                        DialogTitleForExistingUserFormat="Пользователь {0}" />
     </RadzenTabsItem>
 
   </Tabs>
@@ -473,14 +386,15 @@
    
     IReadOnlyList<string> LogLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
     IReadOnlyList<string> UiRolesCatalog = new[] { "Admin", "Editor", "Viewer" };
-    IReadOnlyList<string> DbRolesCatalog = new[] { "db_datareader", "db_datawriter", "db_owner" };
     IReadOnlyList<string> AfterLoginPages = new[] { "/", "/monitoring", "/logs", "/stats", "/settings" };
     IReadOnlyList<string> Cultures = new[] { "ru-RU", "en-US" };
 
-    RadzenDataGrid<UserDto> UsersGrid = default!;
+    private int _activeTabIndex;
+    private const int UsersTabIndex = 3;
+    private SettingsUsersTab? _usersTab;
 
     // Ссылки на формы (по одной на вкладку)
-    RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb, _formUsers;
+    RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb;
 
     bool _saving;
     bool _busy;
@@ -529,6 +443,15 @@
 
         // Предпросмотр логов
         await LoadLogPreviewAsync();
+
+        if (_usersTab is not null)
+        {
+            _usersTab.Reset();
+            if (_activeTabIndex == UsersTabIndex)
+            {
+                await _usersTab.EnsureLoadedAsync(force: true);
+            }
+        }
 
         StateHasChanged();
     }
@@ -679,10 +602,16 @@
 
    
 
-    // USERS
-    void AddUser() => Model.UsersSettings.Users.Add(new UserDto { Roles = new(), DbRolesOverride = new() });
-    Task OnUserCreate(UserDto u) => Task.CompletedTask;
-    Task OnUserUpdate(UserDto u) => Task.CompletedTask;
+    private async Task OnTabChanged(int index)
+    {
+        _activeTabIndex = index;
+        if (index == UsersTabIndex)
+        {
+            await (_usersTab?.EnsureLoadedAsync() ?? Task.CompletedTask);
+        }
+    }
+
+    private CancellationToken GetCancellationToken() => _cts?.Token ?? default;
 
     async Task CheckServiceStatus()
     {
@@ -728,12 +657,6 @@
             UICulture = "ru-RU",
             RememberLastDate = true
         };
-
-        m.UsersSettings ??= new UsersSettings();
-        m.UsersSettings.Users ??= new List<UserDto>();
-        m.UsersSettings.DefaultDbRoles ??= new List<string>();
-        m.UsersSettings.SessionTimeoutMinutes =
-            m.UsersSettings.SessionTimeoutMinutes <= 0 ? 480 : m.UsersSettings.SessionTimeoutMinutes;
 
         return m;
     }

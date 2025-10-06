@@ -1,0 +1,106 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using Radzen
+@using Scalemon.WebApp.Models
+@using System.Collections.Generic
+
+<RadzenTemplateForm TItem="UserEditModel"
+                    Data="@Model"
+                    Submit="@OnSubmit"
+                    InvalidSubmit="@OnInvalidSubmit">
+    <ChildContent>
+        <RadzenStack Gap="12px">
+            <RadzenFormField Text="Логин">
+                <RadzenTextBox @bind-Value="Model.Login"
+                               Name="Login"
+                               Style="width:100%"
+                               Disabled="@(!IsNew)" />
+                <RadzenRequiredValidator Component="Login" Text="Логин обязателен" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Отображаемое имя">
+                <RadzenTextBox @bind-Value="Model.DisplayName"
+                               Name="DisplayName"
+                               Style="width:100%" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Роли">
+                <RadzenDropDown Multiple="true"
+                                Data="@AvailableRoles"
+                                @bind-Value="Model.Roles"
+                                Name="Roles"
+                                Style="width:100%" />
+            </RadzenFormField>
+
+            @if (!Model.RequirePassword)
+            {
+                <RadzenFormField Text="Сменить пароль">
+                    <RadzenCheckBox @bind-Value="Model.ChangePassword" TriState="false" />
+                </RadzenFormField>
+            }
+
+            @if (Model.RequirePassword || Model.ChangePassword)
+            {
+                <RadzenFormField Text="Пароль">
+                    <RadzenPassword @bind-Value="Model.Password"
+                                    Name="Password"
+                                    Style="width:100%" />
+                    @if (Model.RequirePassword)
+                    {
+                        <RadzenRequiredValidator Component="Password" Text="Пароль обязателен" />
+                    }
+                </RadzenFormField>
+            }
+
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="8px">
+                <RadzenButton Text="Сохранить"
+                              Icon="save"
+                              ButtonStyle="ButtonStyle.Primary"
+                              ButtonType="ButtonType.Submit" />
+                <RadzenButton Text="Отмена"
+                              Icon="close"
+                              ButtonStyle="ButtonStyle.Light"
+                              Click="@OnCancel" />
+            </RadzenStack>
+        </RadzenStack>
+    </ChildContent>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter]
+    public UserEditModel Model { get; set; } = default!;
+
+    [Parameter]
+    public IEnumerable<string> AvailableRoles { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public bool IsNew { get; set; }
+
+    [Inject]
+    private DialogService DialogService { get; set; } = default!;
+
+    [Inject]
+    private NotificationService NotificationService { get; set; } = default!;
+
+    private Task OnSubmit(UserEditModel model)
+    {
+        if (model.Roles is null || model.Roles.Count == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите хотя бы одну роль.");
+            return Task.CompletedTask;
+        }
+
+        if ((model.RequirePassword || model.ChangePassword) && string.IsNullOrWhiteSpace(model.Password))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен.");
+            return Task.CompletedTask;
+        }
+
+        DialogService.Close(model);
+        return Task.CompletedTask;
+    }
+
+    private void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
+        => NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
+
+    private void OnCancel() => DialogService.Close(null);
+}
