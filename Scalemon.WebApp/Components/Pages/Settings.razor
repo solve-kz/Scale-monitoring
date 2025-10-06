@@ -525,47 +525,13 @@
         var path = Model.LogSettings.FilePath?.MainLogPath;
         var items = (await Api.GetLogPreviewAsync(path, _cts?.Token ?? default)).ToList();
 
-        await DialogService.OpenAsync("Журнал событий", ds => (builder) =>
-        {
-            builder.OpenComponent(0, typeof(RadzenDataGrid<ApiClient.LogEntry>));
-            builder.AddAttribute(1, "Data", items);
-            builder.AddAttribute(2, "AllowPaging", true);
-            builder.AddAttribute(3, "PageSize", 20);
-
-            builder.AddAttribute(4, "Columns", (RenderFragment)((cols) =>
+        await DialogService.OpenAsync<LogPreviewDialog>(
+            "Журнал событий",
+            new Dictionary<string, object?>
             {
-                cols.OpenComponent(5, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(6, "Property", "Timestamp");
-                cols.AddAttribute(7, "Title", "Время");
-                cols.AddAttribute(8, "Width", "210px");
-                cols.AddAttribute(9, "FormatString", "{0:yyyy-MM-dd HH:mm:ss}");
-                cols.CloseComponent();
-
-                cols.OpenComponent(10, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(11, "Property", "Level");
-                cols.AddAttribute(12, "Title", "Уровень");
-                cols.AddAttribute(13, "Width", "110px");
-                cols.CloseComponent();
-
-                cols.OpenComponent(14, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(15, "Property", "Source");
-                cols.AddAttribute(16, "Title", "Источник");
-                cols.CloseComponent();
-
-                cols.OpenComponent(17, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(18, "Property", "Message");
-                cols.AddAttribute(19, "Title", "Сообщение");
-                cols.CloseComponent();
-
-                cols.OpenComponent(20, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(21, "Property", "Exception");
-                cols.AddAttribute(22, "Title", "Исключение");
-                cols.CloseComponent();
-            }));
-
-            builder.CloseComponent();
-        },
-        new DialogOptions { Width = "1000px", Height = "70vh", Resizable = true });
+                [nameof(LogPreviewDialog.Items)] = items
+            },
+            new DialogOptions { Width = "1000px", Height = "70vh", Resizable = true });
     }
 
 
