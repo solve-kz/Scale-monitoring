@@ -525,7 +525,7 @@
         var path = Model.LogSettings.FilePath?.MainLogPath;
         var items = (await Api.GetLogPreviewAsync(path, _cts?.Token ?? default)).ToList();
 
-        await DialogService.OpenAsync("Журнал событий", ds => (builder) =>
+        await DialogService.OpenAsync("Журнал событий", builder =>
         {
             builder.OpenComponent(0, typeof(RadzenDataGrid<ApiClient.LogEntry>));
             builder.AddAttribute(1, "Data", items);
