@@ -241,9 +241,9 @@
             ? DialogTitleForNewUser
             : string.Format(CultureInfo.CurrentCulture, DialogTitleForExistingUserFormat, model.Login);
 
-        var result = await DialogService.OpenAsync<UserEditorDialog, UserEditModel?>(
+        var result = await DialogService.OpenAsync<UserEditorDialog>(
             title,
-            new Dictionary<string, object>
+            new Dictionary<string, object?>
             {
                 [nameof(UserEditorDialog.Model)] = model,
                 [nameof(UserEditorDialog.IsNew)] = isNew,
@@ -251,7 +251,7 @@
             },
             new DialogOptions { CloseDialogOnOverlayClick = false, Width = "480px" });
 
-        return result;
+        return result as UserEditModel;
     }
 
     private async Task ExecuteWithLoadingAsync(Func<CancellationToken, Task> action)
