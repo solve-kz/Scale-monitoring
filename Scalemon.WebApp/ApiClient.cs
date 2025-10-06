@@ -21,7 +21,7 @@ public sealed class ApiClient
     public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
     public sealed record ImportLogResponse(string File, string? Database, string? Path, int Imported, string? Error);
     public readonly record struct UploadFilePayload(Stream Stream, string FileName, string? ContentType = null, string? TargetName = null);
-    public sealed record UserSummary(string Login, string? DisplayName, string[]? Roles);
+    public sealed record UserSummary(string Login, string DisplayName, string[] Roles);
     public sealed record CreateUserRequest(string Login, string Password, string? DisplayName, string[] Roles);
     public sealed record UpdateUserRequest(string? Password, string? DisplayName, string[]? Roles);
 

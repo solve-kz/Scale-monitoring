@@ -12,7 +12,7 @@ public class SettingsDto
     public PlcSettings PlcSettings { get; set; } = new();
 
     // НОВОЕ:
-    public WebUiSettings WebUiSettings { get; set; } = new();
+    public WebUiSettings WebUiSettings { get; set; } = default!;
 }
 
 public class LogEntry
