@@ -21,6 +21,9 @@ public sealed class ApiClient
     public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
     public sealed record ImportLogResponse(string File, string? Database, string? Path, int Imported, string? Error);
     public readonly record struct UploadFilePayload(Stream Stream, string FileName, string? ContentType = null, string? TargetName = null);
+    public sealed record UserSummary(string Login, string DisplayName, string[] Roles);
+    public sealed record CreateUserRequest(string Login, string Password, string? DisplayName, string[] Roles);
+    public sealed record UpdateUserRequest(string? Password, string? DisplayName, string[]? Roles);
 
     // ---------- методы, которые вызывает UI ----------
     // /api/service/status  -> JSON-строка ("Running"/"Paused"/"Stopped")
@@ -144,6 +147,28 @@ public sealed class ApiClient
 
         var payload = await response.Content.ReadFromJsonAsync<ImportLogResponse[]>(cancellationToken: ct);
         return payload ?? Array.Empty<ImportLogResponse>();
+    }
+
+    public async Task<IReadOnlyList<UserSummary>> GetUsersAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<IReadOnlyList<UserSummary>>("api/auth/users", ct)
+           ?? Array.Empty<UserSummary>();
+
+    public async Task CreateUserAsync(CreateUserRequest payload, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("api/auth/users", payload, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task UpdateUserAsync(string login, UpdateUserRequest payload, CancellationToken ct = default)
+    {
+        var response = await _http.PutAsJsonAsync($"api/auth/users/{Uri.EscapeDataString(login)}", payload, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteUserAsync(string login, CancellationToken ct = default)
+    {
+        var response = await _http.DeleteAsync($"api/auth/users/{Uri.EscapeDataString(login)}", ct);
+        response.EnsureSuccessStatusCode();
     }
 
     // ---------- SettingsController: logging ----------
