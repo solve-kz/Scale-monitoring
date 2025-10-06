@@ -3,7 +3,11 @@
 @using Microsoft.AspNetCore.Authorization
 @using Scalemon.Common
 @using Scalemon.WebApp.Models
+@using Scalemon.WebApp.Components.Dialogs
+@using Radzen
 @using System.IO.Ports
+@using System.Linq
+@using System.Collections.Generic
 
 
 @attribute [Authorize(Policy = "AdminOnly")]
@@ -15,7 +19,9 @@
 @inject IWebHostEnvironment Env
 @inject ThemeService ThemeService
 
-<RadzenTabs RenderMode="TabRenderMode.Server">
+<RadzenTabs RenderMode="TabRenderMode.Server"
+            @bind-Value="_activeTabIndex"
+            Change="@OnTabChanged">
   <Tabs>
 
     <!-- 1) ВЕБ-ИНТЕРФЕЙС -->
@@ -363,103 +369,32 @@
 
     <!-- 4) ПОЛЬЗОВАТЕЛИ -->
     <RadzenTabsItem Text="Пользователи">
-            <RadzenTemplateForm TItem="SettingsDto"
-                                Data="@Model"
-                                Submit="@OnValidSubmit"
-                                InvalidSubmit="@OnInvalidSubmit">
+      <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-bottom:8px">
+        <RadzenButton Text="Добавить" Icon="add" Click="@AddUser" Disabled="@_usersLoading" />
+        <RadzenButton Text="Обновить" Icon="refresh" Click="@RefreshUsersAsync" Disabled="@_usersLoading" />
+      </RadzenStack>
 
-        <RadzenFieldset Text="Параметры">
-          <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Зеркалировать в SQL" HelpText="Создавать/обновлять пользователя в БД при изменении в UI">
-                
-                  <RadzenSwitch @bind-Value="Model.UsersSettings.SqlMirror" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Роли БД по умолчанию"
-                               HelpText="Будут назначаться при создании нового пользователя">
-                
-                  <RadzenDropDown Multiple="true" Data="@DbRolesCatalog"
-                                  @bind-Value="Model.UsersSettings.DefaultDbRoles"
-                                  Style="width:100%" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Тайм-аут сессии, мин" HelpText="Время жизни cookie-сессии пользователя">
-                
-                  <RadzenNumeric @bind-Value="Model.UsersSettings.SessionTimeoutMinutes"
-                                 Name="SessTo" Min="1" Step="1" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="SessTo" Min="1" Text="Минимум 1 минута" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-          </RadzenRow>
-        </RadzenFieldset>
-
-        <RadzenDataGrid TItem="UserDto" Data="@Model.UsersSettings.Users" @ref="UsersGrid"
-                        AllowPaging="true" PageSize="8"
-                        AllowFiltering="false" AllowSorting="true"
-                        EditMode="DataGridEditMode.Single"
-                        RowCreate="@OnUserCreate"
-                        RowUpdate="@OnUserUpdate">
-          <Columns>
-            <RadzenDataGridColumn TItem="UserDto" Property="UserName" Title="Логин" Width="160px">
-              <EditTemplate Context="u">
-                <RadzenTextBox @bind-Value="u.UserName" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Property="DisplayName" Title="Имя" Width="180px">
-              <EditTemplate Context="u">
-                <RadzenTextBox @bind-Value="u.DisplayName" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Роли (UI)">
-              <Template Context="u">@string.Join(", ", u.Roles ?? new())</Template>
-              <EditTemplate Context="u">
-                <RadzenDropDown Multiple="true" Data="@UiRolesCatalog" @bind-Value="u.Roles" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Роли БД">
-              <Template Context="u">@string.Join(", ", u.DbRolesOverride ?? new())</Template>
-              <EditTemplate Context="u">
-                <RadzenDropDown Multiple="true" Data="@DbRolesCatalog" @bind-Value="u.DbRolesOverride" Style="width:100%" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-
-            <RadzenDataGridColumn TItem="UserDto" Title="Действия" Width="180px">
-              <Template Context="u">
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
-                              Click="@(() => UsersGrid!.EditRow(u))" />
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="delete" Size="ButtonSize.Small" Style="margin-left:6px"/>
-              </Template>
-              <EditTemplate Context="u">
-                <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Size="ButtonSize.Small"
-                              Click="@(async args => await UsersGrid!.UpdateRow(u))" />
-                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Size="ButtonSize.Small" Style="margin-left:6px"
-                              Click="@((args) => UsersGrid!.CancelEditRow(u))" />
-              </EditTemplate>
-            </RadzenDataGridColumn>
-          </Columns>
-        </RadzenDataGrid>
-
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
-          <RadzenButton Text="Добавить" Icon="add" Click="@AddUser" />
-                    <RadzenButton Text="Сохранить"
-                                  ButtonStyle="ButtonStyle.Primary"
-                                  Icon="save"
-                                  ButtonType="ButtonType.Submit"
-                                  Disabled="@_saving" />
-                    <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
-        </RadzenStack>
-      </RadzenTemplateForm>
+      <RadzenDataGrid TItem="ApiClient.UserSummary" Data="@_users"
+                      AllowPaging="true" PageSize="8"
+                      AllowFiltering="false" AllowSorting="true">
+        <Columns>
+          <RadzenDataGridColumn TItem="ApiClient.UserSummary" Property="Login" Title="Логин" Width="160px" />
+          <RadzenDataGridColumn TItem="ApiClient.UserSummary" Property="DisplayName" Title="Имя" Width="180px">
+            <Template Context="u">@(!string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName : string.Empty)</Template>
+          </RadzenDataGridColumn>
+          <RadzenDataGridColumn TItem="ApiClient.UserSummary" Title="Роли">
+            <Template Context="u">@string.Join(", ", u.Roles ?? Array.Empty<string>())</Template>
+          </RadzenDataGridColumn>
+          <RadzenDataGridColumn TItem="ApiClient.UserSummary" Title="Действия" Width="160px">
+            <Template Context="u">
+              <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
+                            Click="@(() => EditUser(u))" Style="margin-right:6px" />
+              <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Size="ButtonSize.Small"
+                            Click="@(() => DeleteUser(u))" />
+            </Template>
+          </RadzenDataGridColumn>
+        </Columns>
+      </RadzenDataGrid>
     </RadzenTabsItem>
 
   </Tabs>
@@ -473,14 +408,17 @@
    
     IReadOnlyList<string> LogLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
     IReadOnlyList<string> UiRolesCatalog = new[] { "Admin", "Editor", "Viewer" };
-    IReadOnlyList<string> DbRolesCatalog = new[] { "db_datareader", "db_datawriter", "db_owner" };
     IReadOnlyList<string> AfterLoginPages = new[] { "/", "/monitoring", "/logs", "/stats", "/settings" };
     IReadOnlyList<string> Cultures = new[] { "ru-RU", "en-US" };
 
-    RadzenDataGrid<UserDto> UsersGrid = default!;
+    private List<ApiClient.UserSummary> _users = new();
+    private bool _usersLoading;
+    private bool _usersLoaded;
+    private int _activeTabIndex;
+    private const int UsersTabIndex = 3;
 
     // Ссылки на формы (по одной на вкладку)
-    RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb, _formUsers;
+    RadzenTemplateForm<SettingsDto>? _formUi, _formSvc, _formDb;
 
     bool _saving;
     bool _busy;
@@ -529,6 +467,12 @@
 
         // Предпросмотр логов
         await LoadLogPreviewAsync();
+
+        _usersLoaded = false;
+        if (_activeTabIndex == UsersTabIndex)
+        {
+            await EnsureUsersLoadedAsync(force: true);
+        }
 
         StateHasChanged();
     }
@@ -679,10 +623,254 @@
 
    
 
-    // USERS
-    void AddUser() => Model.UsersSettings.Users.Add(new UserDto { Roles = new(), DbRolesOverride = new() });
-    Task OnUserCreate(UserDto u) => Task.CompletedTask;
-    Task OnUserUpdate(UserDto u) => Task.CompletedTask;
+    private async Task OnTabChanged(int index)
+    {
+        _activeTabIndex = index;
+        if (index == UsersTabIndex)
+        {
+            await EnsureUsersLoadedAsync();
+        }
+    }
+
+    private async Task EnsureUsersLoadedAsync(bool force = false)
+    {
+        if (_usersLoading)
+        {
+            return;
+        }
+
+        if (_usersLoaded && !force)
+        {
+            return;
+        }
+
+        try
+        {
+            _usersLoading = true;
+            StateHasChanged();
+
+            var ct = _cts?.Token ?? default;
+            var items = await Api.GetUsersAsync(ct);
+            _users = items.ToList();
+            _usersLoaded = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+        }
+        finally
+        {
+            _usersLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task RefreshUsersAsync() => EnsureUsersLoadedAsync(force: true);
+
+    private async Task<UserEditModel?> OpenUserEditorAsync(UserEditModel model, bool isNew)
+    {
+        var result = await DialogService.OpenAsync<UserEditorDialog>(
+            isNew ? "Новый пользователь" : $"Пользователь {model.Login}",
+            new Dictionary<string, object?>
+            {
+                [nameof(UserEditorDialog.Model)] = model,
+                [nameof(UserEditorDialog.IsNew)] = isNew,
+                [nameof(UserEditorDialog.AvailableRoles)] = UiRolesCatalog
+            },
+            new DialogOptions { CloseDialogOnOverlayClick = false, Width = "480px" });
+
+        return result as UserEditModel;
+    }
+
+    private async Task AddUser()
+    {
+        var model = new UserEditModel
+        {
+            RequirePassword = true,
+            ChangePassword = true,
+            Roles = new List<string>()
+        };
+
+        var result = await OpenUserEditorAsync(model, isNew: true);
+        if (result is null)
+        {
+            return;
+        }
+
+        var login = result.Login?.Trim();
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Укажите логин пользователя.");
+            return;
+        }
+
+        var roles = result.Roles?.Where(r => !string.IsNullOrWhiteSpace(r))
+                                 .Select(r => r.Trim())
+                                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                                 .ToArray() ?? Array.Empty<string>();
+
+        if (roles.Length == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите хотя бы одну роль.");
+            return;
+        }
+
+        var displayName = string.IsNullOrWhiteSpace(result.DisplayName)
+            ? null
+            : result.DisplayName!.Trim();
+
+        var password = result.Password;
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен.");
+            return;
+        }
+
+        var payload = new ApiClient.CreateUserRequest(login, password!, displayName, roles);
+        var ct = _cts?.Token ?? default;
+
+        try
+        {
+            _usersLoading = true;
+            StateHasChanged();
+
+            await Api.CreateUserAsync(payload, ct);
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Создан пользователь {login}.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+            return;
+        }
+        finally
+        {
+            _usersLoading = false;
+            StateHasChanged();
+        }
+
+        await EnsureUsersLoadedAsync(force: true);
+    }
+
+    private async Task EditUser(ApiClient.UserSummary user)
+    {
+        var model = new UserEditModel
+        {
+            Login = user.Login,
+            DisplayName = user.DisplayName ?? string.Empty,
+            Roles = user.Roles?.ToList() ?? new List<string>(),
+            RequirePassword = false,
+            ChangePassword = false,
+            Password = string.Empty
+        };
+
+        var result = await OpenUserEditorAsync(model, isNew: false);
+        if (result is null)
+        {
+            return;
+        }
+
+        var roles = result.Roles?.Where(r => !string.IsNullOrWhiteSpace(r))
+                                 .Select(r => r.Trim())
+                                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                                 .ToArray() ?? Array.Empty<string>();
+
+        if (roles.Length == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите хотя бы одну роль.");
+            return;
+        }
+
+        string? password = null;
+        if (result.ChangePassword)
+        {
+            if (string.IsNullOrWhiteSpace(result.Password))
+            {
+                NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен.");
+                return;
+            }
+
+            password = result.Password;
+        }
+
+        var displayName = string.IsNullOrWhiteSpace(result.DisplayName)
+            ? null
+            : result.DisplayName!.Trim();
+
+        var payload = new ApiClient.UpdateUserRequest(password, displayName, roles);
+        var ct = _cts?.Token ?? default;
+
+        try
+        {
+            _usersLoading = true;
+            StateHasChanged();
+
+            await Api.UpdateUserAsync(user.Login, payload, ct);
+
+            var effectiveDisplayName = displayName ?? user.DisplayName;
+            var updated = new ApiClient.UserSummary(user.Login, effectiveDisplayName, roles);
+            var index = _users.FindIndex(u => string.Equals(u.Login, user.Login, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                _users[index] = updated;
+            }
+
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Пользователь {user.Login} обновлён.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+        }
+        finally
+        {
+            _usersLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteUser(ApiClient.UserSummary user)
+    {
+        var confirmed = await DialogService.Confirm($"Удалить пользователя {user.Login}?", "Подтверждение",
+            new ConfirmOptions { OkButtonText = "Удалить", CancelButtonText = "Отмена" });
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var ct = _cts?.Token ?? default;
+
+        try
+        {
+            _usersLoading = true;
+            StateHasChanged();
+
+            await Api.DeleteUserAsync(user.Login, ct);
+            _users.RemoveAll(u => string.Equals(u.Login, user.Login, StringComparison.OrdinalIgnoreCase));
+
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Пользователь {user.Login} удалён.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+        }
+        finally
+        {
+            _usersLoading = false;
+            StateHasChanged();
+        }
+    }
 
     async Task CheckServiceStatus()
     {
@@ -728,12 +916,6 @@
             UICulture = "ru-RU",
             RememberLastDate = true
         };
-
-        m.UsersSettings ??= new UsersSettings();
-        m.UsersSettings.Users ??= new List<UserDto>();
-        m.UsersSettings.DefaultDbRoles ??= new List<string>();
-        m.UsersSettings.SessionTimeoutMinutes =
-            m.UsersSettings.SessionTimeoutMinutes <= 0 ? 480 : m.UsersSettings.SessionTimeoutMinutes;
 
         return m;
     }
