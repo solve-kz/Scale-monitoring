@@ -1,29 +1,29 @@
-@using ApiLogEntry = Scalemon.WebApp.ApiClient.LogEntry
+@using Scalemon.WebApp.ApiClient
 
-<RadzenDataGrid TItem="ApiLogEntry"
+<RadzenDataGrid TItem="LogEntry"
                 Data="@Items"
                 AllowPaging="true"
                 PageSize="20"
                 AllowSorting="true"
                 AllowFiltering="true">
     <Columns>
-        <RadzenDataGridColumn TItem="ApiLogEntry"
+        <RadzenDataGridColumn TItem="LogEntry"
                               Property="Timestamp"
                               Title="Время"
                               Width="210px"
                               FormatString="{0:yyyy-MM-dd HH:mm:ss}" />
-        <RadzenDataGridColumn TItem="ApiLogEntry"
+        <RadzenDataGridColumn TItem="LogEntry"
                               Property="Level"
                               Title="Уровень"
                               Width="110px" />
-        <RadzenDataGridColumn TItem="ApiLogEntry"
+        <RadzenDataGridColumn TItem="LogEntry"
                               Property="Source"
                               Title="Источник"
                               Width="180px" />
-        <RadzenDataGridColumn TItem="ApiLogEntry"
+        <RadzenDataGridColumn TItem="LogEntry"
                               Property="Message"
                               Title="Сообщение" />
-        <RadzenDataGridColumn TItem="ApiLogEntry"
+        <RadzenDataGridColumn TItem="LogEntry"
                               Property="Exception"
                               Title="Исключение" />
     </Columns>
@@ -31,5 +31,5 @@
 
 @code {
     [Parameter]
-    public IReadOnlyList<ApiLogEntry> Items { get; set; } = Array.Empty<ApiLogEntry>();
+    public IReadOnlyList<LogEntry> Items { get; set; } = Array.Empty<LogEntry>();
 }
