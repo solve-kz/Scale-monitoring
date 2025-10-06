@@ -1,0 +1,295 @@
+@using System.Collections.Generic
+@using System.Globalization
+@using System.Threading
+@using System.Linq
+@using Radzen
+@using Scalemon.WebApp.Components.Dialogs
+@using Scalemon.WebApp.Models
+
+<RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-bottom:8px">
+    <RadzenButton Text="Добавить" Icon="add" Click="@AddUserAsync" Disabled="@_loading" />
+    <RadzenButton Text="Обновить" Icon="refresh" Click="@RefreshAsync" Disabled="@_loading" />
+</RadzenStack>
+
+<RadzenDataGrid TItem="ApiClient.UserSummary" Data="@_users"
+                AllowPaging="true" PageSize="8"
+                AllowFiltering="false" AllowSorting="true">
+    <Columns>
+        <RadzenDataGridColumn TItem="ApiClient.UserSummary" Property="Login" Title="Логин" Width="160px" />
+        <RadzenDataGridColumn TItem="ApiClient.UserSummary" Property="DisplayName" Title="Имя" Width="180px">
+            <Template Context="u">@(!string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName : string.Empty)</Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="ApiClient.UserSummary" Title="Роли">
+            <Template Context="u">@string.Join(", ", u.Roles ?? Array.Empty<string>())</Template>
+        </RadzenDataGridColumn>
+        <RadzenDataGridColumn TItem="ApiClient.UserSummary" Title="Действия" Width="160px">
+            <Template Context="u">
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="edit" Size="ButtonSize.Small"
+                              Click="@(() => EditUserAsync(u))" Style="margin-right:6px" Disabled="@_loading" />
+                <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Size="ButtonSize.Small"
+                              Click="@(() => DeleteUserAsync(u))" Disabled="@_loading" />
+            </Template>
+        </RadzenDataGridColumn>
+    </Columns>
+</RadzenDataGrid>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<string> RolesCatalog { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public Func<CancellationToken>? RequestToken { get; set; }
+        = null;
+
+    [Parameter]
+    public string DialogTitleForNewUser { get; set; } = "Новый пользователь";
+
+    [Parameter]
+    public string DialogTitleForExistingUserFormat { get; set; } = "Пользователь {0}";
+
+    [Inject]
+    private ApiClient Api { get; set; } = default!;
+
+    [Inject]
+    private DialogService DialogService { get; set; } = default!;
+
+    [Inject]
+    private NotificationService NotificationService { get; set; } = default!;
+
+    private readonly List<ApiClient.UserSummary> _users = new();
+    private bool _loading;
+    private bool _loaded;
+
+    private CancellationToken CancellationToken => RequestToken?.Invoke() ?? default;
+
+    public void Reset()
+    {
+        _loaded = false;
+        _users.Clear();
+        StateHasChanged();
+    }
+
+    public Task EnsureLoadedAsync(bool force = false) => LoadUsersAsync(force);
+
+    private async Task LoadUsersAsync(bool force)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        if (_loaded && !force)
+        {
+            return;
+        }
+
+        try
+        {
+            _loading = true;
+            StateHasChanged();
+
+            var items = await Api.GetUsersAsync(CancellationToken);
+
+            _users.Clear();
+            _users.AddRange(items);
+            _loaded = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task RefreshAsync() => LoadUsersAsync(force: true);
+
+    private async Task AddUserAsync()
+    {
+        var model = new UserEditModel
+        {
+            RequirePassword = true,
+            ChangePassword = true,
+            Roles = new List<string>()
+        };
+
+        var result = await OpenEditorAsync(model, isNew: true);
+        if (result is null)
+        {
+            return;
+        }
+
+        var login = result.Login?.Trim();
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Укажите логин пользователя.");
+            return;
+        }
+
+        var roles = NormalizeRoles(result.Roles);
+        if (roles.Length == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите хотя бы одну роль.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(result.Password))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен.");
+            return;
+        }
+
+        var displayName = NormalizeDisplayName(result.DisplayName);
+        var payload = new ApiClient.CreateUserRequest(login, result.Password!, displayName, roles);
+
+        await ExecuteWithLoadingAsync(async ct =>
+        {
+            await Api.CreateUserAsync(payload, ct);
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Создан пользователь {login}.");
+        });
+
+        await LoadUsersAsync(force: true);
+    }
+
+    private async Task EditUserAsync(ApiClient.UserSummary user)
+    {
+        var model = new UserEditModel
+        {
+            Login = user.Login,
+            DisplayName = user.DisplayName ?? string.Empty,
+            Roles = user.Roles?.ToList() ?? new List<string>(),
+            RequirePassword = false,
+            ChangePassword = false,
+            Password = string.Empty
+        };
+
+        var result = await OpenEditorAsync(model, isNew: false);
+        if (result is null)
+        {
+            return;
+        }
+
+        var roles = NormalizeRoles(result.Roles);
+        if (roles.Length == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите хотя бы одну роль.");
+            return;
+        }
+
+        string? password = null;
+        if (result.ChangePassword)
+        {
+            if (string.IsNullOrWhiteSpace(result.Password))
+            {
+                NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен.");
+                return;
+            }
+
+            password = result.Password;
+        }
+
+        var displayName = NormalizeDisplayName(result.DisplayName);
+        var payload = new ApiClient.UpdateUserRequest(password, displayName, roles);
+
+        await ExecuteWithLoadingAsync(async ct =>
+        {
+            await Api.UpdateUserAsync(user.Login, payload, ct);
+            var effectiveDisplayName = displayName ?? user.DisplayName;
+            var updated = new ApiClient.UserSummary(user.Login, effectiveDisplayName, roles);
+
+            var index = _users.FindIndex(u => string.Equals(u.Login, user.Login, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                _users[index] = updated;
+            }
+
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Пользователь {user.Login} обновлён.");
+        });
+
+        StateHasChanged();
+    }
+
+    private async Task DeleteUserAsync(ApiClient.UserSummary user)
+    {
+        var confirmed = await DialogService.Confirm($"Удалить пользователя {user.Login}?", "Подтверждение",
+            new ConfirmOptions { OkButtonText = "Удалить", CancelButtonText = "Отмена" });
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await ExecuteWithLoadingAsync(async ct =>
+        {
+            await Api.DeleteUserAsync(user.Login, ct);
+            _users.RemoveAll(u => string.Equals(u.Login, user.Login, StringComparison.OrdinalIgnoreCase));
+            NotificationService.Notify(NotificationSeverity.Success, "Пользователи", $"Пользователь {user.Login} удалён.");
+        });
+
+        StateHasChanged();
+    }
+
+    private async Task<UserEditModel?> OpenEditorAsync(UserEditModel model, bool isNew)
+    {
+        var title = isNew
+            ? DialogTitleForNewUser
+            : string.Format(CultureInfo.CurrentCulture, DialogTitleForExistingUserFormat, model.Login);
+
+        var result = await DialogService.OpenAsync<UserEditorDialog>(
+            title,
+            new Dictionary<string, object?>
+            {
+                [nameof(UserEditorDialog.Model)] = model,
+                [nameof(UserEditorDialog.IsNew)] = isNew,
+                [nameof(UserEditorDialog.AvailableRoles)] = RolesCatalog
+            },
+            new DialogOptions { CloseDialogOnOverlayClick = false, Width = "480px" });
+
+        return result as UserEditModel;
+    }
+
+    private async Task ExecuteWithLoadingAsync(Func<CancellationToken, Task> action)
+    {
+        try
+        {
+            _loading = true;
+            StateHasChanged();
+
+            await action(CancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Пользователи", ex.Message);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string? NormalizeDisplayName(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string[] NormalizeRoles(ICollection<string>? roles)
+    {
+        if (roles is null || roles.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        return roles.Where(r => !string.IsNullOrWhiteSpace(r))
+                    .Select(r => r.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+    }
+}
