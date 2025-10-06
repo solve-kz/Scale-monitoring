@@ -26,6 +26,7 @@ using Scalemon.ServiceHost.Logging;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Claims;
@@ -92,8 +93,6 @@ builder.Services.AddSingleton<IScaleProcessor>(sp =>
         settings.StableThreshold, settings.UnstableThreshold, settings.PollingIntervalMs);
 });
 
-builder.Services.AddSingleton<IAuthService, InMemoryAuthService>();
-
 builder.Services.AddSingleton<IDataAccess>(sp =>
 {
     var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.DatabaseSettings;
@@ -137,9 +136,9 @@ builder.Services.AddSingleton<IScaleStateMachine>(sp =>
 builder.Services.AddHostedService<ScalemonService>();
 
 // Добавляем сервис аутентификации для WebApp
-builder.Services.AddSingleton<IAuthService, InMemoryAuthService>();
-
-builder.Services.AddSingleton<IUsersStore>(sp => sp.GetRequiredService<InMemoryAuthService>());
+builder.Services.AddSingleton<SqliteAuthService>();
+builder.Services.AddSingleton<IAuthService>(sp => sp.GetRequiredService<SqliteAuthService>());
+builder.Services.AddSingleton<IUsersStore>(sp => sp.GetRequiredService<SqliteAuthService>());
 
 
 
@@ -149,12 +148,16 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Аутентификация через Cookies для веб-интерфейса
+var sessionTimeoutMinutes = config.GetValue<int?>("Authentication:SessionTimeoutMinutes");
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.Cookie.Name = "ScalemonAuth";
-        options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
+        options.ExpireTimeSpan = sessionTimeoutMinutes is > 0
+            ? TimeSpan.FromMinutes(sessionTimeoutMinutes.Value)
+            : TimeSpan.FromHours(8);
         options.Events.OnRedirectToLogin = context =>
         {
             if (context.Request.Path.StartsWithSegments("/api"))
@@ -229,6 +232,8 @@ builder.Host.UseWindowsService();
 // --- 4. ПОСТРОЕНИЕ И КОНФИГУРАЦИЯ КОНВЕЙЕРА HTTP-ЗАПРОСОВ ---
 var app = builder.Build();
 
+await app.Services.GetRequiredService<SqliteAuthService>().EnsureInitializedAsync();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -251,14 +256,24 @@ app.MapControllers();
 
 app.MapPost("/api/auth/login", async (HttpContext http, [FromBody] AuthController.LoginModel model, [FromServices] IAuthService authService) =>
 {
-    var (isValid, role) = await authService.ValidateAsync(model.Username, model.Password);
-    if (isValid)
+    var validation = await authService.ValidateAsync(model.Username, model.Password);
+    if (validation.Ok)
     {
         var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.Name, model.Username),
-            new Claim(ClaimTypes.Role, role!) // Добавляем роль пользователя
+            new Claim(ClaimTypes.Name, model.Username)
         };
+
+        if (!string.IsNullOrWhiteSpace(validation.DisplayName))
+        {
+            claims.Add(new Claim(ClaimTypes.GivenName, validation.DisplayName!));
+        }
+
+        foreach (var role in validation.Roles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
         await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
@@ -283,17 +298,28 @@ users.MapPost("/", (IUsersStore store, UserUpsert dto) =>
 {
     if (string.IsNullOrWhiteSpace(dto.Login) ||
         string.IsNullOrWhiteSpace(dto.Password) ||
-        string.IsNullOrWhiteSpace(dto.Role))
-        return Results.BadRequest("login/password/role required");
+        dto.Roles is null)
+    {
+        return Results.BadRequest("login/password/roles required");
+    }
 
-    return store.TryAdd(dto.Login, dto.Password, dto.Role)
+    var roles = dto.Roles.Where(r => !string.IsNullOrWhiteSpace(r))
+                         .Select(r => r.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .ToArray();
+    if (roles.Length == 0)
+    {
+        return Results.BadRequest("At least one role required");
+    }
+
+    return store.TryAdd(dto.Login, dto.Password, dto.DisplayName, roles)
         ? Results.Created($"/api/auth/users/{dto.Login}", null)
         : Results.Conflict("User exists");
 }).DisableAntiforgery();
 
 users.MapPut("/{login}", (IUsersStore store, string login, UserUpdate dto) =>
 {
-    return store.TryUpdate(login, dto.Password, dto.Role)
+    return store.TryUpdate(login, dto.Password, dto.DisplayName, dto.Roles)
         ? Results.NoContent()
         : Results.NotFound();
 }).DisableAntiforgery();
@@ -313,6 +339,18 @@ app.MapRazorComponents<App>()
 // --- 5. ЗАПУСК ПРИЛОЖЕНИЯ ---
 app.Run();
 
-public sealed record UserUpsert(string Login, string Password, string Role);
-public sealed record UserUpdate(string? Password, string? Role);
+public sealed record UserUpsert
+{
+    public string Login { get; init; } = string.Empty;
+    public string Password { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public List<string> Roles { get; init; } = new();
+}
+
+public sealed record UserUpdate
+{
+    public string? Password { get; init; }
+    public string? DisplayName { get; init; }
+    public List<string>? Roles { get; init; }
+}
 

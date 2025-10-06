@@ -26,6 +26,17 @@
     {
         public BasicAuthSettings Basic { get; set; } = new BasicAuthSettings();
         public string? UsersFilePath { get; set; }  // ← новое поле
+        public string? UsersDatabasePath { get; set; }
+        public int? SessionTimeoutMinutes { get; set; }
+        public InitialAdminSettings InitialAdmin { get; set; } = new InitialAdminSettings();
+    }
+
+    public class InitialAdminSettings
+    {
+        public string Login { get; set; } = "admin";
+        public string Password { get; set; } = "ChangeMe!";
+        public string DisplayName { get; set; } = "Administrator";
+        public string[] Roles { get; set; } = new[] { "Admin" };
     }
 
     public class BasicAuthSettings
