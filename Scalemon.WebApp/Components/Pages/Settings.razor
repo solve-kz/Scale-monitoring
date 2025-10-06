@@ -534,38 +534,9 @@
 
             builder.AddAttribute(4, "Columns", (RenderFragment)((cols) =>
             {
-                cols.OpenComponent(5, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(6, "Property", "Timestamp");
-                cols.AddAttribute(7, "Title", "Время");
-                cols.AddAttribute(8, "Width", "210px");
-                cols.AddAttribute(9, "FormatString", "{0:yyyy-MM-dd HH:mm:ss}");
-                cols.CloseComponent();
-
-                cols.OpenComponent(10, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(11, "Property", "Level");
-                cols.AddAttribute(12, "Title", "Уровень");
-                cols.AddAttribute(13, "Width", "110px");
-                cols.CloseComponent();
-
-                cols.OpenComponent(14, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(15, "Property", "Source");
-                cols.AddAttribute(16, "Title", "Источник");
-                cols.CloseComponent();
-
-                cols.OpenComponent(17, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(18, "Property", "Message");
-                cols.AddAttribute(19, "Title", "Сообщение");
-                cols.CloseComponent();
-
-                cols.OpenComponent(20, typeof(RadzenDataGridColumn<ApiClient.LogEntry>));
-                cols.AddAttribute(21, "Property", "Exception");
-                cols.AddAttribute(22, "Title", "Исключение");
-                cols.CloseComponent();
-            }));
-
-            builder.CloseComponent();
-        },
-        new DialogOptions { Width = "1000px", Height = "70vh", Resizable = true });
+                [nameof(LogPreviewDialog.Items)] = items
+            },
+            new DialogOptions { Width = "1000px", Height = "70vh", Resizable = true });
     }
 
 
