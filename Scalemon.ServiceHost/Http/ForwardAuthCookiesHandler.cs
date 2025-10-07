@@ -1,9 +1,10 @@
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Scalemon.ServiceHost.Http;
 
@@ -26,7 +27,14 @@ public class ForwardAuthCookiesHandler : DelegatingHandler
 
             foreach (var value in cookieHeader)
             {
-                request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, value);
+                if (CookieHeaderValue.TryParse(value, out var cookie))
+                {
+                    request.Headers.Cookie.Add(cookie);
+                }
+                else
+                {
+                    request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, value);
+                }
             }
         }
 
