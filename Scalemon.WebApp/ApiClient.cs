@@ -1,9 +1,11 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Web;
+using Scalemon.Common.Auth;
 
 namespace Scalemon.WebApp;
 
@@ -21,6 +23,8 @@ public sealed class ApiClient
     public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
     public sealed record ImportLogResponse(string File, string? Database, string? Path, int Imported, string? Error);
     public readonly record struct UploadFilePayload(Stream Stream, string FileName, string? ContentType = null, string? TargetName = null);
+    public sealed record CreateUserRequest(string Login, string Password, string? DisplayName, IReadOnlyCollection<string> Roles);
+    public sealed record UpdateUserRequest(string? Password, string? DisplayName, IReadOnlyCollection<string>? Roles);
 
     // ---------- методы, которые вызывает UI ----------
     // /api/service/status  -> JSON-строка ("Running"/"Paused"/"Stopped")
@@ -149,4 +153,26 @@ public sealed class ApiClient
     // ---------- SettingsController: logging ----------
     // /api/settings/logging/levels
 
+    // ---------- Auth users ----------
+    public async Task<IReadOnlyList<UserRecord>> GetUsersAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<IReadOnlyList<UserRecord>>("api/auth/users", ct)
+           ?? Array.Empty<UserRecord>();
+
+    public async Task CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("api/auth/users", request, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task UpdateUserAsync(string login, UpdateUserRequest request, CancellationToken ct = default)
+    {
+        var response = await _http.PutAsJsonAsync($"api/auth/users/{Uri.EscapeDataString(login)}", request, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteUserAsync(string login, CancellationToken ct = default)
+    {
+        var response = await _http.DeleteAsync($"api/auth/users/{Uri.EscapeDataString(login)}", ct);
+        response.EnsureSuccessStatusCode();
+    }
 }
