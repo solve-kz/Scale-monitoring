@@ -25,7 +25,6 @@
     public class AuthenticationSettings
     {
         public BasicAuthSettings Basic { get; set; } = new BasicAuthSettings();
-        public string? UsersFilePath { get; set; }  // ← новое поле
         public string? UsersDatabasePath { get; set; }
         public int? SessionTimeoutMinutes { get; set; }
         public InitialAdminSettings InitialAdmin { get; set; } = new InitialAdminSettings();

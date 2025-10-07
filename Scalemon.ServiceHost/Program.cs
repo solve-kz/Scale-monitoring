@@ -26,10 +26,8 @@ using Scalemon.ServiceHost.Logging;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Security.Claims;
 using System.Text;
 
 const long LogUploadLimitBytes = 256L * 1024 * 1024;
@@ -254,103 +252,10 @@ app.UseAntiforgery();
 // Конечные точки (API и Blazor UI)
 app.MapControllers();
 
-app.MapPost("/api/auth/login", async (HttpContext http, [FromBody] AuthController.LoginModel model, [FromServices] IAuthService authService) =>
-{
-    var validation = await authService.ValidateAsync(model.Username, model.Password);
-    if (validation.Ok)
-    {
-        var claims = new List<Claim>
-        {
-            new Claim(ClaimTypes.Name, model.Username)
-        };
-
-        if (!string.IsNullOrWhiteSpace(validation.DisplayName))
-        {
-            claims.Add(new Claim(ClaimTypes.GivenName, validation.DisplayName!));
-        }
-
-        foreach (var role in validation.Roles)
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-        }
-
-        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        var principal = new ClaimsPrincipal(identity);
-        await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-        return Results.Ok();
-    }
-    return Results.Unauthorized();
-}).DisableAntiforgery();
-
-app.MapPost("/api/auth/logout", async (HttpContext http) =>
-{
-    await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    return Results.Ok();
-}).DisableAntiforgery();
-
-// === Admin-only: управление пользователями через cookie-аутентификацию ===
-var users = app.MapGroup("/api/auth/users")
-               .RequireAuthorization(policy => policy.RequireRole("Admin"));
-
-users.MapGet("/", (IUsersStore store) => Results.Ok(store.List()));
-
-users.MapPost("/", (IUsersStore store, UserUpsert dto) =>
-{
-    if (string.IsNullOrWhiteSpace(dto.Login) ||
-        string.IsNullOrWhiteSpace(dto.Password) ||
-        dto.Roles is null)
-    {
-        return Results.BadRequest("login/password/roles required");
-    }
-
-    var roles = dto.Roles.Where(r => !string.IsNullOrWhiteSpace(r))
-                         .Select(r => r.Trim())
-                         .Distinct(StringComparer.OrdinalIgnoreCase)
-                         .ToArray();
-    if (roles.Length == 0)
-    {
-        return Results.BadRequest("At least one role required");
-    }
-
-    return store.TryAdd(dto.Login, dto.Password, dto.DisplayName, roles)
-        ? Results.Created($"/api/auth/users/{dto.Login}", null)
-        : Results.Conflict("User exists");
-}).DisableAntiforgery();
-
-users.MapPut("/{login}", (IUsersStore store, string login, UserUpdate dto) =>
-{
-    return store.TryUpdate(login, dto.Password, dto.DisplayName, dto.Roles)
-        ? Results.NoContent()
-        : Results.NotFound();
-}).DisableAntiforgery();
-
-users.MapDelete("/{login}", (IUsersStore store, string login) =>
-{
-    return store.Remove(login)
-        ? Results.NoContent()
-        : Results.NotFound();
-}).DisableAntiforgery();
-
-
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 
 
 // --- 5. ЗАПУСК ПРИЛОЖЕНИЯ ---
 app.Run();
-
-public sealed record UserUpsert
-{
-    public string Login { get; init; } = string.Empty;
-    public string Password { get; init; } = string.Empty;
-    public string DisplayName { get; init; } = string.Empty;
-    public List<string> Roles { get; init; } = new();
-}
-
-public sealed record UserUpdate
-{
-    public string? Password { get; init; }
-    public string? DisplayName { get; init; }
-    public List<string>? Roles { get; init; }
-}
 
