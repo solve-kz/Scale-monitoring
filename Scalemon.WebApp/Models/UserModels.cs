@@ -16,6 +16,13 @@ public sealed class UserListItem
         DisplayName = record.DisplayName,
         Roles = record.Roles?.ToList() ?? new List<string>()
     };
+
+    public static UserListItem FromSummary(ApiClient.UserSummary summary) => new()
+    {
+        Login = summary.Login,
+        DisplayName = summary.DisplayName,
+        Roles = summary.Roles?.ToList() ?? new List<string>()
+    };
 }
 
 public sealed class UserEditModel
