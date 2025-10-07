@@ -145,17 +145,12 @@ builder.Services.AddControllers().AddApplicationPart(typeof(ServiceApiController
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Аутентификация через Cookies для веб-интерфейса
-var sessionTimeoutMinutes = config.GetValue<int?>("Authentication:SessionTimeoutMinutes");
-
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.Cookie.Name = "ScalemonAuth";
         options.SlidingExpiration = true;
-        options.ExpireTimeSpan = sessionTimeoutMinutes is > 0
-            ? TimeSpan.FromMinutes(sessionTimeoutMinutes.Value)
-            : TimeSpan.FromHours(8);
+        options.ExpireTimeSpan = TimeSpan.FromDays(365);
         options.Events.OnRedirectToLogin = context =>
         {
             if (context.Request.Path.StartsWithSegments("/api"))
