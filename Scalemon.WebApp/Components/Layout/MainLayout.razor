@@ -1,10 +1,12 @@
-﻿@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Authorization
+@using Radzen
 @inherits LayoutComponentBase
 
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject CookieThemeService CookieThemeService
+@inject SecurityService Security
 @implements IAsyncDisposable
 
 <RadzenLayout>
@@ -23,8 +25,9 @@
         </RadzenStack>
     </RadzenHeader>
 
-    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-    <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+    <!-- Панель навигации скрыта для гостей -->
+    <RadzenSidebar Visible="@Security.IsAuthenticated"
+                   Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
         <NavMenu Collapsed="@(navCollapsed)"
                  OnToggleSidebar="ToggleSidebar"
                  OnLogin="Login"
@@ -45,7 +48,7 @@
 
 @code {
     DotNetObjectReference<MainLayout>? _dotRef;
-    
+
     // private bool sidebarExpanded = true;
     private string _pageTitle = "Главная";
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
@@ -58,7 +61,6 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        
         SetPageTitle(e.Location);
     }
 
@@ -85,17 +87,17 @@
     }
 
     // Простейшие заглушки под ваши реальные процедуры авторизации
-    private async Task Login()
+    private Task Login()
     {
-        // Покажите ваш диалог логина (например, RadzenDialog/RadzenLogin)
-        await JS.InvokeVoidAsync("scalemon.showLogin");
+        Nav.NavigateTo("/");
+        return Task.CompletedTask;
     }
 
     private async Task Logout()
     {
         // Ваш существующий сценарий выхода
         await JS.InvokeVoidAsync("scalemon.logout");
-        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+        Nav.NavigateTo("/", forceLoad: true);
     }
 
     public async ValueTask DisposeAsync()

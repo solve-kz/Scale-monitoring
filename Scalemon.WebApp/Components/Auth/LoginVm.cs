@@ -1,7 +1,7 @@
-﻿namespace Scalemon.WebApp.Components.Auth;
+namespace Scalemon.WebApp.Components.Auth;
 
 public sealed record LoginVm
 {
-    public string Login { get; init; } = "";
-    public string Pass { get; init; } = "";
+    public string Login { get; set; } = "";
+    public string Pass { get; set; } = "";
 }

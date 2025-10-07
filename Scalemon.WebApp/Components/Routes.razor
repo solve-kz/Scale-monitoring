@@ -1,23 +1,92 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.AspNetCore.Components.Routing
+@using System
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Radzen
+@using Scalemon.WebApp.Components.Auth
 
-<Router AppAssembly="typeof(App).Assembly">
+@inject NavigationManager Navigation
+
+<Router AppAssembly="typeof(App).Assembly"
+        OnNavigateAsync="GuardNavigationAsync">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
-                @* Можно показать заглушку или просто отправить на главную *@
-                <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Незнакомцам доступа нет!</RadzenText>
+                <AuthorizeView>
+                    <Authorized>
+                        <RadzenAlert Severity="AlertSeverity.Warning"
+                                     Style="max-width:480px;margin:2rem auto;">
+                            У вас недостаточно прав для просмотра этой страницы.
+                        </RadzenAlert>
+                    </Authorized>
+                    <NotAuthorized>
+                        <RedirectToMain />
+                    </NotAuthorized>
+                </AuthorizeView>
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
         <LayoutView Layout="typeof(Layout.MainLayout)">
-            <div class="rz-p-4">
-                <h3>Страница не найдена</h3>
-                <a href="/">На главную</a>
-            </div>
+            <AuthorizeView>
+                <Authorized>
+                    <div class="rz-p-4">
+                        <h3>Страница не найдена</h3>
+                        <a href="/">На главную</a>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <RedirectToMain />
+                </NotAuthorized>
+            </AuthorizeView>
         </LayoutView>
     </NotFound>
 </Router>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private async Task GuardNavigationAsync(NavigationContext args)
+    {
+        if (IsMainRoute(args.Path))
+        {
+            return;
+        }
+
+        if (AuthenticationStateTask is null)
+        {
+            return;
+        }
+
+        var state = await AuthenticationStateTask;
+        var isAuthenticated = state.User.Identity?.IsAuthenticated ?? false;
+
+        if (!isAuthenticated)
+        {
+            args.PreventNavigation();
+            Navigation.NavigateTo("/", true);
+        }
+    }
+
+    private static bool IsMainRoute(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return true;
+        }
+
+        if (path.Equals("/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (path.Equals("index", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return path.StartsWith("?", StringComparison.Ordinal);
+    }
+}
