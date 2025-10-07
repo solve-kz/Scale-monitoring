@@ -26,7 +26,6 @@
     {
         public BasicAuthSettings Basic { get; set; } = new BasicAuthSettings();
         public string? UsersDatabasePath { get; set; }
-        public int? SessionTimeoutMinutes { get; set; }
         public InitialAdminSettings InitialAdmin { get; set; } = new InitialAdminSettings();
     }
 
