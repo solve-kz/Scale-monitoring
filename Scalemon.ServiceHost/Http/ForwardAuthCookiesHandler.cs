@@ -24,7 +24,7 @@ public class ForwardAuthCookiesHandler : DelegatingHandler
         {
             request.Headers.Remove(HeaderNames.Cookie);
 
-            foreach (var value in cookieHeader)
+            foreach (var value in cookieHeader.ToArray())
             {
                 if (CookieHeaderValue.TryParse(value, out var cookie))
                 {
