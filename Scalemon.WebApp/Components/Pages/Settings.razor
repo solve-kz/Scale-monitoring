@@ -11,6 +11,7 @@
 
 
 @attribute [Authorize(Policy = "AdminOnly")]
+@implements IDisposable
 
 @inject ApiClient Api
 @inject DialogService DialogService
@@ -626,7 +627,7 @@
             _usersLoading = true;
             var users = await Api.GetUsersAsync(ct);
             Users = users
-                .Select(UserListItem.FromRecord)
+                .Select(UserListItem.FromSummary)
                 .OrderBy(u => u.Login, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
