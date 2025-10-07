@@ -10,7 +10,7 @@
 @using System.IO.Ports
 
 
-@attribute [Authorize(Policy = "CanViewSettings")]
+@attribute [Authorize]
 @implements IDisposable
 
 @inject ApiClient Api
@@ -25,8 +25,6 @@
 
     <!-- 1) ВЕБ-ИНТЕРФЕЙС -->
     <RadzenTabsItem Text="Веб-интерфейс">
-        <AuthorizeView Policy="CanViewMonitoring">
-            <Authorized Context="authState">
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"
@@ -130,8 +128,6 @@
                     <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
-            </Authorized>
-        </AuthorizeView>
     </RadzenTabsItem>
 
     <!-- 2) СЛУЖБА -->
