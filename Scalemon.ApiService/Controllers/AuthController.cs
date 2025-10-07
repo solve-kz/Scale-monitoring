@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using Scalemon.Common;
+using Microsoft.AspNetCore.Authorization;
+using Scalemon.Common.Auth;
 using System.Collections.Generic;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -13,11 +13,11 @@ namespace Scalemon.ApiService.Controllers
     [Route("api/auth")] // <-- Все адреса в этом контроллере будут начинаться с /api/auth
     public class AuthController : ControllerBase
     {
-        private readonly ServiceSettings _settings;
+        private readonly IAuthService _authService;
 
-        public AuthController(IOptions<ServiceSettings> settings)
+        public AuthController(IAuthService authService)
         {
-            _settings = settings.Value;
+            _authService = authService;
         }
 
         // Модель для приёма данных из JavaScript
@@ -28,33 +28,46 @@ namespace Scalemon.ApiService.Controllers
         }
 
         [HttpPost("login")]
+        [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
         {
-            var authUser = _settings.Authentication.Basic.Username;
-            var authPass = _settings.Authentication.Basic.Password;
-
-            // Проверяем логин и пароль из appsettings.json
-            if (model.Username == authUser && model.Password == authPass)
+            if (model is null)
             {
-                var claims = new List<Claim>
-                {
-                    new Claim(ClaimTypes.Name, model.Username),
-                };
-
-                var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-
-                // Создаём аутентификационную cookie
-                await HttpContext.SignInAsync(
-                    CookieAuthenticationDefaults.AuthenticationScheme,
-                    new ClaimsPrincipal(claimsIdentity));
-
-                return Ok(); // Возвращаем HTTP 200 OK
+                return Unauthorized();
             }
 
-            return Unauthorized(); // Возвращаем HTTP 401 Unauthorized
+            var validation = await _authService.ValidateAsync(model.Username, model.Password);
+            if (!validation.Ok)
+            {
+                return Unauthorized();
+            }
+
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.Name, model.Username),
+            };
+
+            if (!string.IsNullOrWhiteSpace(validation.DisplayName))
+            {
+                claims.Add(new Claim(ClaimTypes.GivenName, validation.DisplayName!));
+            }
+
+            foreach (var role in validation.Roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity));
+
+            return Ok();
         }
 
         [HttpPost("logout")]
+        [Authorize]
         public async Task<IActionResult> Logout()
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
