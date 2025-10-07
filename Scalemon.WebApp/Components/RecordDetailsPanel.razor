@@ -18,14 +18,17 @@
 				</RadzenStack>
             </RadzenStack>
             <!-- Горизонтальный ряд кнопок действий -->
-            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
-                <RadzenButton Icon="add" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("inc"))" Disabled="@(!CanEdit)" />
-                <RadzenButton Icon="remove" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("dec"))" Disabled="@(!CanEdit)" />
-                <RadzenButton Icon="vertical_align_top" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("addAbove"))" Disabled="@(!CanEdit)" />
-                <RadzenButton Icon="vertical_align_bottom" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("addBelow"))" Disabled="@(!CanEdit)" />
-                <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("delete"))" Disabled="@(!CanEdit)" />
-                <RadzenButton Icon="description" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("logs"))" Disabled="@(!CanEdit)" />
-            </RadzenStack>
+            @if (CanEdit)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
+                    <RadzenButton Icon="add" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("inc"))" />
+                    <RadzenButton Icon="remove" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("dec"))" />
+                    <RadzenButton Icon="vertical_align_top" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("addAbove"))" />
+                    <RadzenButton Icon="vertical_align_bottom" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("addBelow"))" />
+                    <RadzenButton Icon="delete" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("delete"))" />
+                    <RadzenButton Icon="description" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("logs"))" />
+                </RadzenStack>
+            }
         </RadzenStack>
     </RadzenCard>
   
