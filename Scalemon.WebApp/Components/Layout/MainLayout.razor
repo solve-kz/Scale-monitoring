@@ -24,12 +24,12 @@
                 <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
             </RadzenStack>
             <AuthorizeView>
-                <Authorized Context="authState">
+                <Authorized>
                     <RadzenStack Orientation="Orientation.Horizontal"
                                  AlignItems="AlignItems.Center"
                                  Gap="8">
                         <RadzenIcon Icon="account_circle" />
-                        <RadzenText Class="rz-text-secondary">@authState.User.Identity?.Name</RadzenText>
+                        <RadzenText Class="rz-text-secondary">@context.User.Identity?.Name</RadzenText>
                         <RadzenButton Icon="logout"
                                       ButtonStyle="ButtonStyle.Secondary"
                                       Size="ButtonSize.Small"

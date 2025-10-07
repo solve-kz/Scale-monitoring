@@ -34,18 +34,12 @@
                     <RadzenTemplateForm TItem="LoginModel" Data="@model" Submit="@HandleLogin" class="main-page__form">
                         <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
                             <RadzenFormField Text="Логин">
-                                <RadzenTextBox @bind-Value="model.Username"
-                                               Name="Username"
-                                               Style="width:100%"
-                                               Disabled="@_busy" />
+                                <RadzenTextBox @bind-Value="model.Username" Name="Username" Style="width:100%" Disabled="@_busy" />
                                 <RadzenRequiredValidator Component="Username" Text="Введите логин" Popup="false" />
                             </RadzenFormField>
 
                             <RadzenFormField Text="Пароль">
-                                <RadzenPassword @bind-Value="model.Password"
-                                                Name="Password"
-                                                Style="width:100%"
-                                                Disabled="@_busy" />
+                                <RadzenPassword @bind-Value="model.Password" Name="Password" Style="width:100%" Disabled="@_busy" />
                                 <RadzenRequiredValidator Component="Password" Text="Введите пароль" Popup="false" />
                             </RadzenFormField>
 
