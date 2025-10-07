@@ -26,7 +26,11 @@ public class ForwardAuthCookiesHandler : DelegatingHandler
 
             foreach (var value in cookieHeader.ToArray())
             {
-                if (!string.IsNullOrEmpty(value))
+                if (CookieHeaderValue.TryParse(value, out var cookie))
+                {
+                    request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, cookie.ToString());
+                }
+                else
                 {
                     request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, value);
                 }
