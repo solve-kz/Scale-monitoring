@@ -7,9 +7,10 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject ProtectedLocalStorage PLS
-@attribute [Authorize(Policy = "CanEdit")]
+@attribute [Authorize(Policy = "CanViewMonitoring")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthProvider
 
 <RadzenRow>   
 
@@ -69,7 +70,8 @@
                      PageSize="400"
                      PageChanged="@OnPageChanged"
                      CellSelected="@OnCellSelected"
-                     ActionRequested="@OnActionFromGrid" />
+                     ActionRequested="@OnActionFromGrid"
+                     CanEdit="@_canEdit" />
     </RadzenColumn>
 
     <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
@@ -86,7 +88,8 @@
                     <RecordDetailsPanel Cell="@_selectedCell"
                                         OrderInDay="@_selectedOrderInDay"
                                         Visible="@_showDetails"
-                                        ActionRequested="@OnActionFromDetails" />
+                                        ActionRequested="@OnActionFromDetails"
+                                        CanEdit="@_canEdit" />
                 }
                 <div style="min-height:calc(100vh - 700px);">
 
@@ -115,6 +118,7 @@
     DaySummary? _daySummary;
 
     bool _isDetailed = true;
+    bool _canEdit;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
     decimal[] _totals = new decimal[10];
@@ -144,8 +148,16 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await DeterminePermissionsAsync();
         await LoadMonthMarks(SelectedDate.Year, SelectedDate.Month);
         await LoadPage(0);
+    }
+
+    async Task DeterminePermissionsAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        _canEdit = user.IsInRole("Editor") || user.IsInRole("Admin");
     }
 
     async Task OnMonthChanged((int Year, int Month) arg)
@@ -380,6 +392,8 @@
     
     async Task OnActionFromGrid(string action)
     {
+        if (!_canEdit)
+            return;
         if (_selectedCell?.HasValue != true) return;
         var id = _selectedCell.Id!.Value;
 
