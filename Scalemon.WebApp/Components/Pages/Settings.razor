@@ -12,7 +12,7 @@
 @using System.Security.Claims
 
 
-@attribute [Authorize(Policy = "CanViewSettings")]
+@attribute [Authorize]
 @implements IDisposable
 
 @inject ApiClient Api
@@ -455,34 +455,10 @@
         _canEdit = _isAdmin || IsInRole(user, "Editor");
     }
 
-    private static bool IsInRole(ClaimsPrincipal? user, string role)
-    {
-        if (user is null)
-        {
-            return false;
-        }
-
-        if (user.IsInRole(role))
-        {
-            return true;
-        }
-
-        foreach (var identity in user.Identities)
-        {
-            var roleClaimType = identity.RoleClaimType;
-            if (string.IsNullOrEmpty(roleClaimType))
-            {
-                continue;
-            }
-
-            if (identity.FindAll(roleClaimType).Any(c => string.Equals(c.Value, role, StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool IsInRole(ClaimsPrincipal user, string role)
+        => user?.FindAll(ClaimTypes.Role)
+                 .Any(c => string.Equals(c.Value, role, StringComparison.OrdinalIgnoreCase))
+           ?? false;
 
     private async Task ReloadAllAsync()
     {
