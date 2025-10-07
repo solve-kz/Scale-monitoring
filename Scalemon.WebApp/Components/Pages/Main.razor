@@ -7,7 +7,7 @@
 @inject AuthenticationStateProvider AuthProvider
 
 <AuthorizeView>
-    <Authorized>
+    <Authorized Context="authState">
         <div class="main-page__authorized">
             <RadzenCard Class="main-page__authorized-card">
                 <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
@@ -19,7 +19,7 @@
             </RadzenCard>
         </div>
     </Authorized>
-    <NotAuthorized>
+    <NotAuthorized Context="authState">
         <div class="main-page__hero">
             <div class="main-page__hero-overlay"></div>
             <RadzenCard Class="main-page__card">
@@ -83,7 +83,7 @@
         }
     }
 
-    private async Task HandleLogin()
+    private async Task HandleLogin(LoginModel _)
     {
         if (_busy)
         {
