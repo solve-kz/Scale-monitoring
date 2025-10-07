@@ -509,8 +509,11 @@
         }
     }
 
-    void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
-        => NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
+    Task OnInvalidSubmit(FormInvalidSubmitEventArgs args)
+    {
+        NotificationService.Notify(NotificationSeverity.Warning, "Проверьте поля", "Есть ошибки валидации.");
+        return Task.CompletedTask;
+    }
 
     private async Task SaveSettingsAsync()
     {

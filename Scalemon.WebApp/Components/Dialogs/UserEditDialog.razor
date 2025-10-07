@@ -97,9 +97,10 @@
         return Task.CompletedTask;
     }
 
-    private void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
+    private Task OnInvalidSubmit(FormInvalidSubmitEventArgs args)
     {
         NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Исправьте ошибки формы");
+        return Task.CompletedTask;
     }
 
     private void Cancel()
