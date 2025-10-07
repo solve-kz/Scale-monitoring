@@ -21,6 +21,7 @@ using Scalemon.SignalBus;
 using Scalemon.SqlDataAccess;
 using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
+using Scalemon.WebApp.Security;
 using Scalemon.WebApp.Data;
 using Scalemon.ServiceHost.Http;
 using Scalemon.ServiceHost.Logging;
@@ -184,6 +185,7 @@ builder.Services.AddRadzenCookieThemeService(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();                        // если ApiClient использует HttpClient
 builder.Services.AddScoped<ApiClient>();                 // если он есть и используется из компонентов
+builder.Services.AddScoped<SecurityService>();
 builder.Services.AddTransient<ForwardAuthCookiesHandler>();
 builder.Services.AddHttpClient<ApiClient>((sp, http) =>
 {

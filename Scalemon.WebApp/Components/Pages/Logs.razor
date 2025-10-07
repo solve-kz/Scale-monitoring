@@ -12,8 +12,9 @@
 @inject NavigationManager Nav
 @inject ApiClient Api
 @inject IJSRuntime JS
-@inject NotificationService NotificationService 
-@inject ProtectedLocalStorage PLS 
+@inject NotificationService NotificationService
+@inject ProtectedLocalStorage PLS
+@inject SecurityService Security
 
 @attribute [StreamRendering]
 @attribute [Authorize(Policy = "CanEdit")]
@@ -48,14 +49,10 @@
     </RadzenStack>
   </RadzenStack>
 
-  <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
     <RadzenButton Icon="refresh" Text="Обновить" Click="@ReloadAsync" ButtonStyle="ButtonStyle.Primary" />
     <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsv" />
-    <AuthorizeView Roles="Admin">
-        <Authorized>
-            <RadzenButton Icon="upload" Text="Импорт логов" Click="@TriggerImportDialogAsync" />
-        </Authorized>
-    </AuthorizeView>
+    <RadzenButton Icon="upload" Text="Импорт логов" Click="@TriggerImportDialogAsync" Visible="@Security.IsInRole(\"Admin\")" />
   </RadzenStack>
 </RadzenStack>
 
@@ -181,6 +178,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await base.OnInitializedAsync();
+        await Security.InitializeAsync();
         await LoadUiStateAsync();
         SetupTimer();
     }

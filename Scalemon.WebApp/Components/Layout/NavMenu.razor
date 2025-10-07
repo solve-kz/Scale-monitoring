@@ -1,6 +1,5 @@
-@using Microsoft.AspNetCore.Components.Authorization
-
-
+@inject SecurityService Security
+@implements IDisposable
 
 <!-- Вся колонка панели -->
 <div style="height:100%;display:flex;flex-direction:column">
@@ -36,33 +35,39 @@
     [Parameter] public bool Collapsed { get; set; }
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
 
-    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
-
     private bool _isAuthenticated;
-    private bool _isEditor;
-    private bool _isAdmin;
+    private bool _canSeeLogs;
 
     private string ToggleIcon => Collapsed ? "keyboard_double_arrow_right" : "keyboard_double_arrow_left";
     private string ToggleText => Collapsed ? "Развернуть" : "Свернуть";
 
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnInitializedAsync()
     {
-        if (AuthenticationStateTask is null)
-        {
-            _isAuthenticated = false;
-            _isEditor = _isAdmin = false;
-            return;
-        }
-
-        var state = await AuthenticationStateTask;
-        var user = state.User;
-        _isAuthenticated = user.Identity?.IsAuthenticated ?? false;
-        _isAdmin = user.IsInRole("Admin");
-        _isEditor = user.IsInRole("Editor");
+        await base.OnInitializedAsync();
+        await Security.InitializeAsync();
+        Security.SecurityStateChanged += OnSecurityChanged;
+        UpdateSecurityState();
     }
 
     private Task ToggleMenuItemClick(MenuItemEventArgs _)
         => OnToggleSidebar.InvokeAsync();
 
-    private bool CanSeeLogs => _isAdmin || _isEditor;
+    private void UpdateSecurityState()
+    {
+        _isAuthenticated = Security.IsAuthenticated();
+        _canSeeLogs = Security.IsInAnyRole("Admin", "Editor");
+    }
+
+    private void OnSecurityChanged()
+    {
+        UpdateSecurityState();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private bool CanSeeLogs => _canSeeLogs;
+
+    public void Dispose()
+    {
+        Security.SecurityStateChanged -= OnSecurityChanged;
+    }
 }
