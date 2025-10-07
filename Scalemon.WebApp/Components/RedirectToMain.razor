@@ -1,0 +1,12 @@
+@inject NavigationManager Nav
+
+@code {
+    protected override void OnInitialized()
+    {
+        var relative = Nav.ToBaseRelativePath(Nav.Uri);
+        if (!string.IsNullOrEmpty(relative))
+        {
+            Nav.NavigateTo("/", replace: true);
+        }
+    }
+}

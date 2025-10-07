@@ -6,8 +6,7 @@
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
-                @* Можно показать заглушку или просто отправить на главную *@
-                <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Незнакомцам доступа нет!</RadzenText>
+                <RedirectToMain />
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />

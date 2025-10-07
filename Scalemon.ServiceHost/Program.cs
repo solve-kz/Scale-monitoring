@@ -163,11 +163,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization(options =>
 {
-    // Политики доступа к страницам/функциям
     options.AddPolicy("CanViewMonitoring", p => p.RequireRole("Viewer", "Editor", "Admin"));
     options.AddPolicy("CanEdit", p => p.RequireRole("Editor", "Admin"));
+    options.AddPolicy("CanViewSettings", p => p.RequireRole("Viewer", "Editor", "Admin"));
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    // Добавьте другие политики, если они вам нужны
 });
 
 // Сервисы для Blazor и Radzen UI
