@@ -23,6 +23,7 @@ public sealed class ApiClient
     public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
     public sealed record ImportLogResponse(string File, string? Database, string? Path, int Imported, string? Error);
     public readonly record struct UploadFilePayload(Stream Stream, string FileName, string? ContentType = null, string? TargetName = null);
+    public sealed record UserSummary(string Login, string DisplayName, IReadOnlyCollection<string> Roles);
     public sealed record CreateUserRequest(string Login, string Password, string? DisplayName, IReadOnlyCollection<string> Roles);
     public sealed record UpdateUserRequest(string? Password, string? DisplayName, IReadOnlyCollection<string>? Roles);
 
@@ -154,9 +155,9 @@ public sealed class ApiClient
     // /api/settings/logging/levels
 
     // ---------- Auth users ----------
-    public async Task<IReadOnlyList<UserRecord>> GetUsersAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<IReadOnlyList<UserRecord>>("api/auth/users", ct)
-           ?? Array.Empty<UserRecord>();
+    public async Task<IReadOnlyList<UserSummary>> GetUsersAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<IReadOnlyList<UserSummary>>("api/auth/users", ct)
+           ?? Array.Empty<UserSummary>();
 
     public async Task CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
     {
