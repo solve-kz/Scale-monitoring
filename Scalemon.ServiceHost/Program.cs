@@ -22,6 +22,7 @@ using Scalemon.SqlDataAccess;
 using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
 using Scalemon.WebApp.Data;
+using Scalemon.ServiceHost.Http;
 using Scalemon.ServiceHost.Logging;
 using Serilog;
 using Serilog.Core;
@@ -184,6 +185,7 @@ builder.Services.AddRadzenCookieThemeService(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();                        // если ApiClient использует HttpClient
 builder.Services.AddScoped<ApiClient>();                 // если он есть и используется из компонентов
+builder.Services.AddTransient<ForwardAuthCookiesHandler>();
 builder.Services.AddHttpClient<ApiClient>((sp, http) =>
 {
     // same-origin базовый адрес
@@ -208,7 +210,7 @@ builder.Services.AddHttpClient<ApiClient>((sp, http) =>
     var raw = $"{cfg.Username}:{cfg.Password}";
     http.DefaultRequestHeaders.Authorization =
         new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
-});
+}).AddHttpMessageHandler<ForwardAuthCookiesHandler>();
 
 // Источник настроек UI (если используешь JsonFileSettingsSource)
 builder.Services.AddScoped<ISettingsSource, JsonFileSettingsSource>();
