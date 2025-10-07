@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Web;
+using Scalemon.Common.Auth;
 
 namespace Scalemon.WebApp;
 
