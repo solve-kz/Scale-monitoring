@@ -9,9 +9,10 @@
 @using Scalemon.WebApp.Components.Dialogs
 @using System.Linq
 @using System.IO.Ports
+@using System.Security.Claims
 
 
-@attribute [Authorize(Policy = "CanViewMonitoring")]
+@attribute [Authorize(Policy = "CanViewSettings")]
 @implements IDisposable
 
 @inject ApiClient Api
@@ -450,8 +451,37 @@
     {
         var state = await AuthProvider.GetAuthenticationStateAsync();
         var user = state.User;
-        _isAdmin = user.IsInRole("Admin");
-        _canEdit = _isAdmin || user.IsInRole("Editor");
+        _isAdmin = IsInRole(user, "Admin");
+        _canEdit = _isAdmin || IsInRole(user, "Editor");
+    }
+
+    private static bool IsInRole(ClaimsPrincipal? user, string role)
+    {
+        if (user is null)
+        {
+            return false;
+        }
+
+        if (user.IsInRole(role))
+        {
+            return true;
+        }
+
+        foreach (var identity in user.Identities)
+        {
+            var roleClaimType = identity.RoleClaimType;
+            if (string.IsNullOrEmpty(roleClaimType))
+            {
+                continue;
+            }
+
+            if (identity.FindAll(roleClaimType).Any(c => string.Equals(c.Value, role, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task ReloadAllAsync()
