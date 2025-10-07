@@ -29,7 +29,7 @@ public class ForwardAuthCookiesHandler : DelegatingHandler
             {
                 if (CookieHeaderValue.TryParse(value, out var cookie))
                 {
-                    request.Headers.Cookie.Add(cookie);
+                    request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, cookie.ToString());
                 }
                 else
                 {
