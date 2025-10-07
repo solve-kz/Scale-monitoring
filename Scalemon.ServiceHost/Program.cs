@@ -185,7 +185,7 @@ builder.Services.AddRadzenCookieThemeService(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();                        // если ApiClient использует HttpClient
 builder.Services.AddScoped<ApiClient>();                 // если он есть и используется из компонентов
-builder.Services.AddScoped<AppSecurityService>();
+builder.Services.AddScoped<SecurityService>();
 builder.Services.AddTransient<ForwardAuthCookiesHandler>();
 builder.Services.AddHttpClient<ApiClient>((sp, http) =>
 {
