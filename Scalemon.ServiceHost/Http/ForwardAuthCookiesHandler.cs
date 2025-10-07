@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,11 +26,7 @@ public class ForwardAuthCookiesHandler : DelegatingHandler
 
             foreach (var value in cookieHeader)
             {
-                if (CookieHeaderValue.TryParse(value, out var cookie))
-                {
-                    request.Headers.Cookie.Add(cookie);
-                }
-                else
+                if (!string.IsNullOrEmpty(value))
                 {
                     request.Headers.TryAddWithoutValidation(HeaderNames.Cookie, value);
                 }
