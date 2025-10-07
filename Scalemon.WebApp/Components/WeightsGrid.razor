@@ -90,6 +90,7 @@ else
     [Parameter] public EventCallback<int> PageChanged { get; set; }
     [Parameter] public EventCallback<Cell?> CellSelected { get; set; }
     [Parameter] public EventCallback<string> ActionRequested { get; set; } // inc/dec/addAbove/addBelow/delete/logs
+    [Parameter] public bool CanEdit { get; set; } = true;
 
     RadzenPager? pager;
 
@@ -140,6 +141,8 @@ else
 
     async Task OnCellDoubleClick(DataGridCellMouseEventArgs<GridRowVm> args)
     {
+        if (!CanEdit)
+            return;
         var col = ParseCol(args.Column.Property);
         var cell = GetCell(args.Data.Row, col);
         if (cell?.HasValue == true && ActionRequested.HasDelegate)
@@ -148,6 +151,8 @@ else
 
     async Task OnCellContextMenu(DataGridCellMouseEventArgs<GridRowVm> args)
     {
+        if (!CanEdit)
+            return;
         // 1) Игнорируем клики по колонке "№" и по футеру/шапке
         if (string.IsNullOrEmpty(args.Column?.Property))
             return;
@@ -178,6 +183,8 @@ else
 
     void OnMenuClick(MenuItemEventArgs e)
     {
+        if (!CanEdit)
+            return;
         ContextMenu.Close();
         if (e?.Value is string v && ActionRequested.HasDelegate)
             _ = ActionRequested.InvokeAsync(v);   // fire-and-forget

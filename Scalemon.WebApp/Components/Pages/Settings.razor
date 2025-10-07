@@ -10,7 +10,7 @@
 @using System.IO.Ports
 
 
-@attribute [Authorize(Policy = "AdminOnly")]
+@attribute [Authorize(Policy = "CanViewSettings")]
 @implements IDisposable
 
 @inject ApiClient Api
@@ -19,12 +19,14 @@
 @inject ISettingsSource SettingsSource
 @inject IWebHostEnvironment Env
 @inject ThemeService ThemeService
+@inject AuthenticationStateProvider AuthProvider
 
 <RadzenTabs RenderMode="TabRenderMode.Server">
-  <Tabs>
 
     <!-- 1) ВЕБ-ИНТЕРФЕЙС -->
     <RadzenTabsItem Text="Веб-интерфейс">
+        <AuthorizeView Policy="CanViewMonitoring">
+            <Authorized>
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"
@@ -115,7 +117,7 @@
           </RadzenRow>
 
           <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
-            <RadzenButton Text="Проверить статус службы" Click="@CheckServiceStatus" Icon="refresh" />
+            <RadzenButton Text="Проверить статус службы" Click="@CheckServiceStatus" Icon="refresh" Disabled="@IsReadOnly" />
           </RadzenStack>
         </RadzenFieldset>
 
@@ -124,14 +126,16 @@
                                   ButtonStyle="ButtonStyle.Primary"
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
-                                  Disabled="@_saving" />
+                                  Disabled="@(_saving || IsReadOnly)" />
                     <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
+            </Authorized>
+        </AuthorizeView>
     </RadzenTabsItem>
 
     <!-- 2) СЛУЖБА -->
-    <RadzenTabsItem Text="Служба">
+    <RadzenTabsItem Text="Служба" Visible="@_isAdmin">
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"
@@ -271,14 +275,14 @@
                                   ButtonStyle="ButtonStyle.Primary"
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
-                                  Disabled="@_saving" />
+                                  Disabled="@(_saving || IsReadOnly)" />
                     <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
 
     <!-- 3) ХРАНЕНИЕ ДАННЫХ -->
-    <RadzenTabsItem Text="Хранение данных">
+    <RadzenTabsItem Text="Хранение данных" Visible="@_isAdmin">
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"
@@ -360,14 +364,14 @@
                                   ButtonStyle="ButtonStyle.Primary"
                                   Icon="save"
                                   ButtonType="ButtonType.Submit"
-                                  Disabled="@_saving" />
+                                  Disabled="@(_saving || IsReadOnly)" />
                     <RadzenButton Text="Отмена" Icon="cancel" Click="@ReloadAllAsync" />
         </RadzenStack>
       </RadzenTemplateForm>
     </RadzenTabsItem>
 
     <!-- 4) ПОЛЬЗОВАТЕЛИ -->
-    <RadzenTabsItem Text="Пользователи">
+    <RadzenTabsItem Text="Пользователи" Visible="@_isAdmin">
       <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-bottom:12px">
         <RadzenButton Text="Добавить" Icon="add" ButtonStyle="ButtonStyle.Primary"
                       Click="@AddUserAsync" Disabled="@(_usersBusy || _usersLoading)" />
@@ -394,12 +398,14 @@
       </RadzenDataGrid>
     </RadzenTabsItem>
 
-  </Tabs>
 </RadzenTabs>
 
 @code {
     // ---------- Модель и каталоги ----------
     private SettingsDto Model = CreateDefaults();
+    private bool _isAdmin;
+    private bool _canEdit;
+    private bool IsReadOnly => !_canEdit;
 
     // Каталоги
    
@@ -432,6 +438,8 @@
     // ---------- Инициализация ----------
     protected override async Task OnInitializedAsync()
     {
+        await ResolvePermissionsAsync();
+
         _cts = new CancellationTokenSource();
 
         // Загружаем настройки и подстилаем дефолты на случай частично заполненного файла
@@ -439,6 +447,14 @@
         Model = EnsureDefaults(loaded);
 
         await ReloadAllAsync();
+    }
+
+    private async Task ResolvePermissionsAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        _isAdmin = user.IsInRole("Admin");
+        _canEdit = _isAdmin || user.IsInRole("Editor");
     }
 
     private async Task ReloadAllAsync()
@@ -459,7 +475,14 @@
         // Предпросмотр логов
         await LoadLogPreviewAsync();
 
-        await LoadUsersAsync();
+        if (_isAdmin)
+        {
+            await LoadUsersAsync();
+        }
+        else
+        {
+            Users.Clear();
+        }
 
         StateHasChanged();
     }
@@ -467,7 +490,7 @@
     // ---------- Сохранение ----------
     async Task OnValidSubmit(SettingsDto dto)
     {
-        if (_saving) return;
+        if (IsReadOnly || _saving) return;
         _saving = true;
         try
         {
@@ -491,6 +514,9 @@
 
     private async Task SaveSettingsAsync()
     {
+        if (IsReadOnly)
+            return;
+
         await SettingsSource.SaveAsync(Model, _cts?.Token ?? default);
         await ReloadAllAsync();
     }
@@ -498,6 +524,10 @@
     // ---------- Логи ----------
     async Task ApplyLogLevel()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
         try
         {
             await Api.SetLoggingLevelAsync(Model.LogSettings.Level.Default, _cts?.Token ?? default);
@@ -576,6 +606,11 @@
     // ---------- Диагностика ----------
     private async Task TestDbAsync()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
+
         DbTestResult = await Api.TestDbAsync(
             Model.DatabaseSettings.ConnectionString,
             Model.DatabaseSettings.TableName,
@@ -584,6 +619,10 @@
 
     async Task TestScaleRead()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
         try
         {
             ScaleTestResult = await Api.TestScaleAsync(_cts?.Token ?? default);
@@ -597,6 +636,10 @@
 
     async Task TestPlc()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
         try
         {
             await Api.PingPlcAsync(_cts?.Token ?? default);
@@ -615,7 +658,7 @@
 
     private async Task LoadUsersAsync()
     {
-        if (_usersLoading)
+        if (!_isAdmin || _usersLoading)
         {
             return;
         }
@@ -644,6 +687,10 @@
 
     private async Task AddUserAsync()
     {
+        if (!_isAdmin)
+        {
+            return;
+        }
         var result = await OpenUserDialogAsync(new UserEditModel(), true);
         if (result is null)
         {
@@ -662,6 +709,10 @@
 
     private async Task EditUserAsync(UserListItem user)
     {
+        if (!_isAdmin)
+        {
+            return;
+        }
         var model = new UserEditModel
         {
             Login = user.Login,
@@ -686,6 +737,10 @@
 
     private async Task DeleteUserAsync(UserListItem user)
     {
+        if (!_isAdmin)
+        {
+            return;
+        }
         var confirmed = await DialogService.Confirm($"Удалить пользователя '{user.Login}'?", "Удаление пользователя",
             new ConfirmOptions { OkButtonText = "Да", CancelButtonText = "Нет", CloseDialogOnOverlayClick = true });
 
@@ -702,6 +757,10 @@
 
     private async Task<UserEditModel?> OpenUserDialogAsync(UserEditModel model, bool isNew)
     {
+        if (!_isAdmin)
+        {
+            return null;
+        }
         var parameters = new Dictionary<string, object?>
         {
             ["Model"] = model,
@@ -719,7 +778,7 @@
 
     private async Task ExecuteUserMutation(Func<CancellationToken, Task> action, string successMessage, string errorMessage)
     {
-        if (_usersBusy)
+        if (!_isAdmin || _usersBusy)
         {
             return;
         }
@@ -744,6 +803,11 @@
 
     async Task CheckServiceStatus()
     {
+        if (IsReadOnly)
+        {
+            return;
+        }
+
         var status = await Api.GetServiceStatusAsync(_cts?.Token ?? default);
         NotificationService.Notify(new NotificationMessage { Severity = NotificationSeverity.Success, Summary = "API", Detail = status });
     }
