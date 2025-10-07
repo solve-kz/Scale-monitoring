@@ -1,72 +1,81 @@
 @page "/"
-@using Microsoft.AspNetCore.Components.Authorization
 @using System.ComponentModel.DataAnnotations
 
 @inject IJSRuntime JS
 @inject NavigationManager Nav
-@inject AuthenticationStateProvider AuthProvider
+@inject AppSecurityService Security
+@implements IDisposable
 
-<AuthorizeView>
-    <Authorized Context="authState">
-        <div class="main-page__authorized">
-            <RadzenCard Class="main-page__authorized-card">
-                <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
-                    <RadzenIcon Icon="check_circle" Style="font-size:48px;color:var(--rz-success)" />
+@if (_isAuthenticated)
+{
+    <div class="main-page__authorized">
+        <RadzenCard Class="main-page__authorized-card">
+            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
+                <RadzenIcon Icon="check_circle" Style="font-size:48px;color:var(--rz-success)" />
+                <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
+                    Вы уже авторизованы. Перенаправляем на рабочую область…
+                </RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
+else
+{
+    <div class="main-page__hero">
+        <div class="main-page__hero-overlay"></div>
+        <RadzenCard Class="main-page__card rz-w-25">
+            <RadzenStack Orientation="Orientation.Vertical" Gap="1.5rem">
+                <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width:140px" AlternateText="ScaleMonitoring" />
                     <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
-                        Вы уже авторизованы. Перенаправляем на рабочую область…
+                        Добро пожаловать! Войдите, чтобы продолжить.
                     </RadzenText>
                 </RadzenStack>
-            </RadzenCard>
-        </div>
-    </Authorized>
-    <NotAuthorized Context="authState">
-        <div class="main-page__hero">
-            <div class="main-page__hero-overlay"></div>
-            <RadzenCard Class="main-page__card rz-w-25">
-                <RadzenStack Orientation="Orientation.Vertical" Gap="1.5rem">
-                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                        <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width:140px" AlternateText="ScaleMonitoring" />
-                        <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
-                            Добро пожаловать! Войдите, чтобы продолжить.
-                        </RadzenText>
+
+                <RadzenTemplateForm TItem="LoginModel" Data="@model" Submit="@HandleLogin" class="main-page__form">
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+                        <RadzenFormField Text="Логин">
+                            <RadzenTextBox @bind-Value="model.Username" Name="Username" Style="width:100%" Disabled="@_busy" />
+                            <RadzenRequiredValidator Component="Username" Text="Введите логин" Popup="false" />
+                        </RadzenFormField>
+
+                        <RadzenFormField Text="Пароль">
+                            <RadzenPassword @bind-Value="model.Password" Name="Password" Style="width:100%" Disabled="@_busy" />
+                            <RadzenRequiredValidator Component="Password" Text="Введите пароль" Popup="false" />
+                        </RadzenFormField>
+
+                        @if (!string.IsNullOrWhiteSpace(_error))
+                        {
+                            <div class="main-page__error">@_error</div>
+                        }
+
+                        <RadzenButton Icon="login"
+                                      Text="Войти"
+                                      ButtonStyle="ButtonStyle.Primary"
+                                      ButtonType="ButtonType.Submit"
+                                      Disabled="@_busy"
+                                      Style="width:100%" />
                     </RadzenStack>
-
-                    <RadzenTemplateForm TItem="LoginModel" Data="@model" Submit="@HandleLogin" class="main-page__form">
-                        <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
-                            <RadzenFormField Text="Логин">
-                                <RadzenTextBox @bind-Value="model.Username" Name="Username" Style="width:100%" Disabled="@_busy" />
-                                <RadzenRequiredValidator Component="Username" Text="Введите логин" Popup="false" />
-                            </RadzenFormField>
-
-                            <RadzenFormField Text="Пароль">
-                                <RadzenPassword @bind-Value="model.Password" Name="Password" Style="width:100%" Disabled="@_busy" />
-                                <RadzenRequiredValidator Component="Password" Text="Введите пароль" Popup="false" />
-                            </RadzenFormField>
-
-                            @if (!string.IsNullOrWhiteSpace(_error))
-                            {
-                                <div class="main-page__error">@_error</div>
-                            }
-
-                            <RadzenButton Icon="login"
-                                          Text="Войти"
-                                          ButtonStyle="ButtonStyle.Primary"
-                                          ButtonType="ButtonType.Submit"
-                                          Disabled="@_busy"
-                                          Style="width:100%" />
-                        </RadzenStack>
-                    </RadzenTemplateForm>
-                </RadzenStack>
-            </RadzenCard>
-        </div>
-    </NotAuthorized>
-</AuthorizeView>
+                </RadzenTemplateForm>
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+}
 
 @code {
     private readonly LoginModel model = new();
     private bool _busy;
     private string? _error;
     private bool _redirected;
+    private bool _isAuthenticated;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        await Security.InitializeAsync();
+        Security.SecurityStateChanged += OnSecurityStateChanged;
+        UpdateAuthenticationState();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -75,8 +84,8 @@
             return;
         }
 
-        var state = await AuthProvider.GetAuthenticationStateAsync();
-        if (state.User.Identity?.IsAuthenticated == true)
+        await Security.InitializeAsync();
+        if (Security.IsAuthenticated())
         {
             _redirected = true;
             Nav.NavigateTo("/monitoring", replace: true);
@@ -119,6 +128,22 @@
             _busy = false;
             StateHasChanged();
         }
+    }
+
+    private void OnSecurityStateChanged()
+    {
+        UpdateAuthenticationState();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateAuthenticationState()
+    {
+        _isAuthenticated = Security.IsAuthenticated();
+    }
+
+    public void Dispose()
+    {
+        Security.SecurityStateChanged -= OnSecurityStateChanged;
     }
 
     sealed class LoginModel
