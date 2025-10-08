@@ -8,16 +8,16 @@
 
     <RadzenCard class="rz-p-4 rz-w-100">
         <RadzenStack Orientation="Orientation.Vertical" class="rz-p-3 rz-border" Gap="0.5rem" JustifyContent="JustifyContent.Center">
-			<RadzenText TextStyle="TextStyle.H6" TextAlign="TextAlign.Left">Взвешивание № @OrderInDay</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" TextAlign="TextAlign.Left" Text="@WeighingTitle" />
             <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" class="rz-pb-2">
-				<RadzenStack Orientation="Orientation.Vertical">
-					<RadzenText TextStyle="TextStyle.Subtitle2">Вес туши:</RadzenText>
-					<RadzenText TextStyle="TextStyle.Subtitle2">Время:</RadzenText>
-				</RadzenStack>
-				<RadzenStack Orientation="Orientation.Vertical">
-					<RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right"><b>@Cell!.Weight?.ToString("0.00")</b> кг</RadzenText>
-                    <RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right"><b> @Cell!.Timestamp?.ToString("HH:mm:ss")</b> </RadzenText>
-				</RadzenStack>
+                <RadzenStack Orientation="Orientation.Vertical">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Text="Вес туши:" />
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Text="Время:" />
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Vertical">
+                    <RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right" Style="font-weight:600" Text="@WeightText" />
+                    <RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right" Style="font-weight:600" Text="@TimestampText" />
+                </RadzenStack>
             </RadzenStack>
             <!-- Горизонтальный ряд кнопок действий -->
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Visible="@CanSee(2)">
@@ -38,6 +38,12 @@
     [Parameter] public bool Visible { get; set; }
     [Parameter] public int? OrderInDay { get; set; }
     [Parameter] public EventCallback<string> ActionRequested { get; set; }
+
+    string WeighingTitle => OrderInDay is int order ? $"Взвешивание № {order}" : "Взвешивание";
+
+    string WeightText => Cell?.Weight is decimal weight ? $"{weight:0.00} кг" : string.Empty;
+
+    string TimestampText => Cell?.Timestamp is DateTime timestamp ? timestamp.ToString("HH:mm:ss") : string.Empty;
 
     async Task DoAction(string action)
     {
