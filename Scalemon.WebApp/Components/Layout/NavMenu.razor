@@ -48,7 +48,7 @@
     <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
                      ShowArrow="false">
         <RadzenPanelMenuItem Text="Мониторинг" Icon="monitor_heart" Path="/monitoring" />
-        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" Visible="@_canSee(\"editor\")" />
+        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" Visible="@_canSee('editor')" />
         <RadzenPanelMenuItem Text="Статистика" Icon="query_stats" Path="/statistics" />
     </RadzenPanelMenu>
 

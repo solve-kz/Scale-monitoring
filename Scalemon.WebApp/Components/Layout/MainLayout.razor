@@ -37,7 +37,7 @@
     </RadzenHeader>
 
     <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-    <RadzenSidebar Visible="@_canSee(\"viewer\")"
+    <RadzenSidebar Visible="@_canSee('viewer')"
                    Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
         <NavMenu Collapsed="@(navCollapsed)"
                  OnToggleSidebar="ToggleSidebar"
