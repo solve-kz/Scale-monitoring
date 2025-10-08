@@ -23,34 +23,26 @@
                 <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
                 <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
             </RadzenStack>
-            @if (!_isLoginPage)
+            @if (!_isLoginPage && !_isAuthenticated)
             {
-                <AuthorizeView>
-                    <NotAuthorized>
-                        <RadzenButton Icon="login"
-                                      Text="Войти"
-                                      ButtonStyle="ButtonStyle.Primary"
-                                      Size="ButtonSize.Small"
-                                      Click="Login" />
-                    </NotAuthorized>
-                </AuthorizeView>
+                <RadzenButton Icon="login"
+                              Text="Войти"
+                              ButtonStyle="ButtonStyle.Primary"
+                              Size="ButtonSize.Small"
+                              Click="Login" />
             }
         </RadzenStack>
     </RadzenHeader>
 
-    @if (!_isLoginPage)
+    @if (!_isLoginPage && _isAuthenticated)
     {
-        <AuthorizeView>
-            <Authorized>
-                <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-                <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
-                    <NavMenu Collapsed="@(navCollapsed)"
-                             OnToggleSidebar="ToggleSidebar"
-                             OnLogin="Login"
-                             OnLogout="Logout" />
-                </RadzenSidebar>
-            </Authorized>
-        </AuthorizeView>
+        <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+        <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+            <NavMenu Collapsed="@(navCollapsed)"
+                     OnToggleSidebar="ToggleSidebar"
+                     OnLogin="Login"
+                     OnLogout="Logout" />
+        </RadzenSidebar>
     }
 
     <RadzenBody>
@@ -72,6 +64,10 @@
     private string _pageTitle = "Главная";
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
     private bool _isLoginPage;
+    private bool _isAuthenticated;
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
 
     protected override void OnInitialized()
     {
@@ -101,6 +97,17 @@
             _ => "Страница"
         };
         StateHasChanged();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthenticationStateTask is not null)
+        {
+            var authState = await AuthenticationStateTask;
+            _isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
+        }
+
+        await base.OnParametersSetAsync();
     }
 
     private Task ToggleSidebar()
