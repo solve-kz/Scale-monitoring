@@ -1,30 +1,17 @@
-﻿@page "/"
+@page "/"
 @using Microsoft.AspNetCore.Components.Authorization
-@inject Radzen.DialogService Dialog
-
 
 <AuthorizeView>
     <Authorized>
         <RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
-
             <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width: 15rem;" AlternateText="community" />
             <RadzenText TextStyle="TextStyle.DisplayH3">Главная страница с логином</RadzenText>
         </RadzenStack>
     </Authorized>
     <NotAuthorized>
-        <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Нет доступа незнакомцам!</RadzenText>
+        <RadzenStack AlignItems="AlignItems.Center" Gap="16" class="rz-mx-auto rz-my-12">
+            <RadzenText TextStyle="TextStyle.DisplayH4">Нет доступа незнакомцам!</RadzenText>
+            <RadzenLink Path="/login" Text="Перейти к странице входа" Class="rz-font-weight-semibold" />
+        </RadzenStack>
     </NotAuthorized>
 </AuthorizeView>
-
-@code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
-    protected override async Task OnAfterRenderAsync(bool first)
-    {
-        if (!first || AuthTask is null) return;
-        var user = (await AuthTask).User;
-        if (!(user.Identity?.IsAuthenticated ?? false))
-            await Dialog.OpenAsync<Auth.LoginPopup>("Вход",
-              new Dictionary<string, object>(),
-              new DialogOptions { Width = "420px", ShowClose = false, CloseDialogOnOverlayClick = false });
-    }
-}
