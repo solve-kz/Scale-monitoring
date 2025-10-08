@@ -1,4 +1,5 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Scalemon.WebApp.Components.Layout
 
 @code {
     [Parameter] public bool Collapsed { get; set; }
@@ -7,9 +8,12 @@
     [Parameter] public EventCallback OnLogout { get; set; }
 
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    [CascadingParameter] private MainLayout? Layout { get; set; }
 
     private bool _isAuthenticated;
     private string? _userName;
+
+    private bool _canSee(string minimumRole) => Layout?.CanSee(minimumRole) ?? false;
 
     private string ToggleIcon => Collapsed ? "keyboard_double_arrow_right" : "keyboard_double_arrow_left";
     private string ToggleText => Collapsed ? "Развернуть" : "Свернуть";
@@ -44,7 +48,7 @@
     <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
                      ShowArrow="false">
         <RadzenPanelMenuItem Text="Мониторинг" Icon="monitor_heart" Path="/monitoring" />
-        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" />
+        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" Visible="@_canSee(\"editor\")" />
         <RadzenPanelMenuItem Text="Статистика" Icon="query_stats" Path="/statistics" />
     </RadzenPanelMenu>
 

@@ -1,5 +1,6 @@
 ﻿@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
 @inherits LayoutComponentBase
 
 @inject NavigationManager Nav
@@ -7,6 +8,7 @@
 @inject CookieThemeService CookieThemeService
 @implements IAsyncDisposable
 
+<CascadingValue Value="this">
 <RadzenLayout>
 
     <!-- Верхняя панель с логотипом и общим заголовком -->
@@ -34,16 +36,14 @@
         </RadzenStack>
     </RadzenHeader>
 
-    @if (!_isLoginPage && _isAuthenticated)
-    {
-        <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-        <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
-            <NavMenu Collapsed="@(navCollapsed)"
-                     OnToggleSidebar="ToggleSidebar"
-                     OnLogin="Login"
-                     OnLogout="Logout" />
-        </RadzenSidebar>
-    }
+    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+    <RadzenSidebar Visible="@_canSee(\"viewer\")"
+                   Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+        <NavMenu Collapsed="@(navCollapsed)"
+                 OnToggleSidebar="ToggleSidebar"
+                 OnLogin="Login"
+                 OnLogout="Logout" />
+    </RadzenSidebar>
 
     <RadzenBody>
         <div class="rz-p-3">
@@ -56,6 +56,7 @@
         <RadzenContextMenu />
     </RadzenBody>
 </RadzenLayout>
+</CascadingValue>
 
 @code {
     DotNetObjectReference<MainLayout>? _dotRef;
@@ -65,6 +66,7 @@
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
     private bool _isLoginPage;
     private bool _isAuthenticated;
+    private ClaimsPrincipal? _user;
 
     [CascadingParameter]
     private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
@@ -104,11 +106,17 @@
         if (AuthenticationStateTask is not null)
         {
             var authState = await AuthenticationStateTask;
-            _isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
+            _user = authState.User;
+            _isAuthenticated = _user.Identity?.IsAuthenticated ?? false;
         }
 
         await base.OnParametersSetAsync();
     }
+
+    private bool _canSee(string minimumRole) =>
+        _user?.HasRoleAtLeast(minimumRole) ?? false;
+
+    public bool CanSee(string minimumRole) => _canSee(minimumRole);
 
     private Task ToggleSidebar()
     {
