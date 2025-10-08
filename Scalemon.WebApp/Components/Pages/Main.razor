@@ -1,157 +1,123 @@
 @page "/"
-@using System.ComponentModel.DataAnnotations
-
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@using Radzen
+@using Scalemon.WebApp.Components.Auth
 @inject IJSRuntime JS
+@inject NotificationService Notification
 @inject NavigationManager Nav
-@inject AppSecurityService Security
-@implements IDisposable
 
-@if (_isAuthenticated)
-{
-    <div class="main-page__authorized">
-        <RadzenCard Class="main-page__authorized-card">
-            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
-                <RadzenIcon Icon="check_circle" Style="font-size:48px;color:var(--rz-success)" />
-                <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
-                    Вы уже авторизованы. Перенаправляем на рабочую область…
-                </RadzenText>
-            </RadzenStack>
-        </RadzenCard>
-    </div>
-}
-else
-{
-    <div class="main-page__hero">
-        <div class="main-page__hero-overlay"></div>
-        <RadzenCard Class="main-page__card rz-w-25">
-            <RadzenStack Orientation="Orientation.Vertical" Gap="1.5rem">
-                <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width:140px" AlternateText="ScaleMonitoring" />
-                    <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
-                        Добро пожаловать! Войдите, чтобы продолжить.
+<AuthorizeView>
+    <Authorized>
+        <RadzenStack AlignItems="AlignItems.Center"
+                     JustifyContent="JustifyContent.Center"
+                     Orientation="Orientation.Vertical"
+                     class="main-welcome">
+            <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png"
+                         Style="width: 15rem;"
+                         AlternateText="ScaleMonitoring" />
+            <RadzenText TextStyle="TextStyle.DisplayH4">Добро пожаловать!</RadzenText>
+            <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-text-secondary" TextAlign="TextAlign.Center">
+                Вы успешно вошли в систему мониторинга. Выберите раздел в меню слева, чтобы продолжить работу.
+            </RadzenText>
+        </RadzenStack>
+    </Authorized>
+    <NotAuthorized>
+        <RadzenCard class="main-login-card">
+            <div class="main-login-layout">
+                <div class="main-login-illustration">
+                    <RadzenImage Path="_content/Scalemon.WebApp/wwwroot/images/logo.png"
+                                 AlternateText="ScaleMonitoring"
+                                 Style="max-width: 100%; height: auto;" />
+                </div>
+                <div class="main-login-form">
+                    <RadzenText TextStyle="TextStyle.H5">Вход в систему</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" Class="rz-text-secondary">
+                        Используйте учетную запись для доступа к данным мониторинга.
                     </RadzenText>
-                </RadzenStack>
-
-                <RadzenTemplateForm TItem="LoginModel" Data="@model" Submit="@HandleLogin" class="main-page__form">
-                    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
-                        <RadzenFormField Text="Логин">
-                            <RadzenTextBox @bind-Value="model.Username" Name="Username" Style="width:100%" Disabled="@_busy" />
-                            <RadzenRequiredValidator Component="Username" Text="Введите логин" Popup="false" />
-                        </RadzenFormField>
-
-                        <RadzenFormField Text="Пароль">
-                            <RadzenPassword @bind-Value="model.Password" Name="Password" Style="width:100%" Disabled="@_busy" />
-                            <RadzenRequiredValidator Component="Password" Text="Введите пароль" Popup="false" />
-                        </RadzenFormField>
-
-                        @if (!string.IsNullOrWhiteSpace(_error))
-                        {
-                            <div class="main-page__error">@_error</div>
-                        }
-
-                        <RadzenButton Icon="login"
-                                      Text="Войти"
-                                      ButtonStyle="ButtonStyle.Primary"
-                                      ButtonType="ButtonType.Submit"
-                                      Disabled="@_busy"
-                                      Style="width:100%" />
-                    </RadzenStack>
-                </RadzenTemplateForm>
-            </RadzenStack>
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <RadzenAlert Severity="AlertSeverity.Error" Closeable="true" Close="ClearError">
+                            @_errorMessage
+                        </RadzenAlert>
+                    }
+                    <RadzenTemplateForm TItem="LoginVm"
+                                        Data="@_model"
+                                        Submit="OnSubmitAsync">
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="16px">
+                            <RadzenFormField Text="Логин" Component="Login">
+                                <RadzenTextBox @bind-Value="_model.Login"
+                                               Name="Login"
+                                               Placeholder="Введите логин"
+                                               Style="width:100%;" />
+                                <RadzenRequiredValidator Component="Login" Text="Укажите логин" />
+                            </RadzenFormField>
+                            <RadzenFormField Text="Пароль" Component="Password">
+                                <RadzenPassword @bind-Value="_model.Pass"
+                                                Name="Password"
+                                                Placeholder="Введите пароль"
+                                                Style="width:100%;" />
+                                <RadzenRequiredValidator Component="Password" Text="Введите пароль" />
+                            </RadzenFormField>
+                            <RadzenValidationSummary />
+                            <RadzenButton ButtonStyle="ButtonStyle.Primary"
+                                          ButtonType="ButtonType.Submit"
+                                          Icon="login"
+                                          Text="Войти"
+                                          IsBusy="@_isBusy"
+                                          Disabled="@_isBusy"
+                                          Style="width:100%;" />
+                        </RadzenStack>
+                    </RadzenTemplateForm>
+                </div>
+            </div>
         </RadzenCard>
-    </div>
-}
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
-    private readonly LoginModel model = new();
-    private bool _busy;
-    private string? _error;
-    private bool _redirected;
-    private bool _isAuthenticated;
+    private LoginVm _model = new();
+    private bool _isBusy;
+    private string? _errorMessage;
 
-    protected override async Task OnInitializedAsync()
+    private async Task OnSubmitAsync(LoginVm model)
     {
-        await base.OnInitializedAsync();
-        await Security.InitializeAsync();
-        Security.SecurityStateChanged += OnSecurityStateChanged;
-        UpdateAuthenticationState();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender || _redirected)
+        if (_isBusy)
         {
             return;
         }
 
-        await Security.InitializeAsync();
-        if (Security.IsAuthenticated())
-        {
-            _redirected = true;
-            Nav.NavigateTo("/monitoring", replace: true);
-        }
-    }
+        _isBusy = true;
+        _errorMessage = null;
 
-    private async Task HandleLogin(LoginModel _)
-    {
-        if (_busy)
-        {
-            return;
-        }
-
-        _error = null;
-        _busy = true;
         try
         {
-            var ok = await JS.InvokeAsync<bool>("scalemon.login", model.Username, model.Password);
+            var ok = await JS.InvokeAsync<bool>("scalemon.login", model.Login, model.Pass);
             if (ok)
             {
-                model.Password = string.Empty;
-                Nav.NavigateTo("/monitoring", forceLoad: true);
+                Notification.Notify(NotificationSeverity.Success, "Добро пожаловать", "Вы успешно вошли в систему.");
+                Nav.NavigateTo("/", true);
+                return;
             }
-            else
-            {
-                model.Password = string.Empty;
-                _error = "Неверный логин или пароль";
-            }
+
+            _errorMessage = "Неверный логин или пароль.";
+            Notification.Notify(NotificationSeverity.Error, "Ошибка входа", _errorMessage);
         }
-        catch (JSException ex)
+        catch (JSException)
         {
-            _error = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            _error = $"Не удалось выполнить вход: {ex.Message}";
+            _errorMessage = "Не удалось выполнить вход. Повторите попытку позже.";
+            Notification.Notify(NotificationSeverity.Error, "Ошибка", _errorMessage);
         }
         finally
         {
-            _busy = false;
-            StateHasChanged();
+            _model.Pass = string.Empty;
+            _isBusy = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
-    private void OnSecurityStateChanged()
+    private void ClearError()
     {
-        UpdateAuthenticationState();
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void UpdateAuthenticationState()
-    {
-        _isAuthenticated = Security.IsAuthenticated();
-    }
-
-    public void Dispose()
-    {
-        Security.SecurityStateChanged -= OnSecurityStateChanged;
-    }
-
-    sealed class LoginModel
-    {
-        [Required]
-        public string Username { get; set; } = string.Empty;
-
-        [Required]
-        public string Password { get; set; } = string.Empty;
+        _errorMessage = null;
     }
 }

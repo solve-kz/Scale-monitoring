@@ -1,9 +1,12 @@
 @using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Authorization
+@using Radzen
 @inherits LayoutComponentBase
 
 @inject NavigationManager Nav
 @inject IJSRuntime JS
-@inject AppSecurityService Security
+@inject CookieThemeService CookieThemeService
+@inject SecurityService Security
 @implements IAsyncDisposable
 
 <RadzenLayout>
@@ -40,13 +43,14 @@
         </RadzenStack>
     </RadzenHeader>
 
-    @if (_isAuthenticated)
-    {
-        <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
-            <NavMenu Collapsed="@(navCollapsed)"
-                     OnToggleSidebar="ToggleSidebar" />
-        </RadzenSidebar>
-    }
+    <!-- Панель навигации скрыта для гостей -->
+    <RadzenSidebar Visible="@Security.IsAuthenticated"
+                   Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+        <NavMenu Collapsed="@(navCollapsed)"
+                 OnToggleSidebar="ToggleSidebar"
+                 OnLogin="Login"
+                 OnLogout="Logout" />
+    </RadzenSidebar>
 
     <RadzenBody>
         <div class="rz-p-3">
@@ -64,6 +68,9 @@
 </RadzenLayout>
 
 @code {
+    DotNetObjectReference<MainLayout>? _dotRef;
+
+    // private bool sidebarExpanded = true;
     private string _pageTitle = "Главная";
     private bool navCollapsed;
     private bool _isAuthenticated;
@@ -104,6 +111,13 @@
     private Task ToggleSidebar()
     {
         navCollapsed = !navCollapsed;
+        return Task.CompletedTask;
+    }
+
+    // Простейшие заглушки под ваши реальные процедуры авторизации
+    private Task Login()
+    {
+        Nav.NavigateTo("/");
         return Task.CompletedTask;
     }
 

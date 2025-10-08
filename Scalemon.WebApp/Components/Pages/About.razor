@@ -2,9 +2,16 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 
-<RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12" Gap="1.5rem">
-    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width: 12rem;" AlternateText="ScaleMonitoring" />
-    <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Center">
-        Здесь будет описание программы и рекламный текст.
+<RadzenStack AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.Center"
+             Orientation="Orientation.Vertical"
+             class="rz-mx-auto rz-my-12"
+             Gap="16">
+    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png"
+                 Style="width: 15rem;"
+                 AlternateText="ScaleMonitoring" />
+    <RadzenText TextStyle="TextStyle.DisplayH4">О программе</RadzenText>
+    <RadzenText TextStyle="TextStyle.Subtitle1" Class="rz-text-secondary" TextAlign="TextAlign.Center">
+        Здесь будет размещено описание системы и контактная информация.
     </RadzenText>
 </RadzenStack>
