@@ -11,14 +11,14 @@
 @inject ISettingsSource SettingsSource
 
 <div class="login-page-wrapper">
-    <RadzenCard Class="login-card rz-shadow-3">
+    <RadzenCard Class="login-card rz-shadow-3 rz-w-25">
         <div class="login-card-content">
             <div class="login-card-side">
                 <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="max-width: 220px; width: 100%; height: auto;" AlternateText="ScaleMonitoring" />
             </div>
             <div class="login-card-form">
                 <RadzenHeading Size="HeadingSize.H4" Text="Добро пожаловать" Class="rz-mb-3" />
-                <RadzenParagraph Class="rz-text-secondary rz-mb-4">Введите учетные данные, чтобы продолжить работу.</RadzenParagraph>
+                <RadzenText Class="rz-text-secondary rz-mb-4">Введите учетные данные, чтобы продолжить работу.</RadzenText>
                 <RadzenTemplateForm TItem="LoginModel" Data="@_model" Submit="OnSubmitAsync">
                     <RadzenFieldset Style="border:none;padding:0;margin:0;">
                         <RadzenStack Orientation="Orientation.Vertical" Gap="12">
@@ -39,7 +39,7 @@
                                           ButtonType="ButtonType.Submit"
                                           IsBusy="@_busy"
                                           Disabled="@_busy"
-                                          Style="width:100%" />
+                                          Style="width:60%" />
                         </RadzenStack>
                     </RadzenFieldset>
                 </RadzenTemplateForm>
