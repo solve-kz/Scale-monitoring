@@ -1,0 +1,108 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using System.Linq
+@using Microsoft.AspNetCore.WebUtilities
+@using Radzen
+@using Scalemon.WebApp.Models
+@inject NavigationManager Nav
+@inject NotificationService NotificationService
+@inject IJSRuntime JS
+@inject ISettingsSource SettingsSource
+
+<div class="login-page-wrapper">
+    <RadzenCard Class="login-card rz-shadow-3">
+        <div class="login-card-content">
+            <div class="login-card-side">
+                <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="max-width: 220px; width: 100%; height: auto;" AlternateText="ScaleMonitoring" />
+            </div>
+            <div class="login-card-form">
+                <RadzenHeading Size="HeadingSize.H4" Text="Добро пожаловать" Class="rz-mb-3" />
+                <RadzenParagraph Class="rz-text-secondary rz-mb-4">Введите учетные данные, чтобы продолжить работу.</RadzenParagraph>
+                <RadzenTemplateForm TItem="LoginModel" Data="@_model" Submit="OnSubmitAsync">
+                    <RadzenFieldset Style="border:none;padding:0;margin:0;">
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="12">
+                            <div>
+                                <RadzenLabel Text="Имя пользователя" Component="Username" />
+                                <RadzenTextBox @bind-Value="_model.Username" Name="Username" Style="width:100%" Placeholder="Введите имя пользователя" />
+                                <RadzenRequiredValidator Component="Username" Text="Укажите имя пользователя" Popup="false" />
+                            </div>
+                            <div>
+                                <RadzenLabel Text="Пароль" Component="Password" />
+                                <RadzenPassword @bind-Value="_model.Password" Name="Password" Style="width:100%" Placeholder="Введите пароль" />
+                                <RadzenRequiredValidator Component="Password" Text="Укажите пароль" Popup="false" />
+                            </div>
+                            <RadzenButton Text="Войти"
+                                          Icon="login"
+                                          ButtonStyle="ButtonStyle.Primary"
+                                          Size="ButtonSize.Medium"
+                                          ButtonType="ButtonType.Submit"
+                                          IsBusy="@_busy"
+                                          Disabled="@_busy"
+                                          Style="width:100%" />
+                        </RadzenStack>
+                    </RadzenFieldset>
+                </RadzenTemplateForm>
+            </div>
+        </div>
+    </RadzenCard>
+</div>
+
+@code {
+    private readonly LoginModel _model = new();
+    private bool _busy;
+    private SettingsDto? _cachedSettings;
+
+    private async Task OnSubmitAsync(LoginModel model)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("scalemon.login", model.Username, model.Password);
+            if (ok)
+            {
+                var target = await ResolveTargetUrlAsync();
+                Nav.NavigateTo(target, forceLoad: true);
+                return;
+            }
+
+            NotificationService.Notify(NotificationSeverity.Error, "Ошибка входа", "Неверный логин или пароль");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Ошибка входа", ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<string> ResolveTargetUrlAsync()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("returnUrl", out var values))
+        {
+            var returnUrl = values.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(returnUrl))
+            {
+                return returnUrl!;
+            }
+        }
+
+        _cachedSettings ??= await SettingsSource.LoadAsync();
+        var fallback = _cachedSettings.WebUiSettings?.AfterLoginPage;
+        return string.IsNullOrWhiteSpace(fallback) ? "/" : fallback!;
+    }
+
+    private sealed class LoginModel
+    {
+        public string? Username { get; set; }
+        public string? Password { get; set; }
+    }
+}
