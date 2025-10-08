@@ -1,0 +1,29 @@
+@using System
+@inject NavigationManager Nav
+
+@if (_redirectStarted)
+{
+    <p>Перенаправление на страницу входа...</p>
+}
+else
+{
+    <p>Готовим перенаправление на страницу входа...</p>
+}
+
+@code {
+    private bool _redirectStarted;
+
+    protected override void OnInitialized()
+    {
+        if (_redirectStarted)
+        {
+            return;
+        }
+
+        _redirectStarted = true;
+        var uri = new Uri(Nav.Uri);
+        var returnUrl = uri.PathAndQuery + uri.Fragment;
+        var loginUrl = "/login?returnUrl=" + Uri.EscapeDataString(returnUrl);
+        Nav.NavigateTo(loginUrl, forceLoad: true);
+    }
+}

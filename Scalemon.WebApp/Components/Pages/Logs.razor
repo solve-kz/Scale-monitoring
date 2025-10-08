@@ -15,7 +15,7 @@
 @inject ProtectedLocalStorage PLS 
 
 @attribute [StreamRendering]
-@attribute [Authorize(Policy = "CanEdit")]
+@attribute [Authorize(Roles = "Editor,Admin")]
 
 <PageTitle>Логи службы Scalemon</PageTitle>
 

@@ -112,15 +112,12 @@
     // Простейшие заглушки под ваши реальные процедуры авторизации
     private Task Login()
     {
-        var target = new Uri(Nav.Uri).PathAndQuery;
-        var loginUrl = $"/login?returnUrl={Uri.EscapeDataString(target)}";
-        Nav.NavigateTo(loginUrl);
+        Nav.NavigateTo("/login");
         return Task.CompletedTask;
     }
 
     private async Task Logout()
     {
-        // Ваш существующий сценарий выхода
         await JS.InvokeVoidAsync("scalemon.logout");
         Nav.NavigateTo("/login", forceLoad: true);
     }
