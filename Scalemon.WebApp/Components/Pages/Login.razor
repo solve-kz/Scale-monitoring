@@ -1,6 +1,7 @@
 @page "/login"
 @attribute [AllowAnonymous]
 @using System.Linq
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.WebUtilities
 @using Radzen
 @using Scalemon.WebApp.Models
@@ -47,58 +48,7 @@
     </RadzenCard>
 </div>
 
-<style>
-    .login-page-wrapper {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-        background: var(--rz-base-200, #f5f5f5);
-    }
 
-    .login-card {
-        max-width: 880px;
-        width: 100%;
-        padding: 0;
-    }
-
-    .login-card-content {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .login-card-side {
-        background: var(--rz-base-50, #ffffff);
-        padding: 2.5rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-bottom: 1px solid var(--rz-base-200, #e0e0e0);
-    }
-
-    .login-card-form {
-        padding: 2.5rem;
-        flex: 1 1 auto;
-    }
-
-    @media (min-width: 768px) {
-        .login-card-content {
-            flex-direction: row;
-            align-items: stretch;
-        }
-
-        .login-card-side {
-            border-bottom: none;
-            border-right: 1px solid var(--rz-base-200, #e0e0e0);
-            max-width: 320px;
-        }
-
-        .login-card-form {
-            padding: 3rem;
-        }
-    }
-</style>
 
 @code {
     private readonly LoginModel _model = new();
