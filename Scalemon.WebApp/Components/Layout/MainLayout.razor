@@ -32,14 +32,17 @@
         </RadzenStack>
     </RadzenHeader>
 
-    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-    <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")"
-                   Visible="@CanSee(1)">
-        <NavMenu Collapsed="@(navCollapsed)"
-                 OnToggleSidebar="ToggleSidebar"
-                 OnLogin="Login"
-                 OnLogout="Logout" />
-    </RadzenSidebar>
+    @if (!_isLoginPage)
+    {
+        <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+        <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")"
+                       Visible="@CanSee(1)">
+            <NavMenu Collapsed="@(navCollapsed)"
+                     OnToggleSidebar="ToggleSidebar"
+                     OnLogin="Login"
+                     OnLogout="Logout" />
+        </RadzenSidebar>
+    }
 
     <RadzenBody>
         <div class="rz-p-3">
