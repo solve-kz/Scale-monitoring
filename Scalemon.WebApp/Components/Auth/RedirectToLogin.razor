@@ -1,7 +1,19 @@
 @using System
+@using System.Linq
+@using Microsoft.AspNetCore.Components.Authorization
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
-@if (_redirectStarted)
+@if (_showAccessDenied)
+{
+    <div class="alert alert-warning">
+        <p>У вас нет доступа к этой странице.</p>
+        <p>
+            Попробуйте вернуться на <a href="/">главную страницу</a> или используйте доступные разделы приложения.
+        </p>
+    </div>
+}
+else if (_redirectStarted)
 {
     <p>Перенаправление на страницу входа...</p>
 }
@@ -12,11 +24,27 @@ else
 
 @code {
     private bool _redirectStarted;
+    private bool _showAccessDenied;
 
-    protected override void OnInitialized()
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnParametersSetAsync()
     {
-        if (_redirectStarted)
+        if (_redirectStarted || _showAccessDenied)
         {
+            return;
+        }
+
+        var stateTask = AuthenticationStateTask ?? AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var state = await stateTask;
+
+        var isAuthenticated = state?.User?.Identities?.Any(identity => identity.IsAuthenticated) == true
+            || state?.User?.Identity?.IsAuthenticated == true;
+
+        if (isAuthenticated)
+        {
+            _showAccessDenied = true;
             return;
         }
 
