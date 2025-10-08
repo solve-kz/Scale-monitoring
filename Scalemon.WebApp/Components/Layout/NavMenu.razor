@@ -6,11 +6,29 @@
     [Parameter] public EventCallback OnLogin { get; set; }
     [Parameter] public EventCallback OnLogout { get; set; }
 
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private bool _isAuthenticated;
+    private string? _userName;
+
     private string ToggleIcon => Collapsed ? "keyboard_double_arrow_right" : "keyboard_double_arrow_left";
     private string ToggleText => Collapsed ? "Развернуть" : "Свернуть";
 
     private Task ToggleMenuItemClick(MenuItemEventArgs _)
         => OnToggleSidebar.InvokeAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthenticationStateTask is not null)
+        {
+            var authState = await AuthenticationStateTask;
+            var user = authState.User;
+            _isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+            _userName = _isAuthenticated ? user.Identity?.Name : null;
+        }
+
+        await base.OnParametersSetAsync();
+    }
 }
 
 <!-- Вся колонка панели -->
@@ -39,29 +57,29 @@
         </RadzenPanelMenu>
 
         <div class="rz-p-2">
-            <AuthorizeView>
-                <Authorized>
-                    <div style="display:flex;align-items:center;gap:.5rem">
-                        <RadzenIcon Icon="account_circle" />
-                        @if (!Collapsed)
-                        {
-                            <RadzenLabel Text="@context.User.Identity?.Name" />
-                        }
-                        <RadzenButton Icon="logout"
-                                      Text="@(Collapsed ? null : "Выход")"
-                                      ButtonStyle="ButtonStyle.Secondary"
-                                      Size="ButtonSize.Small"
-                                      Click="() => OnLogout.InvokeAsync()" />
-                    </div>
-                </Authorized>
-                <NotAuthorized>
-                    <RadzenButton Icon="login"
-                                  Text="@(Collapsed ? null : "Войти")"
-                                  ButtonStyle="ButtonStyle.Primary"
+            @if (_isAuthenticated)
+            {
+                <div style="display:flex;align-items:center;gap:.5rem">
+                    <RadzenIcon Icon="account_circle" />
+                    @if (!Collapsed && !string.IsNullOrWhiteSpace(_userName))
+                    {
+                        <RadzenLabel Text="@_userName" />
+                    }
+                    <RadzenButton Icon="logout"
+                                  Text="@(Collapsed ? null : "Выход")"
+                                  ButtonStyle="ButtonStyle.Secondary"
                                   Size="ButtonSize.Small"
-                                  Click="() => OnLogin.InvokeAsync()" />
-                </NotAuthorized>
-            </AuthorizeView>
+                                  Click="() => OnLogout.InvokeAsync()" />
+                </div>
+            }
+            else
+            {
+                <RadzenButton Icon="login"
+                              Text="@(Collapsed ? null : "Войти")"
+                              ButtonStyle="ButtonStyle.Primary"
+                              Size="ButtonSize.Small"
+                              Click="() => OnLogin.InvokeAsync()" />
+            }
         </div>
     </div>
 </div>

@@ -1,17 +1,7 @@
 @page "/"
-@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize]
 
-<AuthorizeView>
-    <Authorized>
-        <RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
-            <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width: 15rem;" AlternateText="community" />
-            <RadzenText TextStyle="TextStyle.DisplayH3">Главная страница с логином</RadzenText>
-        </RadzenStack>
-    </Authorized>
-    <NotAuthorized>
-        <RadzenStack AlignItems="AlignItems.Center" Gap="16" class="rz-mx-auto rz-my-12">
-            <RadzenText TextStyle="TextStyle.DisplayH4">Нет доступа незнакомцам!</RadzenText>
-            <RadzenLink Path="/login" Text="Перейти к странице входа" Class="rz-font-weight-semibold" />
-        </RadzenStack>
-    </NotAuthorized>
-</AuthorizeView>
+<RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
+    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width: 15rem;" AlternateText="community" />
+    <RadzenText TextStyle="TextStyle.DisplayH3">Главная страница с логином</RadzenText>
+</RadzenStack>
