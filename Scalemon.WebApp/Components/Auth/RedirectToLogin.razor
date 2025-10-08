@@ -1,5 +1,4 @@
 @using System
-@using System.Linq
 @using Microsoft.AspNetCore.Components.Authorization
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -29,20 +28,18 @@ else
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnInitializedAsync()
     {
         if (_redirectStarted || _showAccessDenied)
         {
             return;
         }
 
-        var stateTask = AuthenticationStateTask ?? AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var state = await stateTask;
+        var state = AuthenticationStateTask is null
+            ? null
+            : await AuthenticationStateTask;
 
-        var isAuthenticated = state?.User?.Identities?.Any(identity => identity.IsAuthenticated) == true
-            || state?.User?.Identity?.IsAuthenticated == true;
-
-        if (isAuthenticated)
+        if (state?.User?.Identity?.IsAuthenticated == true)
         {
             _showAccessDenied = true;
             return;
