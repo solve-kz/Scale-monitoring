@@ -19,6 +19,7 @@ namespace Scalemon.SignalBus
         private Timer? _timer;
         private bool _isConnected = false;
         private bool _openPortErrorLogged = false;
+        private bool _openPortAttemptLogged = false;
         private bool disposedValue;
         private readonly ILogger<SignalBus> _logger;
 
@@ -77,7 +78,11 @@ namespace Scalemon.SignalBus
             {
                 if (_serialPort == null || _serialPort.IsOpen) return;
 
-                _logger.LogDebug("Попытка открыть порт {port}...", _portName);
+                if (!_openPortAttemptLogged)
+                {
+                    _logger.LogDebug("Попытка открыть порт {port}...", _portName);
+                    _openPortAttemptLogged = true;
+                }
                 _serialPort.Open();
 
                 if (!_isConnected)
@@ -87,6 +92,7 @@ namespace Scalemon.SignalBus
 
                     // Сбрасываем флаг ошибки, так как мы успешно подключились
                     _openPortErrorLogged = false; // <-- ДОБАВЛЕНО
+                    _openPortAttemptLogged = false;
 
                     ConnectionEstablished?.Invoke();
                 }
@@ -98,6 +104,7 @@ namespace Scalemon.SignalBus
                     _isConnected = false;
                     _logger.LogWarning("Потеряно соединение с Arduino на порту {port}.", _portName);
                     ConnectionLost?.Invoke();
+                    _openPortAttemptLogged = false;
                 }
                 else
                 {
