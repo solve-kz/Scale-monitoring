@@ -1,13 +1,11 @@
 ﻿@page "/monitoring"
 @using System.Globalization
-@using Microsoft.AspNetCore.Authorization
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
 @using static Scalemon.WebApp.Models.WeighingModels
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject ProtectedLocalStorage PLS
-@attribute [Authorize(Roles = "Editor,Admin")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
 

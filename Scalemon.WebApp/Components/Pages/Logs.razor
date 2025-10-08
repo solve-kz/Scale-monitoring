@@ -1,6 +1,5 @@
 ﻿@page "/logs"
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
-@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Net.Http.Json
@@ -15,7 +14,7 @@
 @inject ProtectedLocalStorage PLS 
 
 @attribute [StreamRendering]
-@attribute [Authorize(Roles = "Editor,Admin")]
+
 
 <PageTitle>Логи службы Scalemon</PageTitle>
 

@@ -1,4 +1,6 @@
 ﻿@using static Scalemon.WebApp.Models.WeighingModels
+@using Scalemon.WebApp.Models
+@using Scalemon.WebApp.Components.Auth
 
 @if (Cell?.HasValue == true && Visible)
 {
@@ -18,7 +20,7 @@
 				</RadzenStack>
             </RadzenStack>
             <!-- Горизонтальный ряд кнопок действий -->
-            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween" Visible="@CanSee(2)">
                 <RadzenButton Icon="add" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("inc"))" />
                 <RadzenButton Icon="remove" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("dec"))" />
                 <RadzenButton Icon="vertical_align_top" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light" Click="@(() => DoAction("addAbove"))" />

@@ -2,15 +2,13 @@
 @using System.Net.Http.Json
 @using System.Collections.Generic
 @using System.Threading
-@using Microsoft.AspNetCore.Authorization
 @using Scalemon.Common
+@using Scalemon.WebApp.Components.Auth
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Components.Dialogs
 @using System.Linq
 @using System.IO.Ports
 
-
-@attribute [Authorize(Roles = "Admin")]
 @implements IDisposable
 @inherits RoleAwareComponentBase
 
@@ -279,7 +277,7 @@
     </RadzenTabsItem>
 
     <!-- 3) ХРАНЕНИЕ ДАННЫХ -->
-    <RadzenTabsItem Text="Хранение данных">
+        <RadzenTabsItem Text="Хранение данных" Visible="@CanSee(3)">
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"
@@ -368,7 +366,7 @@
     </RadzenTabsItem>
 
     <!-- 4) ПОЛЬЗОВАТЕЛИ -->
-    <RadzenTabsItem Text="Пользователи">
+        <RadzenTabsItem Text="Пользователи" Visible="@CanSee(3)">
       <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-bottom:12px">
         <RadzenButton Text="Добавить" Icon="add" ButtonStyle="ButtonStyle.Primary"
                       Click="@AddUserAsync" Disabled="@(_usersBusy || _usersLoading)" />
