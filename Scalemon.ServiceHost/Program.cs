@@ -157,13 +157,40 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Events.OnRedirectToLogin = context =>
         {
             if (context.Request.Path.StartsWithSegments("/api"))
+            {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            }
+            else if (context.HttpContext.User.Identity?.IsAuthenticated == true)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            }
             else
             {
                 var returnUrl = context.Request.Path + context.Request.QueryString;
                 var redirectUri = options.LoginPath + "?returnUrl=" + Uri.EscapeDataString(returnUrl);
                 context.Response.Redirect(redirectUri);
             }
+
+            return Task.CompletedTask;
+        };
+
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            }
+            else if (context.HttpContext.User.Identity?.IsAuthenticated == true)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            }
+            else
+            {
+                var returnUrl = context.Request.Path + context.Request.QueryString;
+                var redirectUri = options.LoginPath + "?returnUrl=" + Uri.EscapeDataString(returnUrl);
+                context.Response.Redirect(redirectUri);
+            }
+
             return Task.CompletedTask;
         };
     });
