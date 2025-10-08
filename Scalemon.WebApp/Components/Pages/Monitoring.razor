@@ -1,7 +1,6 @@
 ﻿@page "/monitoring"
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Authorization
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
 @using static Scalemon.WebApp.Models.WeighingModels
@@ -11,7 +10,7 @@
 @attribute [Authorize(Policy = "CanViewMonitoring")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
-@inject AuthenticationStateProvider AuthProvider
+@inject AppSecurityService Security
 
 <RadzenRow>   
 
@@ -156,9 +155,8 @@
 
     async Task DeterminePermissionsAsync()
     {
-        var state = await AuthProvider.GetAuthenticationStateAsync();
-        var user = state.User;
-        _canEdit = user.IsInRole("Editor") || user.IsInRole("Admin");
+        await Security.InitializeAsync();
+        _canEdit = Security.IsInAnyRole("Editor", "Admin");
     }
 
     async Task OnMonthChanged((int Year, int Month) arg)

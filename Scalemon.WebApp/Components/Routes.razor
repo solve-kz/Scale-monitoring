@@ -1,14 +1,15 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Authorization
+@using Authz = Microsoft.AspNetCore.Components.Authorization
 
 <Router AppAssembly="typeof(App).Assembly">
     <Found Context="routeData">
-        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
+        <Authz.AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
                 <RedirectToMain />
             </NotAuthorized>
-        </AuthorizeRouteView>
+        </Authz.AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
