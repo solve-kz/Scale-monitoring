@@ -7,7 +7,7 @@
 
 <p role="status">Current count: @currentCount</p>
 
-<button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
+<RadzenButton Text="Click me" ButtonStyle="ButtonStyle.Primary" Click="IncrementCount" />
 
 @code {
     private int currentCount = 0;

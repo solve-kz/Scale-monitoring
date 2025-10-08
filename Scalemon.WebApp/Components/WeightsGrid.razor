@@ -20,7 +20,9 @@
                                   Width="80px"
                                   TextAlign="TextAlign.Center">
                 <Template Context="vm">@vm.No</Template>
-                <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
+                <FooterTemplate>
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Text="ИТОГО:" />
+                </FooterTemplate>
             </RadzenDataGridColumn>
             @for (var i = 1; i <= 10; i++)
             {
@@ -33,15 +35,21 @@
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
                         }
-                        <div class="cell @(cell?.HasValue == true ? "has" : "empty")"
-                             title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
-                            @cell?.Weight?.ToString("0.00")</b>
-                        </div>
+                        @if (cell?.HasValue == true)
+                        {
+                            <div class="rz-p-2 rz-border rz-text-align-center" style="min-height:2.25rem;" title="@cell.Timestamp?.ToString("HH:mm:ss")">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" Text="@cell.Weight?.ToString(\"0.00\")" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="rz-p-2 rz-text-align-center" style="min-height:2.25rem;">
+                                <RadzenText TextStyle="TextStyle.Caption" Class="rz-text-secondary" Text="–" />
+                            </div>
+                        }
                     </Template>
                     <FooterTemplate>
-                    @(Totals is { Length: >= 10 }
-                                    ? Totals![colIndex - 1].ToString("0.00")
-                                    : "")
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Text="@FormatTotal(colIndex - 1)" />
                     </FooterTemplate>
                 </RadzenDataGridColumn>
             }
@@ -56,11 +64,12 @@ else
                     AllowPaging="false"
                     AllowSorting="false"
                     AllowFiltering="false"
-                    EmptyText=""
-                    class="weights-grid summary-grid">
+                    EmptyText="">
         <Columns>
             <RadzenDataGridColumn TItem="GridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
-                <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
+                <FooterTemplate>
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Text="ИТОГО:" />
+                </FooterTemplate>
             </RadzenDataGridColumn>
 
             @for (var i = 1; i <= 10; i++)
@@ -68,7 +77,7 @@ else
                 var colIndex = i;
                 <RadzenDataGridColumn TItem="GridRowVm" Title="@($"{colIndex}")" Width="1fr" TextAlign="TextAlign.Center">
                     <FooterTemplate>
-						<b> @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")</b>
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Text="@FormatTotal(colIndex - 1)" />
                     </FooterTemplate>
                 </RadzenDataGridColumn>
             }
@@ -118,6 +127,11 @@ else
         if (PageChanged.HasDelegate)
             await PageChanged.InvokeAsync(pageIndex);
     }
+
+    string FormatTotal(int index)
+        => Totals is { Length: >= 10 }
+            ? Totals![index].ToString("0.00")
+            : string.Empty;
 
 
     async Task OnCellClick(DataGridCellMouseEventArgs<GridRowVm> args)
