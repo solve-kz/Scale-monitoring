@@ -13,23 +13,45 @@
     <RadzenHeader Class="rz-shadow-2 rz-px-3">
         <RadzenStack Orientation="Orientation.Horizontal"
                      AlignItems="AlignItems.Center"
-                     Gap="8"
-                     JustifyContent="JustifyContent.Start"
+                     JustifyContent="JustifyContent.SpaceBetween"
                      Style="height:56px">
-            <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
-            <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
-            <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
-            <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         Gap="8">
+                <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
+                <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
+                <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
+            </RadzenStack>
+            @if (!_isLoginPage)
+            {
+                <AuthorizeView>
+                    <NotAuthorized>
+                        <RadzenButton Icon="login"
+                                      Text="Войти"
+                                      ButtonStyle="ButtonStyle.Primary"
+                                      Size="ButtonSize.Small"
+                                      Click="Login" />
+                    </NotAuthorized>
+                </AuthorizeView>
+            }
         </RadzenStack>
     </RadzenHeader>
 
-    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-    <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
-        <NavMenu Collapsed="@(navCollapsed)"
-                 OnToggleSidebar="ToggleSidebar"
-                 OnLogin="Login"
-                 OnLogout="Logout" />
-    </RadzenSidebar>
+    @if (!_isLoginPage)
+    {
+        <AuthorizeView>
+            <Authorized>
+                <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+                <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
+                    <NavMenu Collapsed="@(navCollapsed)"
+                             OnToggleSidebar="ToggleSidebar"
+                             OnLogin="Login"
+                             OnLogout="Logout" />
+                </RadzenSidebar>
+            </Authorized>
+        </AuthorizeView>
+    }
 
     <RadzenBody>
         <div class="rz-p-3">
@@ -49,6 +71,7 @@
     // private bool sidebarExpanded = true;
     private string _pageTitle = "Главная";
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
+    private bool _isLoginPage;
 
     protected override void OnInitialized()
     {
@@ -58,7 +81,7 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        
+
         SetPageTitle(e.Location);
     }
 
@@ -66,6 +89,7 @@
     {
         // Простой «роут->заголовок» без лишнего кода
         var path = new Uri(uri).AbsolutePath.ToLowerInvariant();
+        _isLoginPage = path == "/login";
         _pageTitle = path switch
         {
             "/monitoring" => "Мониторинг",
@@ -73,6 +97,7 @@
             "/statistics" => "Статистика",
             "/settings" => "Настройки",
             "/" or "/about" => "О программе",
+            "/login" => "Вход",
             _ => "Страница"
         };
         StateHasChanged();
@@ -85,17 +110,19 @@
     }
 
     // Простейшие заглушки под ваши реальные процедуры авторизации
-    private async Task Login()
+    private Task Login()
     {
-        // Покажите ваш диалог логина (например, RadzenDialog/RadzenLogin)
-        await JS.InvokeVoidAsync("scalemon.showLogin");
+        var target = new Uri(Nav.Uri).PathAndQuery;
+        var loginUrl = $"/login?returnUrl={Uri.EscapeDataString(target)}";
+        Nav.NavigateTo(loginUrl);
+        return Task.CompletedTask;
     }
 
     private async Task Logout()
     {
         // Ваш существующий сценарий выхода
         await JS.InvokeVoidAsync("scalemon.logout");
-        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+        Nav.NavigateTo("/login", forceLoad: true);
     }
 
     public async ValueTask DisposeAsync()
