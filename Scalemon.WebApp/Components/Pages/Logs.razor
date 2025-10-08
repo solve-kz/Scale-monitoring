@@ -394,8 +394,34 @@
             var t = res.Success ? res.Value : null;
             if (t != null)
             {
-                from = StartOfDay(t.Date);
-                to = EndOfDay(t.Date);
+                if (t.LogsFrom is DateTime fromTs && t.LogsTo is DateTime toTs)
+                {
+                    from = fromTs;
+                    to = toTs;
+                }
+                else if (t.SelectedTimestamp is DateTime ts)
+                {
+                    double intervalSeconds = 0;
+                    if (t.PollingIntervalMs is int pollMs && pollMs > 0)
+                    {
+                        intervalSeconds = pollMs * 0.05;
+                    }
+
+                    from = ts.AddSeconds(-intervalSeconds);
+                    to = ts.AddSeconds(3);
+                }
+                else
+                {
+                    from = StartOfDay(t.Date);
+                    to = EndOfDay(t.Date);
+                }
+
+                if (from is DateTime fVal && to is DateTime tVal && fVal > tVal)
+                {
+                    var fallback = StartOfDay(t.Date);
+                    from = fallback;
+                    to = EndOfDay(t.Date);
+                }
                 await PersistDatesToSessionAsync();
                 return;
             }
@@ -498,5 +524,9 @@
         public int PageIndex { get; set; }
         public int? SelectedOrderInDay { get; set; }
         public DateTime CreatedAt { get; set; }
+        public DateTime? SelectedTimestamp { get; set; }
+        public int? PollingIntervalMs { get; set; }
+        public DateTime? LogsFrom { get; set; }
+        public DateTime? LogsTo { get; set; }
     }
 }
