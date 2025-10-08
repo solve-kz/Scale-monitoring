@@ -152,23 +152,22 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.Name = "ScalemonAuth";
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(365);
+        options.LoginPath = "/login";
+        options.AccessDeniedPath = "/login";
         options.Events.OnRedirectToLogin = context =>
         {
             if (context.Request.Path.StartsWithSegments("/api"))
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             else
-                context.Response.Redirect(context.RedirectUri);
+            {
+                var returnUrl = context.Request.Path + context.Request.QueryString;
+                var redirectUri = options.LoginPath + "?returnUrl=" + Uri.EscapeDataString(returnUrl);
+                context.Response.Redirect(redirectUri);
+            }
             return Task.CompletedTask;
         };
     });
-builder.Services.AddAuthorization(options =>
-{
-    // Политики доступа к страницам/функциям
-    options.AddPolicy("CanViewMonitoring", p => p.RequireRole("Viewer", "Editor", "Admin"));
-    options.AddPolicy("CanEdit", p => p.RequireRole("Editor", "Admin"));
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    // Добавьте другие политики, если они вам нужны
-});
+builder.Services.AddAuthorization();
 
 // Сервисы для Blazor и Radzen UI
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();

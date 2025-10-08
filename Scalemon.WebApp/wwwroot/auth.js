@@ -10,10 +10,11 @@ window.scalemon = {
         return r.ok;
     },
     logout: async function () {
-        await fetch('/api/auth/logout', {
+        const response = await fetch('/api/auth/logout', {
             method: 'POST',
             credentials: 'include'                // <-- важно!
         });
+        return response.ok;
     }
 };
 

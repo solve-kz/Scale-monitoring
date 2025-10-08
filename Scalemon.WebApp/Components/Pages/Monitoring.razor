@@ -7,7 +7,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @inject ProtectedLocalStorage PLS
-@attribute [Authorize(Policy = "CanEdit")]
+@attribute [Authorize(Roles = "Editor,Admin")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
 
