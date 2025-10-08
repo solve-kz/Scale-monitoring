@@ -666,7 +666,8 @@
         {
             Login = user.Login,
             DisplayName = user.DisplayName,
-            Roles = new List<string>(user.Roles)
+            Roles = new List<string>(user.Roles),
+            SelectedRole = user.Roles.FirstOrDefault()
         };
 
         var result = await OpenUserDialogAsync(model, false);
