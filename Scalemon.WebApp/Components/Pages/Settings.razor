@@ -12,6 +12,7 @@
 
 @attribute [Authorize(Roles = "Admin")]
 @implements IDisposable
+@inherits RoleAwareComponentBase
 
 @inject ApiClient Api
 @inject DialogService DialogService
@@ -131,7 +132,7 @@
     </RadzenTabsItem>
 
     <!-- 2) СЛУЖБА -->
-    <RadzenTabsItem Text="Служба">
+    <RadzenTabsItem Text="Служба" Visible="@CanSee(3)">
             <RadzenTemplateForm TItem="SettingsDto"
                                 Data="@Model"
                                 Submit="@OnValidSubmit"

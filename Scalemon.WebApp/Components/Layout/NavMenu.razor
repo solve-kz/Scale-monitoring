@@ -1,4 +1,4 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
+@inherits RoleAwareComponentBase
 
 @code {
     [Parameter] public bool Collapsed { get; set; }
@@ -6,29 +6,13 @@
     [Parameter] public EventCallback OnLogin { get; set; }
     [Parameter] public EventCallback OnLogout { get; set; }
 
-    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
-
-    private bool _isAuthenticated;
-    private string? _userName;
-
     private string ToggleIcon => Collapsed ? "keyboard_double_arrow_right" : "keyboard_double_arrow_left";
     private string ToggleText => Collapsed ? "Развернуть" : "Свернуть";
 
+    private string? UserName => CurrentUser?.Identity?.Name;
+
     private Task ToggleMenuItemClick(MenuItemEventArgs _)
         => OnToggleSidebar.InvokeAsync();
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (AuthenticationStateTask is not null)
-        {
-            var authState = await AuthenticationStateTask;
-            var user = authState.User;
-            _isAuthenticated = user.Identity?.IsAuthenticated ?? false;
-            _userName = _isAuthenticated ? user.Identity?.Name : null;
-        }
-
-        await base.OnParametersSetAsync();
-    }
 }
 
 <!-- Вся колонка панели -->
@@ -44,7 +28,7 @@
     <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
                      ShowArrow="false">
         <RadzenPanelMenuItem Text="Мониторинг" Icon="monitor_heart" Path="/monitoring" />
-        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" />
+        <RadzenPanelMenuItem Text="Логи" Icon="article" Path="/logs" Visible="@CanSee(2)" />
         <RadzenPanelMenuItem Text="Статистика" Icon="query_stats" Path="/statistics" />
     </RadzenPanelMenu>
 
@@ -57,29 +41,28 @@
         </RadzenPanelMenu>
 
         <div class="rz-p-2">
-            @if (_isAuthenticated)
-            {
-                <div style="display:flex;align-items:center;gap:.5rem">
-                    <RadzenIcon Icon="account_circle" />
-                    @if (!Collapsed && !string.IsNullOrWhiteSpace(_userName))
-                    {
-                        <RadzenLabel Text="@_userName" />
-                    }
-                    <RadzenButton Icon="logout"
-                                  Text="@(Collapsed ? null : "Выход")"
-                                  ButtonStyle="ButtonStyle.Secondary"
-                                  Size="ButtonSize.Small"
-                                  Click="() => OnLogout.InvokeAsync()" />
-                </div>
-            }
-            else
-            {
-                <RadzenButton Icon="login"
-                              Text="@(Collapsed ? null : "Войти")"
-                              ButtonStyle="ButtonStyle.Primary"
+            <RadzenStack Orientation="Orientation.Horizontal"
+                          AlignItems="AlignItems.Center"
+                          Gap="8"
+                          Visible="@CanSee(1)">
+                <RadzenIcon Icon="account_circle" />
+                @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
+                {
+                    <RadzenLabel Text="@UserName" />
+                }
+                <RadzenButton Icon="logout"
+                              Text="@(Collapsed ? null : "Выход")"
+                              ButtonStyle="ButtonStyle.Secondary"
                               Size="ButtonSize.Small"
-                              Click="() => OnLogin.InvokeAsync()" />
-            }
+                              Click="() => OnLogout.InvokeAsync()" />
+            </RadzenStack>
+
+            <RadzenButton Icon="login"
+                          Text="@(Collapsed ? null : "Войти")"
+                          ButtonStyle="ButtonStyle.Primary"
+                          Size="ButtonSize.Small"
+                          Visible="@(!CanSee(1))"
+                          Click="() => OnLogin.InvokeAsync()" />
         </div>
     </div>
 </div>
