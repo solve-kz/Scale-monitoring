@@ -8,6 +8,7 @@
 @inject ProtectedLocalStorage PLS
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
+@inject ISettingsSource SettingsSource
 
 <RadzenRow>   
 
@@ -138,6 +139,10 @@
         public int PageIndex { get; set; }               // страница (0..)
         public int? SelectedOrderInDay { get; set; }     // № взвешивания за день (1..N), может быть null
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? SelectedTimestamp { get; set; }
+        public int? PollingIntervalMs { get; set; }
+        public DateTime? LogsFrom { get; set; }
+        public DateTime? LogsTo { get; set; }
     }
 
     protected override async Task OnInitializedAsync()
@@ -367,11 +372,42 @@
         var posOnPage = _grid?.GetSelectedOrderOnPage(); // 1..400 или null
         int? orderInDay = posOnPage.HasValue ? (_pageIndex * 400) + posOnPage.Value : _selectedOrderInDay;
 
+        DateTime? selectedTimestamp = _selectedCell?.Timestamp;
+        int? pollingIntervalMs = null;
+        DateTime? logsFrom = null;
+        DateTime? logsTo = null;
+
+        if (selectedTimestamp is DateTime ts)
+        {
+            try
+            {
+                var settings = await SettingsSource.LoadAsync();
+                pollingIntervalMs = settings?.ScaleSettings?.PollingIntervalMs;
+            }
+            catch
+            {
+                pollingIntervalMs = null;
+            }
+
+            double intervalSeconds = 0;
+            if (pollingIntervalMs is int pollMs && pollMs > 0)
+            {
+                intervalSeconds = pollMs * 0.05;
+            }
+
+            logsFrom = ts.AddSeconds(-intervalSeconds);
+            logsTo = ts.AddSeconds(3);
+        }
+
         var ticket = new ReturnToMonitoring
         {
             Date = SelectedDate.Date,
             PageIndex = _pageIndex,
-            SelectedOrderInDay = orderInDay
+            SelectedOrderInDay = orderInDay,
+            SelectedTimestamp = selectedTimestamp,
+            PollingIntervalMs = pollingIntervalMs,
+            LogsFrom = logsFrom,
+            LogsTo = logsTo
         };
         await PLS.SetAsync(ReturnKey, ticket);
     }
