@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -194,7 +195,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             return Task.CompletedTask;
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 // Сервисы для Blazor и Radzen UI
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
@@ -268,15 +274,59 @@ app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Scalemon API v1"));
 
 app.UseAuthentication();
+
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        await next();
+        return;
+    }
+
+    static bool IsAllowedAnonymousPath(PathString path)
+        => path.HasValue &&
+           (path.StartsWithSegments("/login", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/auth/login", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/_framework", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/_content", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/_blazor", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, "/favicon.ico", StringComparison.OrdinalIgnoreCase));
+
+    if (IsAllowedAnonymousPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+    {
+        var returnUrl = context.Request.Path + context.Request.QueryString;
+        var redirectUri = $"/login?returnUrl={Uri.EscapeDataString(returnUrl)}";
+        context.Response.Redirect(redirectUri);
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+    }
+});
+
 app.UseAuthorization();
 
 app.UseAntiforgery();
 
 // Конечные точки (API и Blazor UI)
-app.MapControllers();
+var apiEndpoints = app.MapControllers();
+apiEndpoints.RequireAuthorization();
 
-app.MapRazorComponents<App>()
-   .AddInteractiveServerRenderMode();
+var razorComponents = app.MapRazorComponents<App>();
+razorComponents.AddInteractiveServerRenderMode();
+razorComponents.RequireAuthorization();
 
 
 // --- 5. ЗАПУСК ПРИЛОЖЕНИЯ ---
