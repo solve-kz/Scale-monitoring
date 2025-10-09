@@ -1,7 +1,7 @@
-.cell.last-edit-adjust {
+.rz-data-grid .last-edit-adjust {
     background-color: #ffe6f3;
 }
 
-.cell.last-edit-insert {
+.rz-data-grid .last-edit-insert {
     background-color: #e6ffe6;
 }
