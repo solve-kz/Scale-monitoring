@@ -1,6 +1,7 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using Scalemon.WebApp.Models;
 using System.Collections.Concurrent;
+using System.Threading;
 using static Scalemon.WebApp.Models.WeighingModels;
 
 namespace Scalemon.WebApp.Data
@@ -9,16 +10,18 @@ namespace Scalemon.WebApp.Data
     /// In-memory генератор/хранилище взвешиваний для демо-UI.
     /// При первом запросе на день данные генерируются и кэшируются.
     /// </summary>
-    public sealed class WeighingDataService : IWeighingDataService
+    public sealed class WeighingDataService : IWeighingDataService, IWeighingEditLogService
     {
         private readonly IConfiguration _cfg; // не используется в заглушке, но оставлен для совместимости DI
         public WeighingDataService(IConfiguration cfg) => _cfg = cfg;
 
         private static readonly object _sync = new();
         private static int _nextId = 1;
+        private static int _nextEditId = 0;
 
         // Данные по дням
         private static readonly ConcurrentDictionary<DateOnly, List<Weighing>> _data = new();
+        private static readonly ConcurrentDictionary<DateOnly, List<WeighingEditEntry>> _edits = new();
 
         // Чтобы месячная статистика была стабильной, помним какие дни уже «заполнили»
         private static readonly HashSet<(int year, int month)> _monthsInitialized = new();
@@ -54,6 +57,9 @@ namespace Scalemon.WebApp.Data
         }
 
         public Task AdjustAsync(int id, decimal delta, CancellationToken ct = default)
+            => AdjustAsync(id, delta, null, ct);
+
+        public Task AdjustAsync(int id, decimal delta, string? userName, CancellationToken ct = default)
         {
             lock (_sync)
             {
@@ -63,63 +69,124 @@ namespace Scalemon.WebApp.Data
                     var w = _data[day][idx];
                     var newWeight = Round2(w.Weight + delta);
                     _data[day][idx] = w with { Weight = newWeight };
+
+                    AddAuditEntry(day, new WeighingEditEntry(
+                        NextEditId(),
+                        w.Id,
+                        DateTime.UtcNow,
+                        userName,
+                        delta >= 0 ? WeighingEditAction.Increment : WeighingEditAction.Decrement,
+                        w.Weight,
+                        newWeight,
+                        w.Timestamp,
+                        null));
                 }
             }
             return Task.CompletedTask;
         }
 
         public Task<int> InsertAboveAsync(int refId, decimal weight, CancellationToken ct = default)
-        {
-            int newId;
-            lock (_sync)
-            {
-                var (day, idx) = FindById(refId);
-                if (idx < 0) return Task.FromResult(0);
+            => InsertAboveAsync(refId, weight, null, ct);
 
-                var refItem = _data[day][idx];
-                var ts = refItem.Timestamp.AddMilliseconds(-500);
-
-                newId = _nextId++;
-                var item = new Weighing(newId, Round2(weight), ts);
-
-                _data[day].Insert(idx, item);
-                _data[day].Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
-            }
-            return Task.FromResult(newId);
-        }
+        public Task<int> InsertAboveAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName);
 
         public Task<int> InsertBelowAsync(int refId, decimal weight, CancellationToken ct = default)
-        {
-            int newId;
-            lock (_sync)
-            {
-                var (day, idx) = FindById(refId);
-                if (idx < 0) return Task.FromResult(0);
+            => InsertBelowAsync(refId, weight, null, ct);
 
-                var refItem = _data[day][idx];
-                var ts = refItem.Timestamp.AddMilliseconds(500);
-
-                newId = _nextId++;
-                var item = new Weighing(newId, Round2(weight), ts);
-
-                _data[day].Insert(Math.Min(idx + 1, _data[day].Count), item);
-                _data[day].Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
-            }
-            return Task.FromResult(newId);
-        }
+        public Task<int> InsertBelowAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName);
 
         public Task DeleteAsync(int id, CancellationToken ct = default)
+            => DeleteAsync(id, null, ct);
+
+        public Task DeleteAsync(int id, string? userName, CancellationToken ct = default)
         {
             lock (_sync)
             {
                 var (day, idx) = FindById(id);
                 if (idx >= 0)
+                {
+                    var item = _data[day][idx];
                     _data[day].RemoveAt(idx);
+
+                    AddAuditEntry(day, new WeighingEditEntry(
+                        NextEditId(),
+                        item.Id,
+                        DateTime.UtcNow,
+                        userName,
+                        WeighingEditAction.Delete,
+                        item.Weight,
+                        null,
+                        item.Timestamp,
+                        null));
+                }
             }
             return Task.CompletedTask;
         }
 
+        private Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName)
+        {
+            int newId = 0;
+            lock (_sync)
+            {
+                var (day, idx) = FindById(refId);
+                if (idx < 0)
+                {
+                    return Task.FromResult(0);
+                }
+
+                var refItem = _data[day][idx];
+                var ts = refItem.Timestamp.Add(offset);
+
+                newId = _nextId++;
+                var rounded = Round2(weight);
+                var item = new Weighing(newId, rounded, ts);
+                var insertIndex = offset < TimeSpan.Zero ? idx : Math.Min(idx + 1, _data[day].Count);
+                _data[day].Insert(insertIndex, item);
+                _data[day].Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
+
+                AddAuditEntry(day, new WeighingEditEntry(
+                    NextEditId(),
+                    item.Id,
+                    DateTime.UtcNow,
+                    userName,
+                    WeighingEditAction.Insert,
+                    null,
+                    rounded,
+                    ts,
+                    null));
+            }
+
+            return Task.FromResult(newId);
+        }
+
         // ---------- helpers ----------
+
+        private static int NextEditId() => Interlocked.Increment(ref _nextEditId);
+
+        private static void AddAuditEntry(DateOnly day, WeighingEditEntry entry)
+        {
+            var list = _edits.GetOrAdd(day, _ => new List<WeighingEditEntry>());
+            list.Add(entry);
+            list.Sort((a, b) => b.EditedAt.CompareTo(a.EditedAt));
+        }
+
+        private static IReadOnlyList<WeighingEditEntry> SnapshotDayEntries(DateOnly day, string? userName)
+        {
+            if (!_edits.TryGetValue(day, out var list))
+            {
+                return Array.Empty<WeighingEditEntry>();
+            }
+
+            IEnumerable<WeighingEditEntry> query = list;
+            if (!string.IsNullOrWhiteSpace(userName))
+            {
+                query = query.Where(e => string.Equals(e.EditedBy, userName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.ToList();
+        }
 
         private static decimal Round2(decimal x) =>
             Math.Round(x, 2, MidpointRounding.AwayFromZero);
@@ -196,6 +263,28 @@ namespace Scalemon.WebApp.Data
             return (default, -1);
         }
 
+        public Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, CancellationToken ct = default)
+        {
+            IReadOnlyList<WeighingEditEntry> snapshot;
+            lock (_sync)
+            {
+                snapshot = SnapshotDayEntries(date, null);
+            }
+
+            return Task.FromResult(snapshot);
+        }
+
+        public Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, string? userName, CancellationToken ct = default)
+        {
+            IReadOnlyList<WeighingEditEntry> snapshot;
+            lock (_sync)
+            {
+                snapshot = SnapshotDayEntries(date, userName);
+            }
+
+            return Task.FromResult(snapshot);
+        }
+
         public Task<IReadOnlyList<Weighing>> GetDayAllAsync(DateOnly date, CancellationToken ct = default)
         {
             if (_data.TryGetValue(date, out var list))
@@ -206,6 +295,62 @@ namespace Scalemon.WebApp.Data
             {
                 return Task.FromResult<IReadOnlyList<Weighing>>(Array.Empty<Weighing>());
             }
+        }
+
+        public Task<IReadOnlyList<WeighingEditEntry>> GetAsync(
+            DateTime? from = null,
+            DateTime? to = null,
+            string? editedBy = null,
+            WeighingEditAction? action = null,
+            CancellationToken ct = default)
+        {
+            List<WeighingEditEntry> entries;
+            lock (_sync)
+            {
+                entries = _edits.Values.SelectMany(x => x).ToList();
+            }
+
+            IEnumerable<WeighingEditEntry> query = entries;
+            if (from.HasValue)
+            {
+                query = query.Where(e => e.EditedAt >= from.Value);
+            }
+            if (to.HasValue)
+            {
+                query = query.Where(e => e.EditedAt <= to.Value);
+            }
+            if (!string.IsNullOrWhiteSpace(editedBy))
+            {
+                query = query.Where(e => string.Equals(e.EditedBy, editedBy, StringComparison.OrdinalIgnoreCase));
+            }
+            if (action.HasValue && action.Value != WeighingEditAction.Unknown)
+            {
+                query = query.Where(e => e.Action == action.Value);
+            }
+
+            var result = query
+                .OrderByDescending(e => e.EditedAt)
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<WeighingEditEntry>>(result);
+        }
+
+        public Task<IReadOnlyList<string>> GetEditorsAsync(CancellationToken ct = default)
+        {
+            List<string> names;
+            lock (_sync)
+            {
+                names = _edits.Values
+                    .SelectMany(x => x)
+                    .Select(e => e.EditedBy)
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            return Task.FromResult<IReadOnlyList<string>>(names);
         }
 
     }

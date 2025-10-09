@@ -245,6 +245,7 @@ builder.Services.Configure<JsonFileSettingsSource.WebAppOptions>(
 
 // ВОТ ГЛАВНОЕ: регистрация сервиса данных, который требует Monitoring
 builder.Services.AddScoped<IWeighingDataService, SqlWeighingDataService>();
+builder.Services.AddScoped<IWeighingEditLogService, SqlWeighingEditLogService>();
 
 // Настройка для запуска в качестве службы Windows
 builder.Host.UseWindowsService();

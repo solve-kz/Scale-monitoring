@@ -1,4 +1,5 @@
-﻿using static Scalemon.WebApp.Models.WeighingModels;
+using Scalemon.WebApp.Models;
+using static Scalemon.WebApp.Models.WeighingModels;
 
 namespace Scalemon.WebApp.Data
 {
@@ -9,14 +10,21 @@ namespace Scalemon.WebApp.Data
 
         // Страница за день (по 400 записей)
         Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
-    DateOnly date, int pageIndex, int pageSize = 400, CancellationToken ct = default);
+            DateOnly date, int pageIndex, int pageSize = 400, CancellationToken ct = default);
 
         // Операции редактирования
         Task AdjustAsync(int id, decimal delta, CancellationToken ct = default);
+        Task AdjustAsync(int id, decimal delta, string? userName, CancellationToken ct = default);
         Task<int> InsertAboveAsync(int refId, decimal weight, CancellationToken ct = default);
+        Task<int> InsertAboveAsync(int refId, decimal weight, string? userName, CancellationToken ct = default);
         Task<int> InsertBelowAsync(int refId, decimal weight, CancellationToken ct = default);
+        Task<int> InsertBelowAsync(int refId, decimal weight, string? userName, CancellationToken ct = default);
         Task DeleteAsync(int id, CancellationToken ct = default);
+        Task DeleteAsync(int id, string? userName, CancellationToken ct = default);
 
         Task<IReadOnlyList<Weighing>> GetDayAllAsync(DateOnly date, CancellationToken ct = default);
+
+        Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, CancellationToken ct = default);
+        Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, string? userName, CancellationToken ct = default);
     }
 }
