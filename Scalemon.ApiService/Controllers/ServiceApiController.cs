@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Scalemon.Common;
@@ -12,6 +13,7 @@ namespace Scalemon.ApiService.Controllers
 {
     [ApiController]
     [Route("api/service")]
+    [Authorize]
     public class ServiceApiController : ControllerBase
     {
         private readonly ServiceSettings _svcSettings;
