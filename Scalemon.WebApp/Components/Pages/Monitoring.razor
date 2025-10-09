@@ -117,6 +117,7 @@
     bool _isDetailed = true;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
+    IReadOnlyDictionary<int, WeighingEditEntry> _latestEdits = new Dictionary<int, WeighingEditEntry>();
     decimal[] _totals = new decimal[10];
     int _totalCount = 0;
 
@@ -310,11 +311,18 @@
             Max: weights.Count > 0 ? weights.Max() : null,
             Avg: weights.Count > 0 ? weights.Average() : null);
 
+        var edits = await Data.GetEditsAsync(dateOnly);
+        _latestEdits = edits
+            .Where(e => e.WeighingId.HasValue && e.Action is WeighingEditAction.Increment or WeighingEditAction.Decrement or WeighingEditAction.Insert)
+            .GroupBy(e => e.WeighingId!.Value)
+            .Select(g => g.OrderByDescending(x => x.EditedAt).First())
+            .ToDictionary(x => x.WeighingId!.Value, x => x);
+
         // Построение матрицы — только для текущей страницы
-        BuildMatrix(items);
+        BuildMatrix(items, _latestEdits);
     }
 
-    void BuildMatrix(IReadOnlyList<Weighing> items)
+    void BuildMatrix(IReadOnlyList<Weighing> items, IReadOnlyDictionary<int, WeighingEditEntry> editsById)
     {
         var ordered = items.OrderBy(x => x.Timestamp).ToList();
 
@@ -329,7 +337,11 @@
             int col = i / 40;   // номер столбца (0..9)
             int row = i % 40;   // номер строки в столбце (0..39)
 
-            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp));
+            var highlightAction = editsById.TryGetValue(ordered[i].Id, out var edit)
+                ? edit.Action
+                : (WeighingEditAction?)null;
+
+            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp, highlightAction));
         }
 
         // дополняем пустыми ячейками до 40 в каждом столбце
@@ -418,13 +430,15 @@
         if (_selectedCell?.HasValue != true) return;
         var id = _selectedCell.Id!.Value;
 
+        var userName = CurrentUser?.Identity?.Name;
+
         switch (action)
         {
-            case "inc":      await Data.AdjustAsync(id, +Step); break;
-            case "dec":      await Data.AdjustAsync(id, -Step); break;
-            case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0); break;
-            case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0); break;
-            case "delete":   await Data.DeleteAsync(id); break;
+            case "inc":      await Data.AdjustAsync(id, +Step, userName); break;
+            case "dec":      await Data.AdjustAsync(id, -Step, userName); break;
+            case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0, userName); break;
+            case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0, userName); break;
+            case "delete":   await Data.DeleteAsync(id, userName); break;
             case "logs": await SaveReturnTicketAsync(); Nav.NavigateTo("/logs?from=mon"); return;
         }
 
