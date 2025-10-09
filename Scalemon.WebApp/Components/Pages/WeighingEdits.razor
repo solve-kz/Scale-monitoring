@@ -1,5 +1,5 @@
 @page "/weighing-edits"
-@attribute [Authorize(Roles="Admin,Editor")]
+@attribute [Authorize(Roles = "Admin,Editor")]
 
 @using Scalemon.WebApp.Models
 @inject IWeighingEditLogService AuditService
@@ -104,9 +104,10 @@
         _users = editors.ToList();
     }
 
-    private async Task OnFiltersChanged(object? _)
+    // Параметрless Action — совместим с @bind-…:after
+    private void OnFiltersChanged()
     {
-        await ReloadAsync();
+        _ = InvokeAsync(ReloadAsync);
     }
 
     private async Task ReloadAsync()
@@ -125,6 +126,7 @@
         finally
         {
             _isLoading = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
