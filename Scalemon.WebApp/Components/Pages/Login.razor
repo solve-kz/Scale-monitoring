@@ -2,8 +2,10 @@
 @attribute [AllowAnonymous]
 @using System.Linq
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.WebUtilities
 @using Radzen
+@using Radzen.Blazor
 @using Scalemon.WebApp.Models
 @inject NavigationManager Nav
 @inject NotificationService NotificationService
@@ -19,7 +21,7 @@
             <div class="login-card-form">
                 <RadzenHeading Size="HeadingSize.H4" Text="Добро пожаловать" Class="rz-mb-3" />
                 <RadzenText Class="rz-text-secondary rz-mb-4">Введите учетные данные, чтобы продолжить работу.</RadzenText>
-                <RadzenTemplateForm TItem="LoginModel" Data="@_model" Submit="OnSubmitAsync">
+                <RadzenTemplateForm @ref="_form" TItem="LoginModel" Data="@_model">
                     <RadzenFieldset Style="border:none;padding:0;margin:0;">
                         <RadzenStack Orientation="Orientation.Vertical" Gap="12">
                             <div>
@@ -36,7 +38,8 @@
                                           Icon="login"
                                           ButtonStyle="ButtonStyle.Primary"
                                           Size="ButtonSize.Medium"
-                                          ButtonType="ButtonType.Submit"
+                                          ButtonType="ButtonType.Button"
+                                          Click="OnLoginClickedAsync"
                                           IsBusy="@_busy"
                                           Disabled="@_busy"
                                           Style="width:60%" />
@@ -52,10 +55,32 @@
 
 @code {
     private readonly LoginModel _model = new();
+    private RadzenTemplateForm<LoginModel>? _form;
     private bool _busy;
     private SettingsDto? _cachedSettings;
 
-    private async Task OnSubmitAsync(LoginModel model)
+    private async Task OnLoginClickedAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        var editContext = _form?.EditContext;
+        if (editContext is null)
+        {
+            return;
+        }
+
+        if (!editContext.Validate())
+        {
+            return;
+        }
+
+        await SignInAsync(_model);
+    }
+
+    private async Task SignInAsync(LoginModel model)
     {
         if (_busy)
         {
