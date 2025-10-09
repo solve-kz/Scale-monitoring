@@ -38,13 +38,19 @@
                             var weight = cell?.Weight?.ToString("0.00");
                         }
                         <RadzenConditionalTemplate Condition="@IsAdjustment(cell)">
-                            <div class="@($"{css} last-edit-adjust")" title="@timestamp"><b>@weight</b></div>
+                            <Template Context="_">
+                                <div class="@($"{css} last-edit-adjust")" title="@timestamp"><b>@weight</b></div>
+                            </Template>
                         </RadzenConditionalTemplate>
                         <RadzenConditionalTemplate Condition="@IsInsertion(cell)">
-                            <div class="@($"{css} last-edit-insert")" title="@timestamp"><b>@weight</b></div>
+                            <Template Context="_">
+                                <div class="@($"{css} last-edit-insert")" title="@timestamp"><b>@weight</b></div>
+                            </Template>
                         </RadzenConditionalTemplate>
                         <RadzenConditionalTemplate>
-                            <div class="@css" title="@timestamp"><b>@weight</b></div>
+                            <Template Context="_">
+                                <div class="@css" title="@timestamp"><b>@weight</b></div>
+                            </Template>
                         </RadzenConditionalTemplate>
                     </Template>
                     <FooterTemplate>
