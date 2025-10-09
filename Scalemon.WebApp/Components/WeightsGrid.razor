@@ -33,24 +33,24 @@
                     <Template Context="vm">
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
-                            var css = $"cell {(cell?.HasValue == true ? "has" : "empty")}";
+                            var css = $"weights-grid__cell cell {(cell?.HasValue == true ? "has" : "empty")}";
                             var timestamp = cell?.Timestamp?.ToString("HH:mm:ss");
                             var weight = cell?.Weight?.ToString("0.00");
                         }
                         <RadzenConditionalTemplate Condition="@IsAdjustment(cell)">
-                            <Template Context="_">
-                                <div class="@($"{css} last-edit-adjust")" title="@timestamp"><b>@weight</b></div>
-                            </Template>
+                            <div class="@($"{css} weights-grid__cell--adjust")" title="@timestamp">
+                                <b>@weight</b>
+                            </div>
                         </RadzenConditionalTemplate>
                         <RadzenConditionalTemplate Condition="@IsInsertion(cell)">
-                            <Template Context="_">
-                                <div class="@($"{css} last-edit-insert")" title="@timestamp"><b>@weight</b></div>
-                            </Template>
+                            <div class="@($"{css} weights-grid__cell--insert")" title="@timestamp">
+                                <b>@weight</b>
+                            </div>
                         </RadzenConditionalTemplate>
                         <RadzenConditionalTemplate>
-                            <Template Context="_">
-                                <div class="@css" title="@timestamp"><b>@weight</b></div>
-                            </Template>
+                            <div class="@css" title="@timestamp">
+                                <b>@weight</b>
+                            </div>
                         </RadzenConditionalTemplate>
                     </Template>
                     <FooterTemplate>
