@@ -33,11 +33,19 @@
                     <Template Context="vm">
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
+                            var css = $"cell {(cell?.HasValue == true ? "has" : "empty")}";
+                            var timestamp = cell?.Timestamp?.ToString("HH:mm:ss");
+                            var weight = cell?.Weight?.ToString("0.00");
                         }
-                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
-                             title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
-                            @cell?.Weight?.ToString("0.00")</b>
-                        </div>
+                        <RadzenConditionalTemplate Condition="@IsAdjustment(cell)">
+                            <div class="@($"{css} last-edit-adjust")" title="@timestamp"><b>@weight</b></div>
+                        </RadzenConditionalTemplate>
+                        <RadzenConditionalTemplate Condition="@IsInsertion(cell)">
+                            <div class="@($"{css} last-edit-insert")" title="@timestamp"><b>@weight</b></div>
+                        </RadzenConditionalTemplate>
+                        <RadzenConditionalTemplate>
+                            <div class="@css" title="@timestamp"><b>@weight</b></div>
+                        </RadzenConditionalTemplate>
                     </Template>
                     <FooterTemplate>
                     @(Totals is { Length: >= 10 }
@@ -204,6 +212,7 @@ else
             args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
                                      + "cursor:pointer;"; // или "cursor:crosshair;", "cursor:default;" и т.п.
         }
+
         // сравниваем с GridRowVm.No
         if (_selectedCellPos is { } pos && pos.Row == args.Data.No && pos.Col == colIndex)
         {
@@ -249,13 +258,6 @@ else
         return InvokeAsync(StateHasChanged);
     }
 
-    static string GetHighlightClass(Cell? cell) => cell?.LastEditAction switch
-    {
-        WeighingEditAction.Increment or WeighingEditAction.Decrement => "last-edit-adjust",
-        WeighingEditAction.Insert => "last-edit-insert",
-        _ => string.Empty
-    };
-
     static Cell? GetCell(GridRow row, int col) => col switch
     {
         1 => row.C1,
@@ -270,6 +272,12 @@ else
         10 => row.C10,
         _ => null
     };
+
+    static bool IsAdjustment(Cell? cell)
+        => cell?.LastEditAction is WeighingEditAction.Increment or WeighingEditAction.Decrement;
+
+    static bool IsInsertion(Cell? cell)
+        => cell?.LastEditAction is WeighingEditAction.Insert;
 
     public async Task GoToPageAsync(int pageIndex)
     {
