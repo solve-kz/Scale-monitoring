@@ -53,8 +53,11 @@
     }
 
     .weights-grid .cell.has {
-        background: var(--rz-base-100);
         border-radius: 6px;
+    }
+
+    .weights-grid .cell.has:not(.weights-grid__cell--adjust):not(.weights-grid__cell--insert) {
+        background: var(--rz-base-100);
     }
 
 .totals-row {
@@ -91,7 +94,7 @@
     padding: 6px 8px;
 }
 
-/* Адаптивность */
+/* ГЂГ¤Г ГЇГІГЁГўГ­Г®Г±ГІГј */
 @media (max-width: 1200px) {
     .main-grid {
         grid-template-columns: 300px 1fr;

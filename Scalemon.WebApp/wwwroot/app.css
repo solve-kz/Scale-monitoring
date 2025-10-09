@@ -1,7 +1,15 @@
-.cell.last-edit-adjust {
+.weights-grid .cell.weights-grid__cell--adjust,
+.weights-grid .cell.weights-grid__cell--insert {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.weights-grid .cell.weights-grid__cell--adjust {
     background-color: #ffe6f3;
 }
 
-.cell.last-edit-insert {
+.weights-grid .cell.weights-grid__cell--insert {
     background-color: #e6ffe6;
 }
