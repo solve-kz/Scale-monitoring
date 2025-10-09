@@ -101,7 +101,7 @@ VALUES (@id,@editedAt,@editedBy,@action,@oldWeight,@newWeight,@recordedAt,@comme
 
         await using var cmd = new SqlCommand(sql, conn, tx);
         cmd.Parameters.Add(new SqlParameter("@id", SqlDbType.Int) { Value = weighingId });
-        cmd.Parameters.Add(new SqlParameter("@editedAt", SqlDbType.DateTime2) { Value = DateTime.UtcNow });
+        cmd.Parameters.Add(new SqlParameter("@editedAt", SqlDbType.DateTime2) { Value = DateTime.Now });
         cmd.Parameters.Add(CreateString("@editedBy", editedBy, 256));
         cmd.Parameters.Add(CreateString("@action", action.ToString(), 32));
         cmd.Parameters.Add(CreateDecimal("@oldWeight", oldWeight));
