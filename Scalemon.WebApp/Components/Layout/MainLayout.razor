@@ -20,21 +20,24 @@
     <RadzenHeader Class="rz-shadow-2 rz-px-3">
         <RadzenStack Orientation="Orientation.Horizontal"
                      AlignItems="AlignItems.Center"
-                     JustifyContent="JustifyContent.SpaceBetween"
-                     Style="height:56px">
+                     Style="height:56px;gap:16px">
             <RadzenStack Orientation="Orientation.Horizontal"
                          AlignItems="AlignItems.Center"
-                         Gap="8">
+                         Gap="8"
+                         Style="flex:1">
                 <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
                 <RadzenLink Path="/" Style="text-decoration:none;color:inherit">
                     <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
                 </RadzenLink>
-                <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
-                <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
             </RadzenStack>
+            <RadzenText Text="@_pageTitle"
+                        TextStyle="TextStyle.H6"
+                        Class="rz-text-secondary"
+                        Style="flex:1;text-align:center;text-transform:uppercase;" />
             <RadzenStack Orientation="Orientation.Horizontal"
                          AlignItems="AlignItems.Center"
                          Gap="8"
+                         Style="flex:1;justify-content:flex-end"
                          Visible="@CanSee(1)">
                 <RadzenIcon Icon="account_circle" />
                 @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
@@ -104,7 +107,7 @@
             "/logs" => "Логи службы Scalemon",
             "/statistics" => "Статистика",
             "/settings" => "Настройки",
-            "/" or "/about" => "О программе",
+            "/" or "/about" => "Служба регистрации взвешиваний",
             "/login" => "Вход",
             _ => "Страница"
         };
