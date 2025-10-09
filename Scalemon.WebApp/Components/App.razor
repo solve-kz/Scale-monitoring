@@ -1,5 +1,7 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Http
+@using Scalemon.WebApp.Components.Auth
 
 
 <!DOCTYPE html>
@@ -22,7 +24,24 @@
 
 <body>
     <CascadingAuthenticationState>
-        <Routes @rendermode="InteractiveServer" />
+        <Routes @rendermode="InteractiveServer">
+            <Found Context="routeData">
+                <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                    <NotAuthorized>
+                        <RedirectToLogin />
+                    </NotAuthorized>
+                </AuthorizeRouteView>
+                <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+            </Found>
+            <NotFound>
+                <LayoutView Layout="typeof(Layout.MainLayout)">
+                    <div class="rz-p-4">
+                        <h3>Страница не найдена</h3>
+                        <a href="/">На главную</a>
+                    </div>
+                </LayoutView>
+            </NotFound>
+        </Routes>
     </CascadingAuthenticationState>
 
     <script src="_content/Scalemon.WebApp/auth.js"></script>
