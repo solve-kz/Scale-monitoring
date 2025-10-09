@@ -196,23 +196,34 @@ else
             return;
 
         int colIndex = ParseCol(args.Column.Property);
-
         if (colIndex < 1) return;
-        var cell = GetCell(args.Data.Row, colIndex);
-        if (cell is not null && cell.HasValue)
-        {
-            args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
-                                     + "cursor:pointer;"; // или "cursor:crosshair;", "cursor:default;" и т.п.
-        }
-        // сравниваем с GridRowVm.No
-        if (_selectedCellPos is { } pos && pos.Row == args.Data.No && pos.Col == colIndex)
-        {
-            // если стиль уже есть, добавляем к нему
-            var style = args.Attributes.ContainsKey("style") ? args.Attributes["style"] + ";" : "";
-            style += "background-color:#ffe0b2;"; // мягкий оранжевый фон
-            args.Attributes["style"] = style;
-        }
 
+        // вычисляем класс для набора ячеек
+        var cls = GetCellClass(args.Data, colIndex);
+
+        // добавляем класс к <td>, не затирая существующие
+        var hasClass = args.Attributes.TryGetValue("class", out var existing);
+        args.Attributes["class"] = (hasClass ? existing + " " : "") + cls;
+
+        // любые доп. инлайновые стили — аккуратно дописываем
+        args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
+                                 + "cursor:pointer;";
+    }
+
+    string GetCellClass(GridRowVm vm, int colIndex)
+    {
+        // выделенная ячейка
+        if (_selectedCellPos is { } pos && pos.Row == vm.No && pos.Col == colIndex)
+            return "cell-selected";
+
+        // содержимое ячейки
+        var cell = GetCell(vm.Row, colIndex);
+        if (cell is null || !cell.HasValue)
+            return "cell-empty";
+
+        // Разделяем на два набора по колонкам:
+        // 1..5 — набор A, 6..10 — набор B (пример, меняйте логику по своему условию)
+        return colIndex <= 5 ? "cell-group-a" : "cell-group-b";
     }
 
     [JSInvokable("CloseContextMenu")]
