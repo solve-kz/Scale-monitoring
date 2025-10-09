@@ -20,11 +20,11 @@
     <RadzenHeader Class="rz-shadow-2 rz-px-3">
         <RadzenStack Orientation="Orientation.Horizontal"
                      AlignItems="AlignItems.Center"
-                     Style="height:56px;gap:16px">
+                     Style="height:56px;gap:16px;width:100%">
             <RadzenStack Orientation="Orientation.Horizontal"
                          AlignItems="AlignItems.Center"
                          Gap="8"
-                         Style="flex:1">
+                         Style="flex:0 0 auto">
                 <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
                 <RadzenLink Path="/" Style="text-decoration:none;color:inherit">
                     <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
@@ -37,7 +37,7 @@
             <RadzenStack Orientation="Orientation.Horizontal"
                          AlignItems="AlignItems.Center"
                          Gap="8"
-                         Style="flex:1;justify-content:flex-end"
+                         Style="margin-left:auto;justify-content:flex-end"
                          Visible="@CanSee(1)">
                 <RadzenIcon Icon="account_circle" />
                 @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
