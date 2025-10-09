@@ -37,15 +37,15 @@
                             var timestamp = cell?.Timestamp?.ToString("HH:mm:ss");
                             var weight = cell?.Weight?.ToString("0.00");
                         }
-                        <RadzenConditionalTemplate Condition="@IsAdjustment(cell)">
+                        <ConditionalTemplate Condition="@IsAdjustment(cell)">
                             <div class="@($"{css} last-edit-adjust")" title="@timestamp"><b>@weight</b></div>
-                        </RadzenConditionalTemplate>
-                        <RadzenConditionalTemplate Condition="@IsInsertion(cell)">
+                        </ConditionalTemplate>
+                        <ConditionalTemplate Condition="@IsInsertion(cell)">
                             <div class="@($"{css} last-edit-insert")" title="@timestamp"><b>@weight</b></div>
-                        </RadzenConditionalTemplate>
-                        <RadzenConditionalTemplate>
+                        </ConditionalTemplate>
+                        <ConditionalTemplate Condition="@(!IsAdjustment(cell) && !IsInsertion(cell))">
                             <div class="@css" title="@timestamp"><b>@weight</b></div>
-                        </RadzenConditionalTemplate>
+                        </ConditionalTemplate>
                     </Template>
                     <FooterTemplate>
                     @(Totals is { Length: >= 10 }
