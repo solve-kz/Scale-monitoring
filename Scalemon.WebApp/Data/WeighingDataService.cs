@@ -73,7 +73,7 @@ namespace Scalemon.WebApp.Data
                     AddAuditEntry(day, new WeighingEditEntry(
                         NextEditId(),
                         w.Id,
-                        DateTime.UtcNow,
+                        DateTime.Now,
                         userName,
                         delta >= 0 ? WeighingEditAction.Increment : WeighingEditAction.Decrement,
                         w.Weight,
@@ -113,7 +113,7 @@ namespace Scalemon.WebApp.Data
                     AddAuditEntry(day, new WeighingEditEntry(
                         NextEditId(),
                         item.Id,
-                        DateTime.UtcNow,
+                        DateTime.Now,
                         userName,
                         WeighingEditAction.Delete,
                         item.Weight,
@@ -149,7 +149,7 @@ namespace Scalemon.WebApp.Data
                 AddAuditEntry(day, new WeighingEditEntry(
                     NextEditId(),
                     item.Id,
-                    DateTime.UtcNow,
+                    DateTime.Now,
                     userName,
                     WeighingEditAction.Insert,
                     null,

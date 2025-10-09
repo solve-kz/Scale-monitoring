@@ -6,7 +6,7 @@ BEGIN
     (
         [Id] INT IDENTITY(1,1) NOT NULL CONSTRAINT [PK_WeighingEdits] PRIMARY KEY,
         [WeighingId] INT NOT NULL,
-        [EditedAt] DATETIME2(3) NOT NULL CONSTRAINT [DF_WeighingEdits_EditedAt] DEFAULT (SYSUTCDATETIME()),
+        [EditedAt] DATETIME2(3) NOT NULL CONSTRAINT [DF_WeighingEdits_EditedAt] DEFAULT (SYSDATETIME()),
         [EditedBy] NVARCHAR(256) NULL,
         [Action] NVARCHAR(32) NOT NULL,
         [OldWeight] DECIMAL(18,2) NULL,
