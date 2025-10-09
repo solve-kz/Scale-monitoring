@@ -1,6 +1,43 @@
 @page "/"
 @attribute [Authorize]
-<RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
-    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="width: 15rem;" AlternateText="community" />
-    <RadzenText TextStyle="TextStyle.DisplayH3">Главная страница с логином</RadzenText>
+<RadzenStack Orientation="Orientation.Vertical"
+             AlignItems="AlignItems.Center"
+             Gap="24"
+             Class="rz-mx-auto rz-my-8"
+             Style="max-width:960px">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 Gap="24"
+                 JustifyContent="JustifyContent.Center">
+        @CardLink("/monitoring", "monitor_heart", "Мониторинг", "Просматривайте ключевые показатели и статусы оборудования в режиме реального времени.")
+        @CardLink("/logs", "article", "Логи", "Анализируйте журнал событий и выявляйте ошибки службы Scalemon.")
+    </RadzenStack>
+
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 Gap="24"
+                 JustifyContent="JustifyContent.Center">
+        @CardLink("/statistics", "query_stats", "Статистика", "Оценивайте динамику показателей и находите тенденции работы системы.")
+        @CardLink("/settings", "settings", "Настройки", "Управляйте параметрами измерительного комплекса и пользовательскими предпочтениями.")
+    </RadzenStack>
+
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 Gap="24"
+                 JustifyContent="JustifyContent.Center">
+        @CardLink("/about", "help", "О программе", "Узнайте подробности о платформе ScaleMonitoring и её возможностях.")
+    </RadzenStack>
 </RadzenStack>
+
+@code {
+    private RenderFragment CardLink(string path, string icon, string title, string description) => @<RadzenLink Path="@path" Style="text-decoration:none;color:inherit">
+        <RadzenCard Class="rz-elevation-3 rz-text-center"
+                    Style="width:240px;height:220px;display:flex;align-items:center;justify-content:center">
+            <RadzenStack Orientation="Orientation.Vertical"
+                         AlignItems="AlignItems.Center"
+                         Gap="12"
+                         Class="rz-text-center">
+                <RadzenIcon Icon="@icon" Style="font-size:48px" Class="rz-text-primary" />
+                <RadzenText Text="@title" TextStyle="TextStyle.H5" />
+                <RadzenText Text="@description" TextStyle="TextStyle.Body2" Class="rz-text-secondary" />
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenLink>;
+}

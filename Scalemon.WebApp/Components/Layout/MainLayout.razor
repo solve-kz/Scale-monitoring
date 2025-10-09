@@ -6,6 +6,13 @@
 @inject IJSRuntime JS
 @inject CookieThemeService CookieThemeService
 @implements IAsyncDisposable
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback OnLogin { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private string? UserName => CurrentUser?.Identity?.Name;
+}
 
 <RadzenLayout>
 
@@ -19,16 +26,27 @@
                          AlignItems="AlignItems.Center"
                          Gap="8">
                 <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
-                <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                <RadzenLink Path="/" Style="text-decoration:none;color:inherit">
+                    <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                </RadzenLink>
                 <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
                 <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
             </RadzenStack>
-            <RadzenButton Icon="login"
-                          Text="Войти"
-                          ButtonStyle="ButtonStyle.Primary"
-                          Size="ButtonSize.Small"
-                          Visible="@(!_isLoginPage && !CanSee(1))"
-                          Click="Login" />
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         Gap="8"
+                         Visible="@CanSee(1)">
+                <RadzenIcon Icon="account_circle" />
+                @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
+                {
+                    <RadzenLabel Text="@UserName" />
+                }
+                <RadzenButton Icon="logout"
+                              Text="Выход"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Size="ButtonSize.Small"
+                              Click="Logout" />
+            </RadzenStack>
         </RadzenStack>
     </RadzenHeader>
 

@@ -15,14 +15,6 @@
 
 <!-- Вся колонка панели -->
 <div style="height:100%;display:flex;flex-direction:column">
-
-    <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
-                     ShowArrow="false">
-        <RadzenPanelMenuItem Text="@ToggleText"
-                             Icon="@ToggleIcon"
-                             Click="@ToggleMenuItemClick" />
-    </RadzenPanelMenu>
-
     <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
                      ShowArrow="false">
         <RadzenPanelMenuItem Text="Мониторинг" Icon="monitor_heart" Path="/monitoring" />
@@ -39,28 +31,12 @@
         </RadzenPanelMenu>
 
         <div class="rz-p-2">
-            <RadzenStack Orientation="Orientation.Horizontal"
-                          AlignItems="AlignItems.Center"
-                          Gap="8"
-                          Visible="@CanSee(1)">
-                <RadzenIcon Icon="account_circle" />
-                @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
-                {
-                    <RadzenLabel Text="@UserName" />
-                }
-                <RadzenButton Icon="logout"
-                              Text="@(Collapsed ? null : "Выход")"
-                              ButtonStyle="ButtonStyle.Secondary"
-                              Size="ButtonSize.Small"
-                              Click="() => OnLogout.InvokeAsync()" />
-            </RadzenStack>
-
-            <RadzenButton Icon="login"
-                          Text="@(Collapsed ? null : "Войти")"
-                          ButtonStyle="ButtonStyle.Primary"
-                          Size="ButtonSize.Small"
-                          Visible="@(!CanSee(1))"
-                          Click="() => OnLogin.InvokeAsync()" />
-        </div>
+			<RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
+							 ShowArrow="false">
+				<RadzenPanelMenuItem Text="@ToggleText"
+									 Icon="@ToggleIcon"
+									 Click="@ToggleMenuItemClick" />
+			</RadzenPanelMenu>
+		</div>
     </div>
 </div>
