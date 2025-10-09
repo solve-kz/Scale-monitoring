@@ -20,16 +20,27 @@
                          AlignItems="AlignItems.Center"
                          Gap="8">
                 <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
-                <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                <RadzenLink Path="/" Style="text-decoration:none;color:inherit">
+                    <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                </RadzenLink>
                 <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
                 <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
             </RadzenStack>
-            <RadzenButton Icon="login"
-                          Text="Войти"
-                          ButtonStyle="ButtonStyle.Primary"
-                          Size="ButtonSize.Small"
-                          Visible="@(!_isLoginPage && !CanSee(1))"
-                          Click="Login" />
+            <RadzenStack Orientation="Orientation.Horizontal"
+                          AlignItems="AlignItems.Center"
+                          Gap="8"
+                          Visible="@(!_isLoginPage && CanSee(1))">
+                <RadzenIcon Icon="account_circle" Style="font-size:28px" />
+                @if (!string.IsNullOrWhiteSpace(UserName))
+                {
+                    <RadzenText Text="@UserName" TextStyle="TextStyle.Subtitle1" Class="rz-text-nowrap" />
+                }
+                <RadzenButton Icon="logout"
+                              Text="Выход"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Size="ButtonSize.Small"
+                              Click="Logout" />
+            </RadzenStack>
         </RadzenStack>
     </RadzenHeader>
 
@@ -78,6 +89,7 @@
     private string _pageTitle = "Главная";
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
     private bool _isLoginPage;
+    private string? UserName => CurrentUser?.Identity?.Name;
     protected override void OnInitialized()
     {
         SetPageTitle(Nav.Uri);
