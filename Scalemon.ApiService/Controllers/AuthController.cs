@@ -11,6 +11,7 @@ namespace Scalemon.ApiService.Controllers
 {
     [ApiController]
     [Route("api/auth")] // <-- Все адреса в этом контроллере будут начинаться с /api/auth
+    [IgnoreAntiforgeryToken]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
