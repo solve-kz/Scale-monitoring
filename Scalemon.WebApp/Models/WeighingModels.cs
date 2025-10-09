@@ -4,7 +4,7 @@
     {
         public sealed record Weighing(int Id, decimal Weight, DateTime Timestamp);
 
-        public sealed record Cell(int? Id, decimal? Weight, DateTime? Timestamp)
+        public sealed record Cell(int? Id, decimal? Weight, DateTime? Timestamp, WeighingEditAction? LastEditAction = null)
         {
             public bool HasValue => Id.HasValue && Weight.HasValue && Timestamp.HasValue;
         }
