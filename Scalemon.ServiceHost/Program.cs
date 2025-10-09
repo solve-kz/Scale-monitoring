@@ -279,10 +279,12 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 // Конечные точки (API и Blazor UI)
-app.MapControllers();
+var apiEndpoints = app.MapControllers();
+apiEndpoints.RequireAuthorization();
 
-app.MapRazorComponents<App>()
-   .AddInteractiveServerRenderMode();
+var razorComponents = app.MapRazorComponents<App>();
+razorComponents.AddInteractiveServerRenderMode();
+razorComponents.RequireAuthorization();
 
 
 // --- 5. ЗАПУСК ПРИЛОЖЕНИЯ ---
