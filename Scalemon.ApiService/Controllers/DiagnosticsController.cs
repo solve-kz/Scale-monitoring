@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,7 @@ namespace Scalemon.ApiService.Controllers;
 
 [ApiController]
 [Route("api/diagnostics")]
+[Authorize]
 public class DiagnosticsController : ControllerBase
 {
     private readonly IOptionsMonitor<ServiceSettings> _opt;

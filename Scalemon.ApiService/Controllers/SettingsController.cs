@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Scalemon.Common;
 using Serilog.Core;
@@ -13,6 +14,7 @@ namespace Scalemon.ApiService.Controllers;
 
 [ApiController]
 [Route("api/settings")]
+[Authorize]
 public class SettingsController : ControllerBase
 {
     private readonly LoggingLevelSwitch _levelSwitch;

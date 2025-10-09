@@ -29,8 +29,6 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 
 const long LogUploadLimitBytes = 256L * 1024 * 1024;
 
@@ -237,11 +235,8 @@ builder.Services.AddHttpClient<ApiClient>((sp, http) =>
         http.BaseAddress = new Uri(uri);
     }
 
-    // Basic для контроллеров (политика ApiBasic)
-    var cfg = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.Authentication.Basic;
-    var raw = $"{cfg.Username}:{cfg.Password}";
-    http.DefaultRequestHeaders.Authorization =
-        new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
+    // Авторизация держится исключительно на cookie текущего пользователя.
+    // Дополнительные заголовки Authorization не добавляем, чтобы аноним не получил доступ к API.
 }).AddHttpMessageHandler<ForwardAuthCookiesHandler>();
 
 // Источник настроек UI (если используешь JsonFileSettingsSource)

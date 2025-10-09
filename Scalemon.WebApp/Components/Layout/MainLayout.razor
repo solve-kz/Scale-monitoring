@@ -1,5 +1,6 @@
-﻿@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Authorization
+@using Scalemon.WebApp.Components.Auth
 @inherits RoleAwareLayoutComponentBase
 
 @inject NavigationManager Nav
@@ -46,7 +47,21 @@
 
     <RadzenBody>
         <div class="rz-p-3">
-            @Body
+            @if (_isLoginPage)
+            {
+                @Body
+            }
+            else
+            {
+                <AuthorizeView>
+                    <Authorized>
+                        @Body
+                    </Authorized>
+                    <NotAuthorized>
+                        <RedirectToLogin />
+                    </NotAuthorized>
+                </AuthorizeView>
+            }
         </div>
 
         <!-- Cлужебные компоненты Radzen -->

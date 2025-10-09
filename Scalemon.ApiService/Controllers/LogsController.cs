@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
@@ -16,6 +17,7 @@ namespace Scalemon.ApiService.Controllers;
 
 [ApiController]
 [Route("api/logs")]
+[Authorize]
 public sealed class LogsController : ControllerBase
 {
     private readonly ILogger<LogsController> _logger;
