@@ -3,6 +3,7 @@
 
 @using Scalemon.WebApp.Models
 @inject IWeighingEditLogService AuditService
+@inject NavigationManager Nav
 
 <PageTitle>Журнал правок взвешиваний</PageTitle>
 
@@ -11,40 +12,39 @@
                  Wrap="FlexWrap.Wrap"
                  Gap="0.75rem"
                  AlignItems="AlignItems.Center">
-        <RadzenDatePicker Value="@_from"
-                          ValueChanged="@OnFromChanged"
+        <RadzenDatePicker @bind-Value="_from"
                           TValue="DateTime?"
                           DateFormat="yyyy-MM-dd HH:mm"
                           ShowTime="true"
                           Placeholder="От"
-                          Style="width:200px" />
-        <RadzenDatePicker Value="@_to"
-                          ValueChanged="@OnToChanged"
+                          Style="width:200px"
+                          @bind-Value:after="OnFiltersChanged" />
+        <RadzenDatePicker @bind-Value="_to"
                           TValue="DateTime?"
                           DateFormat="yyyy-MM-dd HH:mm"
                           ShowTime="true"
                           Placeholder="До"
-                          Style="width:200px" />
+                          Style="width:200px"
+                          @bind-Value:after="OnFiltersChanged" />
         <RadzenDropDown Data="@_users"
-                        TValue="string"
-                        Value="@_selectedUser"
-                        ValueChanged="@OnUserChanged"
+                        @bind-Value="_selectedUser"
                         AllowClear="true"
                         Placeholder="Все пользователи"
-                        Style="width:220px" />
+                        Style="width:220px"
+                        @bind-Value:after="OnFiltersChanged" />
         <RadzenDropDown Data="@_actionOptions"
                         TextProperty="Text"
                         ValueProperty="Value"
                         TValue="WeighingEditAction?"
-                        Value="@_selectedAction"
-                        ValueChanged="@OnActionChanged"
+                        @bind-Value="_selectedAction"
                         AllowClear="true"
                         Placeholder="Все действия"
-                        Style="width:220px" />
+                        Style="width:220px"
+                        @bind-Value:after="OnFiltersChanged" />
         <RadzenButton Icon="refresh"
                       Text="Обновить"
                       ButtonStyle="ButtonStyle.Primary"
-                      Click="@OnReloadClicked"
+                      Click="@ReloadAsync"
                       Disabled="@_isLoading" />
     </RadzenStack>
 
@@ -104,43 +104,7 @@
         _users = editors.ToList();
     }
 
-    private async Task OnFromChanged(DateTime? value)
-    {
-        if (_from != value)
-        {
-            _from = value;
-            await ReloadAsync();
-        }
-    }
-
-    private async Task OnToChanged(DateTime? value)
-    {
-        if (_to != value)
-        {
-            _to = value;
-            await ReloadAsync();
-        }
-    }
-
-    private async Task OnUserChanged(string? value)
-    {
-        if (_selectedUser != value)
-        {
-            _selectedUser = value;
-            await ReloadAsync();
-        }
-    }
-
-    private async Task OnActionChanged(WeighingEditAction? value)
-    {
-        if (_selectedAction != value)
-        {
-            _selectedAction = value;
-            await ReloadAsync();
-        }
-    }
-
-    private async Task OnReloadClicked()
+    private async Task OnFiltersChanged(object? _)
     {
         await ReloadAsync();
     }
