@@ -1,3 +1,4 @@
+using System;
 using Scalemon.WebApp.Models;
 using static Scalemon.WebApp.Models.WeighingModels;
 
@@ -17,8 +18,12 @@ namespace Scalemon.WebApp.Data
         Task AdjustAsync(int id, decimal delta, string? userName, CancellationToken ct = default);
         Task<int> InsertAboveAsync(int refId, decimal weight, CancellationToken ct = default);
         Task<int> InsertAboveAsync(int refId, decimal weight, string? userName, CancellationToken ct = default);
+        Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default);
+        Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default);
         Task<int> InsertBelowAsync(int refId, decimal weight, CancellationToken ct = default);
         Task<int> InsertBelowAsync(int refId, decimal weight, string? userName, CancellationToken ct = default);
+        Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default);
+        Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default);
         Task DeleteAsync(int id, CancellationToken ct = default);
         Task DeleteAsync(int id, string? userName, CancellationToken ct = default);
 
