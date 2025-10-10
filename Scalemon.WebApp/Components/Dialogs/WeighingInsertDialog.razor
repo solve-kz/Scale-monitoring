@@ -1,0 +1,175 @@
+@using System.Globalization
+@using Scalemon.WebApp.Models
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenTemplateForm TItem="WeighingInsertDialog.FormModel" Data="@Model" Submit="@OnValidSubmit">
+    <RadzenFieldset>
+        <RadzenStack Gap="12px">
+            <RadzenFormField Text="Вес, кг" HelpText="Введите вес с точностью до сотых">
+                <RadzenTextBox @bind-Value="Model.WeightText" Name="Weight" Style="width:100%" />
+                <RadzenRequiredValidator Component="Weight" Text="Укажите вес" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Время" HelpText="Укажите точное время фиксации">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="8px">
+                    <RadzenNumeric @bind-Value="Model.Hour"
+                                   TValue="int?"
+                                   Name="Hour"
+                                   Min="0"
+                                   Max="23"
+                                   Step="1"
+                                   Style="width:100%"
+                                   Placeholder="Часы" />
+                    <RadzenNumeric @bind-Value="Model.Minute"
+                                   TValue="int?"
+                                   Name="Minute"
+                                   Min="0"
+                                   Max="59"
+                                   Step="1"
+                                   Style="width:100%"
+                                   Placeholder="Минуты" />
+                    <RadzenNumeric @bind-Value="Model.Second"
+                                   TValue="int?"
+                                   Name="Second"
+                                   Min="0"
+                                   Max="59"
+                                   Step="1"
+                                   Style="width:100%"
+                                   Placeholder="Секунды" />
+                </RadzenStack>
+                <RadzenRequiredValidator Component="Hour" Text="Укажите часы" />
+                <RadzenRangeValidator Component="Hour" Min="0" Max="23" Text="Часы должны быть в диапазоне 0-23" />
+                <RadzenRequiredValidator Component="Minute" Text="Укажите минуты" />
+                <RadzenRangeValidator Component="Minute" Min="0" Max="59" Text="Минуты должны быть в диапазоне 0-59" />
+                <RadzenRequiredValidator Component="Second" Text="Укажите секунды" />
+                <RadzenRangeValidator Component="Second" Min="0" Max="59" Text="Секунды должны быть в диапазоне 0-59" />
+            </RadzenFormField>
+        </RadzenStack>
+    </RadzenFieldset>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:16px">
+        <RadzenButton Text="ОК" Icon="check" ButtonStyle="ButtonStyle.Primary" ButtonType="ButtonType.Submit" />
+        <RadzenButton Text="Отмена" Icon="close" Click="@OnCancel" />
+    </RadzenStack>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter] public decimal? InitialWeight { get; set; }
+    [Parameter] public DateTime? InitialTimestamp { get; set; }
+    [Parameter] public DateTime SelectedDate { get; set; }
+
+    FormModel Model { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        Model ??= new FormModel();
+
+        if (string.IsNullOrWhiteSpace(Model.WeightText) && InitialWeight is decimal weight)
+        {
+            Model.WeightText = weight.ToString("0.00", CultureInfo.CurrentCulture);
+        }
+
+        if (Model.Hour is null || Model.Minute is null || Model.Second is null)
+        {
+            var baseTimestamp = InitialTimestamp ?? SelectedDate;
+            var normalized = SelectedDate.Date.Add(baseTimestamp.TimeOfDay);
+
+            Model.Hour ??= normalized.Hour;
+            Model.Minute ??= normalized.Minute;
+            Model.Second ??= normalized.Second;
+        }
+    }
+
+    Task OnValidSubmit(FormModel model)
+    {
+        if (!TryParseWeight(model.WeightText, out var weight))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Не удалось распознать вес. Используйте формат 12,34");
+            return Task.CompletedTask;
+        }
+
+        if (!TryBuildTimestamp(model, out var timestamp))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Проверьте корректность времени");
+            return Task.CompletedTask;
+        }
+
+        var rounded = Math.Round(weight, 2, MidpointRounding.AwayFromZero);
+
+        DialogService.Close(new WeighingModels.WeighingInsertRequest(rounded, timestamp));
+        return Task.CompletedTask;
+    }
+
+    void OnCancel()
+    {
+        DialogService.Close(null);
+    }
+
+    private bool TryBuildTimestamp(FormModel model, out DateTime timestamp)
+    {
+        timestamp = default;
+
+        if (model.Hour is not int hour || model.Minute is not int minute || model.Second is not int second)
+        {
+            return false;
+        }
+
+        if (hour is < 0 or > 23 || minute is < 0 or > 59 || second is < 0 or > 59)
+        {
+            return false;
+        }
+
+        timestamp = SelectedDate.Date
+            .AddHours(hour)
+            .AddMinutes(minute)
+            .AddSeconds(second);
+
+        return true;
+    }
+
+    static bool TryParseWeight(string? input, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var trimmed = input.Trim();
+        var sanitized = trimmed.Replace(" ", string.Empty);
+
+        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.CurrentCulture, out value))
+        {
+            return true;
+        }
+
+        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        var normalized = sanitized.Replace(',', '.');
+        if (decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        normalized = sanitized.Replace('.', ',');
+        var ruCulture = CultureInfo.GetCultureInfo("ru-RU");
+        if (decimal.TryParse(normalized, NumberStyles.Number, ruCulture, out value))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public sealed class FormModel
+    {
+        public string? WeightText { get; set; }
+        public int? Hour { get; set; }
+        public int? Minute { get; set; }
+        public int? Second { get; set; }
+    }
+}

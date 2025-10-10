@@ -255,15 +255,27 @@ OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
         => InsertAboveAsync(refId, weight, null, ct);
 
     public Task<int> InsertAboveAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
-        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName, ct);
+        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName, null, ct);
+
+    public Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default)
+        => InsertAboveAsync(refId, weight, timestamp, null, ct);
+
+    public Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default)
+        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName, timestamp, ct);
 
     public Task<int> InsertBelowAsync(int refId, decimal weight, CancellationToken ct = default)
         => InsertBelowAsync(refId, weight, null, ct);
 
     public Task<int> InsertBelowAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
-        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName, ct);
+        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName, null, ct);
 
-    private async Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName, CancellationToken ct)
+    public Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default)
+        => InsertBelowAsync(refId, weight, timestamp, null, ct);
+
+    public Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default)
+        => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName, timestamp, ct);
+
+    private async Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName, DateTime? explicitTimestamp, CancellationToken ct)
     {
         await EnsureConfiguredAsync(ct);
 
@@ -288,7 +300,7 @@ OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
                 return 0;
             }
 
-            var ts = baseTs.Value + offset;
+            var ts = explicitTimestamp ?? baseTs.Value + offset;
             var roundedWeight = Round2(weight);
 
             var insSql = $@"
