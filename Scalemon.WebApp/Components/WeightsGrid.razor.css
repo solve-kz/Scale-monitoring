@@ -1,23 +1,30 @@
-﻿/* внутренний див не должен перекрывать фон td */
-.rz-data-grid .cell {
+/* внутренний див не должен перекрывать фон td */
+::deep .rz-data-grid .cell {
     background: transparent; /* важно! */
 }
 
 /* Фоны наборов — применяются к <td> */
-.rz-data-grid td.cell-group-a {
+::deep .rz-data-grid td.cell-group-a {
     background-color: #f5fbff; /* нежно-голубой */
 }
 
-.rz-data-grid td.cell-group-b {
+::deep .rz-data-grid td.cell-group-b {
     background-color: #fff8f2; /* нежно-оранжевый */
 }
 
-.rz-data-grid td.cell-empty {
+::deep .rz-data-grid td.cell-empty {
     background-color: #f3f3f3; /* серый для пустых */
 }
 
 /* Выделение выбранной ячейки — поверх всего */
-.rz-data-grid td.cell-selected {
+::deep .rz-data-grid td.cell-selected {
     background-color: #ffe0b2 !important; /* мягкий оранжевый */
     box-shadow: inset 0 0 0 2px rgba(0,0,0,.05);
+}
+
+/* Когда внутри есть цвет (редактированная ячейка) — подсветим рамкой по div */
+::deep .rz-data-grid .cell.cell-selected.last-edit-adjust,
+::deep .rz-data-grid .cell.cell-selected.last-edit-insert {
+    box-shadow: inset 0 0 0 2px rgba(255, 152, 0, 0.7);
+    border-radius: 2px;
 }

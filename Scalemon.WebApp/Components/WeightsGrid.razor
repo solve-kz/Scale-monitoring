@@ -34,7 +34,7 @@
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
                         }
-                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
+                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)@(IsCellSelected(vm.No, colIndex) ? " cell-selected" : string.Empty)"
                              title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
                             @cell?.Weight?.ToString("0.00")</b>
                         </div>
@@ -212,19 +212,28 @@ else
 
     string GetCellClass(GridRowVm vm, int colIndex)
     {
-        // выделенная ячейка
-        if (_selectedCellPos is { } pos && pos.Row == vm.No && pos.Col == colIndex)
-            return "cell-selected";
+        var classes = new List<string>();
 
-        // содержимое ячейки
         var cell = GetCell(vm.Row, colIndex);
         if (cell is null || !cell.HasValue)
-            return "cell-empty";
+        {
+            classes.Add("cell-empty");
+        }
+        else
+        {
+            // Разделяем на два набора по колонкам:
+            // 1..5 — набор A, 6..10 — набор B (пример, меняйте логику по своему условию)
+            classes.Add(colIndex <= 5 ? "cell-group-a" : "cell-group-b");
+        }
 
-        // Разделяем на два набора по колонкам:
-        // 1..5 — набор A, 6..10 — набор B (пример, меняйте логику по своему условию)
-        return colIndex <= 5 ? "cell-group-a" : "cell-group-b";
+        if (IsCellSelected(vm.No, colIndex))
+            classes.Add("cell-selected");
+
+        return string.Join(' ', classes);
     }
+
+    bool IsCellSelected(int rowNo, int colIndex)
+        => _selectedCellPos is { } pos && pos.Row == rowNo && pos.Col == colIndex;
 
     [JSInvokable("CloseContextMenu")]
     public Task CloseContextMenu()
