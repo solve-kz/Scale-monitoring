@@ -9,82 +9,73 @@
             <RadzenStack Orientation="Orientation.Horizontal"
                          AlignItems="AlignItems.End"
                          Gap="1.5rem"
-                         Wrap="false">
-                <RadzenStackItem Grow="1">
-                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                        <RadzenLabel Text="Вес, кг" Component="Weight" />
-                        <RadzenNumeric Name="Weight"
-                                       TValue="decimal?"
-                                       @bind-Value="Model.Weight"
-                                       Culture="@CultureInfo.CurrentCulture"
-                                       Min=@((decimal)0.02)
-                                       Max=@((decimal)100)
-                                       Step="0.01"
-                                       class="rz-w-100" />
-                        <RadzenRequiredValidator Component="Weight"
-                                                 Text="Укажите вес" Popup="false" />
-                        <RadzenNumericRangeValidator Component="Weight"
-                                                     Min="0.02" Max="100"
-                                                     Text="Вес должен быть в диапазоне 0,02…100 кг"
-                                                     Popup="false" />
-                    </RadzenStack>
-                </RadzenStackItem>
+                         Wrap="FlexWrap.NoWrap">
+                <RadzenStack Orientation="Orientation.Vertical"
+                             Gap="0.5rem">
+                    <RadzenLabel Text="Вес, кг" Component="Weight" />
+                    <RadzenNumeric Name="Weight"
+                                   TValue="decimal?"
+                                   @bind-Value="Model.Weight"
+                                   Culture="@CultureInfo.CurrentCulture"
+                                   Min=@(double)WeightMin
+                                   Max=@(double)WeightMax
+                                   Step=@(double)WeightStep
+                                   class="rz-w-100" />
+                    <RadzenRequiredValidator Component="Weight"
+                                             Text="Укажите вес" Popup="false" />
+                    <RadzenNumericRangeValidator Component="Weight"
+                                                 Min="@WeightMinText" Max="@WeightMaxText"
+                                                 Text="Вес должен быть в диапазоне 0,02…100 кг"
+                                                 Popup="false" />
+                </RadzenStack>
 
-                <RadzenStackItem>
-                    <RadzenStack Orientation="Orientation.Horizontal"
-                                 AlignItems="AlignItems.End"
-                                 Gap="1rem"
-                                 Wrap="false">
-                        <RadzenStackItem>
-                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenNumeric Name="Hour"
-                                                   TValue="int?"
-                                                   @bind-Value="Model.Hour"
-                                                   Min="0" Max="23"
-                                                   class="rz-w-100" />
-                                    <RadzenLabel Text="ч" Component="Hour" />
-                                </RadzenStack>
-                                <RadzenRequiredValidator Component="Hour"
-                                                         Text="Укажите часы" Popup="false" />
-                                <RadzenNumericRangeValidator Component="Hour"
-                                                             Min="0" Max="23" Text="0…23" Popup="false" />
-                            </RadzenStack>
-                        </RadzenStackItem>
-                        <RadzenStackItem>
-                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenNumeric Name="Minute"
-                                                   TValue="int?"
-                                                   @bind-Value="Model.Minute"
-                                                   Min="0" Max="59"
-                                                   class="rz-w-100" />
-                                    <RadzenLabel Text="м" Component="Minute" />
-                                </RadzenStack>
-                                <RadzenRequiredValidator Component="Minute"
-                                                         Text="Укажите минуты" Popup="false" />
-                                <RadzenNumericRangeValidator Component="Minute"
-                                                             Min="0" Max="59" Text="0…59" Popup="false" />
-                            </RadzenStack>
-                        </RadzenStackItem>
-                        <RadzenStackItem>
-                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenNumeric Name="Second"
-                                                   TValue="int?"
-                                                   @bind-Value="Model.Second"
-                                                   Min="0" Max="59"
-                                                   class="rz-w-100" />
-                                    <RadzenLabel Text="с" Component="Second" />
-                                </RadzenStack>
-                                <RadzenRequiredValidator Component="Second"
-                                                         Text="Укажите секунды" Popup="false" />
-                                <RadzenNumericRangeValidator Component="Second"
-                                                             Min="0" Max="59" Text="0…59" Popup="false" />
-                            </RadzenStack>
-                        </RadzenStackItem>
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             AlignItems="AlignItems.End"
+                             Gap="1rem"
+                             Wrap="FlexWrap.NoWrap">
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Hour"
+                                           TValue="int?"
+                                           @bind-Value="Model.Hour"
+                                           Min="0" Max="23"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="ч" Component="Hour" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Hour"
+                                                 Text="Укажите часы" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Hour"
+                                                     Min="0" Max="23" Text="0…23" Popup="false" />
                     </RadzenStack>
-                </RadzenStackItem>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Minute"
+                                           TValue="int?"
+                                           @bind-Value="Model.Minute"
+                                           Min="0" Max="59"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="м" Component="Minute" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Minute"
+                                                 Text="Укажите минуты" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Minute"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Second"
+                                           TValue="int?"
+                                           @bind-Value="Model.Second"
+                                           Min="0" Max="59"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="с" Component="Second" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Second"
+                                                 Text="Укажите секунды" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Second"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </RadzenStack>
+                </RadzenStack>
             </RadzenStack>
 
             <RadzenStack Orientation="Orientation.Horizontal"
@@ -149,10 +140,8 @@
 
     private const decimal WeightMin = 0.02m;
     private const decimal WeightMax = 100m;
-    private const decimal WeightStep = 0.02m;
+    private const decimal WeightStep = 0.01m;
     private static readonly string WeightMinText = WeightMin.ToString(CultureInfo.InvariantCulture);
     private static readonly string WeightMaxText = WeightMax.ToString(CultureInfo.InvariantCulture);
-    private static readonly string WeightStepText = WeightStep.ToString(CultureInfo.InvariantCulture);
-    private const string WeightFormat = "0.00";
     private const int WeightPrecisionDigits = 2;
 }
