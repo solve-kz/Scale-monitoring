@@ -48,11 +48,11 @@
                 else
                 {
                     <RadzenChart Style="min-height:320px; width:100%;">
-                        <RadzenChartTooltip />
+                        <RadzenChartTooltip Template="@(context => @<div>@(((WeighingRatePoint)context.Data).TooltipLabel): @context.Value</div>)" />
                         <RadzenCategoryAxis LabelsRotation="45" />
                         <RadzenValueAxis LabelFormatString="{0}" Min="0" />
                         <RadzenColumnSeries Data="@_chartData"
-                                             CategoryProperty="Interval"
+                                             CategoryProperty="AxisLabel"
                                              ValueProperty="Count"
                                              Title="Количество взвешиваний" />
                     </RadzenChart>
@@ -103,7 +103,7 @@
     private string? _calendarError;
     private int _totalWeighings;
 
-    private sealed record WeighingRatePoint(string Interval, int Count);
+    private sealed record WeighingRatePoint(string Interval, int Count, string AxisLabel, string TooltipLabel);
 
     protected override async Task OnInitializedAsync()
     {
@@ -202,7 +202,12 @@
         for (var i = 0; i < IntervalCount; i++)
         {
             var start = ChartStart + TimeSpan.FromMinutes(IntervalMinutes * i);
-            items.Add(new WeighingRatePoint(FormatIntervalLabel(start), 0));
+            var intervalLabel = FormatIntervalLabel(start);
+            items.Add(new WeighingRatePoint(
+                Interval: intervalLabel,
+                Count: 0,
+                AxisLabel: CreateAxisLabel(intervalLabel, i),
+                TooltipLabel: intervalLabel));
         }
 
         return items;
@@ -232,11 +237,19 @@
         for (var i = 0; i < IntervalCount; i++)
         {
             var start = ChartStart + TimeSpan.FromMinutes(IntervalMinutes * i);
-            items.Add(new WeighingRatePoint(FormatIntervalLabel(start), buckets[i]));
+            var intervalLabel = FormatIntervalLabel(start);
+            items.Add(new WeighingRatePoint(
+                Interval: intervalLabel,
+                Count: buckets[i],
+                AxisLabel: CreateAxisLabel(intervalLabel, i),
+                TooltipLabel: intervalLabel));
         }
 
         return items;
     }
+
+    private static string CreateAxisLabel(string intervalLabel, int index)
+        => index % 4 == 0 ? intervalLabel : new string('\u200B', index + 1);
 
     private static string FormatIntervalLabel(TimeSpan start)
     {
