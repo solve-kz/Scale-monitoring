@@ -1,4 +1,3 @@
-@using System.Globalization
 @inject DialogService DialogService
 
 <RadzenTemplateForm TItem="FormModel" Data="@Model" Submit="@OnValidSubmit">
@@ -9,12 +8,12 @@
                 <RadzenNumeric Name="Weight"
                                TValue="decimal?"
                                @bind-Value="Model.Weight"
-                               Min="0.001m" Max="1000m" Step="0.01m"
+                               Min="@WeightMinString" Max="@WeightMaxString" Step="@WeightStepString"
                                Style="width:100%" />
                 <RadzenRequiredValidator Component="Weight"
                                          Text="Укажите вес" Popup="false" />
                 <RadzenNumericRangeValidator Component="Weight"
-                                             Min="0.001" Max="1000"
+                                             Min="@WeightMinString" Max="@WeightMaxString"
                                              Text="Вес должен быть в диапазоне 0,001…1000 кг"
                                              Popup="false" />
             </div>
@@ -113,4 +112,8 @@
         public int? Minute { get; set; }
         public int? Second { get; set; }
     }
+
+    private const string WeightMinString = "0.001";
+    private const string WeightMaxString = "1000";
+    private const string WeightStepString = "0.01";
 }
