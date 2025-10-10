@@ -12,38 +12,15 @@
             </RadzenFormField>
 
             <RadzenFormField Text="Время" HelpText="Укажите точное время фиксации">
-                <RadzenStack Orientation="Orientation.Horizontal" Gap="8px">
-                    <RadzenNumeric @bind-Value="Model.Hour"
-                                   TValue="int?"
-                                   Name="Hour"
-                                   Min="0"
-                                   Max="23"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Часы" />
-                    <RadzenNumeric @bind-Value="Model.Minute"
-                                   TValue="int?"
-                                   Name="Minute"
-                                   Min="0"
-                                   Max="59"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Минуты" />
-                    <RadzenNumeric @bind-Value="Model.Second"
-                                   TValue="int?"
-                                   Name="Second"
-                                   Min="0"
-                                   Max="59"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Секунды" />
-                </RadzenStack>
-                <RadzenRequiredValidator Component="Hour" Text="Укажите часы" />
-                <RadzenRangeValidator Component="Hour" Min="0" Max="23" Text="Часы должны быть в диапазоне 0-23" />
-                <RadzenRequiredValidator Component="Minute" Text="Укажите минуты" />
-                <RadzenRangeValidator Component="Minute" Min="0" Max="59" Text="Минуты должны быть в диапазоне 0-59" />
-                <RadzenRequiredValidator Component="Second" Text="Укажите секунды" />
-                <RadzenRangeValidator Component="Second" Min="0" Max="59" Text="Секунды должны быть в диапазоне 0-59" />
+                <RadzenTimePicker @bind-Value="Model.Time"
+                                   Name="RecordedAt"
+                                   TimeFormat="HH:mm:ss"
+                                   ShowSeconds="true"
+                                   HoursStep="1"
+                                   MinutesStep="1"
+                                   SecondsStep="1"
+                                   Style="width:100%" />
+                <RadzenRequiredValidator Component="RecordedAt" Text="Укажите время" />
             </RadzenFormField>
         </RadzenStack>
     </RadzenFieldset>
@@ -60,29 +37,22 @@
     [Parameter] public DateTime SelectedDate { get; set; }
 
     FormModel Model { get; set; } = new();
-    bool _prefilled;
 
     protected override void OnParametersSet()
     {
-        if (_prefilled)
+        Model ??= new FormModel();
+
+        if (string.IsNullOrWhiteSpace(Model.WeightText) && InitialWeight is decimal weight)
         {
-            return;
+            Model.WeightText = weight.ToString("0.00", CultureInfo.CurrentCulture);
         }
 
-        var normalized = GetNormalizedTimestamp();
-        var weightText = InitialWeight.HasValue
-            ? InitialWeight.Value.ToString("0.00", CultureInfo.CurrentCulture)
-            : null;
-
-        Model = new FormModel
+        if (Model.Time is null)
         {
-            WeightText = weightText,
-            Hour = normalized.Hour,
-            Minute = normalized.Minute,
-            Second = normalized.Second
-        };
-
-        _prefilled = true;
+            var baseTimestamp = InitialTimestamp ?? SelectedDate;
+            var normalized = SelectedDate.Date.Add(baseTimestamp.TimeOfDay);
+            Model.Time = normalized;
+        }
     }
 
     Task OnValidSubmit(FormModel model)
@@ -93,12 +63,13 @@
             return Task.CompletedTask;
         }
 
-        if (!TryBuildTimestamp(model, out var timestamp))
+        if (model.Time is null)
         {
-            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Проверьте корректность времени");
+            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Укажите время");
             return Task.CompletedTask;
         }
 
+        var timestamp = SelectedDate.Date.Add(model.Time.Value.TimeOfDay);
         var rounded = Math.Round(weight, 2, MidpointRounding.AwayFromZero);
 
         DialogService.Close(new WeighingModels.WeighingInsertRequest(rounded, timestamp));
@@ -108,28 +79,6 @@
     void OnCancel()
     {
         DialogService.Close(null);
-    }
-
-    private bool TryBuildTimestamp(FormModel model, out DateTime timestamp)
-    {
-        timestamp = default;
-
-        if (model.Hour is not int hour || model.Minute is not int minute || model.Second is not int second)
-        {
-            return false;
-        }
-
-        if (hour is < 0 or > 23 || minute is < 0 or > 59 || second is < 0 or > 59)
-        {
-            return false;
-        }
-
-        timestamp = SelectedDate.Date
-            .AddHours(hour)
-            .AddMinutes(minute)
-            .AddSeconds(second);
-
-        return true;
     }
 
     static bool TryParseWeight(string? input, out decimal value)
@@ -169,42 +118,9 @@
         return false;
     }
 
-    DateTime GetNormalizedTimestamp()
-    {
-        var baseTimestamp = InitialTimestamp ?? SelectedDate;
-
-        if (baseTimestamp == default)
-        {
-            baseTimestamp = DateTime.Now;
-        }
-
-        if (SelectedDate == default)
-        {
-            return baseTimestamp;
-        }
-
-        var dayStart = SelectedDate.Date;
-        var dayEnd = dayStart.AddDays(1).AddTicks(-1);
-        var normalized = dayStart.Add(baseTimestamp.TimeOfDay);
-
-        if (normalized < dayStart)
-        {
-            return dayStart;
-        }
-
-        if (normalized > dayEnd)
-        {
-            return dayEnd;
-        }
-
-        return normalized;
-    }
-
     public sealed class FormModel
     {
         public string? WeightText { get; set; }
-        public int? Hour { get; set; }
-        public int? Minute { get; set; }
-        public int? Second { get; set; }
+        public DateTime? Time { get; set; }
     }
 }
