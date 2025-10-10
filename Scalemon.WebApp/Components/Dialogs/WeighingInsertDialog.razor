@@ -7,8 +7,7 @@
                 <RadzenLabel Text="Вес, кг" Component="Weight" />
                 <RadzenNumeric Name="Weight"
                                TValue="decimal?"
-                               @bind-Value="Model.Weight"
-                               Min="@(0.001m)" Max="@(1000m)" Step="@(0.01m)"
+                               @bind-Value="Model.Weight"                               
                                Style="width:100%" />
                 <RadzenRequiredValidator Component="Weight"
                                          Text="Укажите вес" Popup="false" />
