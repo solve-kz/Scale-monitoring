@@ -38,33 +38,21 @@
 
     FormModel Model { get; set; } = new();
 
-    bool _modelInitialized;
-    decimal? _lastInitialWeight;
-    DateTime? _lastInitialTimestamp;
-    DateTime _lastSelectedDate;
-
     protected override void OnParametersSet()
     {
-        var shouldReset = !_modelInitialized
-            || !Nullable.Equals(_lastInitialWeight, InitialWeight)
-            || !Nullable.Equals(_lastInitialTimestamp, InitialTimestamp)
-            || _lastSelectedDate != SelectedDate;
+        Model ??= new FormModel();
 
-        if (!shouldReset)
+        if (string.IsNullOrWhiteSpace(Model.WeightText) && InitialWeight is decimal weight)
         {
-            return;
+            Model.WeightText = weight.ToString("0.00", CultureInfo.CurrentCulture);
         }
 
-        _modelInitialized = true;
-        _lastInitialWeight = InitialWeight;
-        _lastInitialTimestamp = InitialTimestamp;
-        _lastSelectedDate = SelectedDate;
-
-        Model = new FormModel
+        if (Model.Time is null)
         {
-            WeightText = FormatWeight(InitialWeight),
-            Time = NormalizeTimestamp(InitialTimestamp, SelectedDate)
-        };
+            var baseTimestamp = InitialTimestamp ?? SelectedDate;
+            var normalized = SelectedDate.Date.Add(baseTimestamp.TimeOfDay);
+            Model.Time = normalized;
+        }
     }
 
     Task OnValidSubmit(FormModel model)
@@ -134,14 +122,5 @@
     {
         public string? WeightText { get; set; }
         public DateTime? Time { get; set; }
-    }
-
-    static string? FormatWeight(decimal? weight)
-        => weight.HasValue ? weight.Value.ToString("0.00", CultureInfo.CurrentCulture) : null;
-
-    static DateTime NormalizeTimestamp(DateTime? timestamp, DateTime selectedDate)
-    {
-        var baseTimestamp = timestamp ?? selectedDate;
-        return selectedDate.Date.Add(baseTimestamp.TimeOfDay);
     }
 }
