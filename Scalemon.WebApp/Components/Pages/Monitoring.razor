@@ -431,46 +431,41 @@
     async Task<WeighingInsertRequest?> OpenInsertDialogAsync(string action)
     {
         if (_selectedCell?.Timestamp is not DateTime baseTimestamp)
-        {
             return null;
-        }
 
+        // +1 сек — “ниже”, -1 сек — “выше”
         var offsetSeconds = action == "addAbove" ? -1 : 1;
         var defaultTimestamp = ClampToSelectedDay(baseTimestamp.AddSeconds(offsetSeconds));
 
-        var parameters = new Dictionary<string, object?>
+        var parms = new Dictionary<string, object?>
         {
-            [nameof(WeighingInsertDialog.InitialWeight)] = _selectedCell!.Weight,
-            [nameof(WeighingInsertDialog.InitialTimestamp)] = defaultTimestamp,
-            [nameof(WeighingInsertDialog.SelectedDate)] = SelectedDate
+            [nameof(WeighingInsertDialog.BaseDate)] = defaultTimestamp,          // дата И время
+            [nameof(WeighingInsertDialog.InitialWeight)] = _selectedCell!.Weight // начальный вес
         };
 
         var title = action == "addAbove" ? "Добавить выше" : "Добавить ниже";
-        var options = new DialogOptions
+        var opts = new DialogOptions
         {
-            Width = "420px",
+            Width = "520px",
             CloseDialogOnEsc = true,
             CloseDialogOnOverlayClick = true
         };
 
-        var result = await DialogService.OpenAsync<WeighingInsertDialog>(title, parameters, options);
-        return result is WeighingInsertRequest insert ? insert : null;
+        var res = await DialogService.OpenAsync<WeighingInsertDialog>(title, parms, opts);
+
+        if (res is WeighingInsertDialog.Result r)
+        {
+            return new WeighingInsertRequest(r.WeightKg, r.Timestamp);
+        }
+
+        return null;
 
         DateTime ClampToSelectedDay(DateTime value)
         {
             var dayStart = SelectedDate.Date;
             var dayEnd = dayStart.AddDays(1).AddTicks(-1);
-
-            if (value < dayStart)
-            {
-                return dayStart;
-            }
-
-            if (value > dayEnd)
-            {
-                return dayEnd;
-            }
-
+            if (value < dayStart) return dayStart;
+            if (value > dayEnd) return dayEnd;
             return value;
         }
     }

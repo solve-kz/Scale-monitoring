@@ -1,235 +1,114 @@
 @using System.Globalization
-@using Microsoft.AspNetCore.Components.Forms
-@using Scalemon.WebApp.Models
 @inject DialogService DialogService
-@inject NotificationService NotificationService
 
-<RadzenTemplateForm TItem="WeighingInsertDialog.FormModel"
-                    Data="@Model"
-                    Submit="@OnValidSubmit"
-                    @ref="_form">
-    <RadzenFieldset>
-        <RadzenStack Gap="12px">
-            <RadzenFormField Text="Вес, кг" HelpText="Введите вес с точностью до сотых">
-                <RadzenTextBox @bind-Value="Model.WeightText" Name="Weight" Style="width:100%" />
-                <RadzenRequiredValidator Component="Weight" Text="Укажите вес" />
-            </RadzenFormField>
+<RadzenTemplateForm TItem="FormModel" Data="@Model" Submit="@OnValidSubmit">
+    <ChildContent>
+        <div class="rz-p-4 rz-grid rz-gap-3" style="min-width:520px">
+            <div class="rz-col-12">
+                <RadzenLabel Text="Вес, кг" Component="Weight" />
+                <RadzenNumeric Name="Weight"
+                               TValue="decimal?"
+                               @bind-Value="Model.Weight"
+                               Min="0.001m" Max="1000m" Step="0.01m"
+                               Style="width:100%" />
+                <RadzenRequiredValidator Component="Weight"
+                                         Text="Укажите вес" Popup="false" />
+                <RadzenNumericRangeValidator Component="Weight"
+                                             Min="0.001" Max="1000"
+                                             Text="Вес должен быть в диапазоне 0,001…1000 кг"
+                                             Popup="false" />
+            </div>
 
-            <RadzenFormField Text="Время" HelpText="Укажите точное время фиксации">
-                <RadzenStack Orientation="Orientation.Horizontal" Gap="8px">
-                    <RadzenNumeric @bind-Value="Model.Hour"
-                                   @bind-Value:event="input"
-                                   TValue="int?"
-                                   Name="Hour"
-                                   Min="0"
-                                   Max="23"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Часы" />
-                    <RadzenNumeric @bind-Value="Model.Minute"
-                                   @bind-Value:event="input"
-                                   TValue="int?"
-                                   Name="Minute"
-                                   Min="0"
-                                   Max="59"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Минуты" />
-                    <RadzenNumeric @bind-Value="Model.Second"
-                                   @bind-Value:event="input"
-                                   TValue="int?"
-                                   Name="Second"
-                                   Min="0"
-                                   Max="59"
-                                   Step="1"
-                                   Style="width:100%"
-                                   Placeholder="Секунды" />
-                </RadzenStack>
-                <RadzenRequiredValidator Component="Hour" Text="Укажите часы" />
-                <RadzenRangeValidator Component="Hour" Min="0" Max="23" Text="Часы должны быть в диапазоне 0-23" />
-                <RadzenRequiredValidator Component="Minute" Text="Укажите минуты" />
-                <RadzenRangeValidator Component="Minute" Min="0" Max="59" Text="Минуты должны быть в диапазоне 0-59" />
-                <RadzenRequiredValidator Component="Second" Text="Укажите секунды" />
-                <RadzenRangeValidator Component="Second" Min="0" Max="59" Text="Секунды должны быть в диапазоне 0-59" />
-            </RadzenFormField>
-        </RadzenStack>
-    </RadzenFieldset>
+            <div class="rz-col-12">
+                <RadzenLabel Text="Время" />
+                <div class="rz-grid rz-gap-2" style="grid-template-columns: 90px 90px 90px">
+                    <div>
+                        <RadzenLabel Text="Часы" Component="Hour" />
+                        <RadzenNumeric Name="Hour"
+                                       TValue="int?"
+                                       @bind-Value="Model.Hour"
+                                       Min="0" Max="23" Style="width:100%" />
+                        <RadzenRequiredValidator Component="Hour"
+                                                 Text="Укажите часы" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Hour"
+                                                     Min="0" Max="23" Text="0…23" Popup="false" />
+                    </div>
+                    <div>
+                        <RadzenLabel Text="Минуты" Component="Minute" />
+                        <RadzenNumeric Name="Minute"
+                                       TValue="int?"
+                                       @bind-Value="Model.Minute"
+                                       Min="0" Max="59" Style="width:100%" />
+                        <RadzenRequiredValidator Component="Minute"
+                                                 Text="Укажите минуты" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Minute"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </div>
+                    <div>
+                        <RadzenLabel Text="Секунды" Component="Second" />
+                        <RadzenNumeric Name="Second"
+                                       TValue="int?"
+                                       @bind-Value="Model.Second"
+                                       Min="0" Max="59" Style="width:100%" />
+                        <RadzenRequiredValidator Component="Second"
+                                                 Text="Укажите секунды" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Second"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </div>
+                </div>
+            </div>
 
-    <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:16px">
-        <RadzenButton Text="ОК" Icon="check" ButtonStyle="ButtonStyle.Primary" ButtonType="ButtonType.Submit" />
-        <RadzenButton Text="Отмена" Icon="close" Click="@OnCancel" />
-    </RadzenStack>
+            <div class="rz-col-12 rz-flex rz-justify-end rz-gap-2 rz-mt-3">
+                <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Text="ОК" Submit="true" />
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Text="Отмена"
+                              Click="@(_ => DialogService.Close(null))" />
+            </div>
+        </div>
+    </ChildContent>
 </RadzenTemplateForm>
 
 @code {
-    [Parameter] public decimal? InitialWeight { get; set; }
-    [Parameter] public DateTime? InitialTimestamp { get; set; }
-    [Parameter] public DateTime SelectedDate { get; set; }
+    // Параметры, которые передаёт вызывающая страница
+    [Parameter] public DateTime? BaseDate { get; set; }     // дата строки реестра
+    [Parameter] public decimal? InitialWeight { get; set; } // можно null
 
-    RadzenTemplateForm<FormModel>? _form;
-    FormModel Model { get; set; } = new();
-    bool _prefilled;
+    // Возвращаемое значение из диалога
+    public sealed record Result(decimal WeightKg, DateTime Timestamp);
+
+    // Модель формы НЕ пересоздаём — только меняем свойства
+    private readonly FormModel Model = new();
+    private bool _initialized;
 
     protected override void OnParametersSet()
     {
-        if (_prefilled)
-        {
-            return;
-        }
+        if (_initialized) return;
 
-        var normalized = GetNormalizedTimestamp();
-        var weightText = InitialWeight.HasValue
-            ? InitialWeight.Value.ToString("0.00", CultureInfo.CurrentCulture)
-            : null;
+        var date = (BaseDate ?? DateTime.Today).Date;
+        var timeSeed = BaseDate.HasValue && BaseDate.Value.TimeOfDay != TimeSpan.Zero
+            ? BaseDate.Value
+            : DateTime.Now;
 
-        Model = new FormModel
-        {
-            WeightText = weightText,
-            Hour = normalized.Hour,
-            Minute = normalized.Minute,
-            Second = normalized.Second
-        };
+        Model.Weight = InitialWeight;
+        Model.Hour = timeSeed.Hour;
+        Model.Minute = timeSeed.Minute;
+        Model.Second = timeSeed.Second;
 
-        _prefilled = true;
+        _initialized = true;
     }
 
-    Task OnValidSubmit(FormModel model)
+    private void OnValidSubmit(FormModel _)
     {
-        if (!TryParseWeight(model.WeightText, out var weight))
-        {
-            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Не удалось распознать вес. Используйте формат 12,34");
-            return Task.CompletedTask;
-        }
+        // Валидаторы уже гарантируют непустые и корректные значения
+        var d = (BaseDate ?? DateTime.Today).Date;
+        var ts = new DateTime(d.Year, d.Month, d.Day,
+                              Model.Hour!.Value, Model.Minute!.Value, Model.Second!.Value);
 
-        if (!TryBuildTimestamp(model, out var timestamp))
-        {
-            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Проверьте корректность времени");
-            return Task.CompletedTask;
-        }
-
-        var rounded = Math.Round(weight, 2, MidpointRounding.AwayFromZero);
-
-        DialogService.Close(new WeighingModels.WeighingInsertRequest(rounded, timestamp));
-        return Task.CompletedTask;
-    }
-
-    void OnCancel()
-    {
-        DialogService.Close(null);
-    }
-
-    void OnHourChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Hour), v => Model.Hour = v);
-
-    void OnMinuteChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Minute), v => Model.Minute = v);
-
-    void OnSecondChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Second), v => Model.Second = v);
-
-    void UpdateTimePart(int? value, string fieldName, Action<int?> setter)
-    {
-        setter(value);
-
-        if (_form?.EditContext is null)
-        {
-            return;
-        }
-
-        var field = new FieldIdentifier(Model, fieldName);
-        _form.EditContext.NotifyFieldChanged(field);
-    }
-
-    private bool TryBuildTimestamp(FormModel model, out DateTime timestamp)
-    {
-        timestamp = default;
-
-        if (model.Hour is not int hour || model.Minute is not int minute || model.Second is not int second)
-        {
-            return false;
-        }
-
-        if (hour is < 0 or > 23 || minute is < 0 or > 59 || second is < 0 or > 59)
-        {
-            return false;
-        }
-
-        timestamp = SelectedDate.Date
-            .AddHours(hour)
-            .AddMinutes(minute)
-            .AddSeconds(second);
-
-        return true;
-    }
-
-    static bool TryParseWeight(string? input, out decimal value)
-    {
-        value = 0m;
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return false;
-        }
-
-        var trimmed = input.Trim();
-        var sanitized = trimmed.Replace(" ", string.Empty);
-
-        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.CurrentCulture, out value))
-        {
-            return true;
-        }
-
-        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
-        {
-            return true;
-        }
-
-        var normalized = sanitized.Replace(',', '.');
-        if (decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
-        {
-            return true;
-        }
-
-        normalized = sanitized.Replace('.', ',');
-        var ruCulture = CultureInfo.GetCultureInfo("ru-RU");
-        if (decimal.TryParse(normalized, NumberStyles.Number, ruCulture, out value))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    DateTime GetNormalizedTimestamp()
-    {
-        var baseTimestamp = InitialTimestamp ?? SelectedDate;
-
-        if (baseTimestamp == default)
-        {
-            baseTimestamp = DateTime.Now;
-        }
-
-        if (SelectedDate == default)
-        {
-            return baseTimestamp;
-        }
-
-        var dayStart = SelectedDate.Date;
-        var dayEnd = dayStart.AddDays(1).AddTicks(-1);
-        var normalized = dayStart.Add(baseTimestamp.TimeOfDay);
-
-        if (normalized < dayStart)
-        {
-            return dayStart;
-        }
-
-        if (normalized > dayEnd)
-        {
-            return dayEnd;
-        }
-
-        return normalized;
+        DialogService.Close(new Result(Model.Weight!.Value, ts));
     }
 
     public sealed class FormModel
     {
-        public string? WeightText { get; set; }
+        public decimal? Weight { get; set; }
         public int? Hour { get; set; }
         public int? Minute { get; set; }
         public int? Second { get; set; }
