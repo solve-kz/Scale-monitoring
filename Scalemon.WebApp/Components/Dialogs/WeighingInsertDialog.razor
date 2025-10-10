@@ -5,56 +5,61 @@
 
 <RadzenTemplateForm TItem="FormModel" Data="@Model" Submit="@OnValidSubmit">
     <ChildContent>
-        <div class="rz-p-4 rz-grid rz-gap-3" style="min-width:520px">
-            <div class="rz-col-12">
-                <RadzenLabel Text="Вес, кг" Component="Weight" />
-                <RadzenNumeric Name="Weight"
-               TValue="decimal?"
-               @bind-Value="Model.Weight"
-               Culture="@CultureInfo.CurrentCulture"
-                               Min=@((decimal)0.02)
-                               Max=@((decimal)100)
-                               Step="0.01"
-                               Style="width:100%" />
-                <RadzenRequiredValidator Component="Weight"
-                         Text="Укажите вес" Popup="false" />
-               <RadzenNumericRangeValidator Component="Weight"
-                             Min="0.02" Max="100"
-                             Text="Вес должен быть в диапазоне 0,02…100 кг"
-                             Popup="false" />
-            </div>
+        <div class="rz-p-4 rz-flex rz-flex-column rz-gap-3" style="min-width:520px">
+            <div class="rz-flex rz-gap-3 rz-align-end">
+                <div class="rz-flex rz-flex-column rz-gap-1" style="min-width:180px">
+                    <RadzenLabel Text="Вес, кг" Component="Weight" />
+                    <RadzenNumeric Name="Weight"
+                                   TValue="decimal?"
+                                   @bind-Value="Model.Weight"
+                                   Culture="@CultureInfo.CurrentCulture"
+                                   Min=@((decimal)0.02)
+                                   Max=@((decimal)100)
+                                   Step="0.01"
+                                   Style="width:100%" />
+                    <RadzenRequiredValidator Component="Weight"
+                                             Text="Укажите вес" Popup="false" />
+                    <RadzenNumericRangeValidator Component="Weight"
+                                                 Min="0.02" Max="100"
+                                                 Text="Вес должен быть в диапазоне 0,02…100 кг"
+                                                 Popup="false" />
+                </div>
 
-            <div class="rz-col-12">
-                <RadzenLabel Text="Время" />
-                <div class="rz-grid rz-gap-2" style="grid-template-columns: 90px 90px 90px">
-                    <div>
-                        <RadzenLabel Text="Часы" Component="Hour" />
-                        <RadzenNumeric Name="Hour"
-                                       TValue="int?"
-                                       @bind-Value="Model.Hour"
-                                       Min="0" Max="23" Style="width:100%" />
+                <div class="rz-flex rz-gap-2 rz-align-end">
+                    <div class="rz-flex rz-flex-column rz-gap-1" style="min-width:90px">
+                        <div class="rz-flex rz-align-center">
+                            <RadzenNumeric Name="Hour"
+                                           TValue="int?"
+                                           @bind-Value="Model.Hour"
+                                           Min="0" Max="23" Style="width:100%" />
+                            <RadzenLabel Text="ч" Component="Hour" Class="rz-ml-2" />
+                        </div>
                         <RadzenRequiredValidator Component="Hour"
                                                  Text="Укажите часы" Popup="false" />
                         <RadzenNumericRangeValidator Component="Hour"
                                                      Min="0" Max="23" Text="0…23" Popup="false" />
                     </div>
-                    <div>
-                        <RadzenLabel Text="Минуты" Component="Minute" />
-                        <RadzenNumeric Name="Minute"
-                                       TValue="int?"
-                                       @bind-Value="Model.Minute"
-                                       Min="0" Max="59" Style="width:100%" />
+                    <div class="rz-flex rz-flex-column rz-gap-1" style="min-width:90px">
+                        <div class="rz-flex rz-align-center">
+                            <RadzenNumeric Name="Minute"
+                                           TValue="int?"
+                                           @bind-Value="Model.Minute"
+                                           Min="0" Max="59" Style="width:100%" />
+                            <RadzenLabel Text="м" Component="Minute" Class="rz-ml-2" />
+                        </div>
                         <RadzenRequiredValidator Component="Minute"
                                                  Text="Укажите минуты" Popup="false" />
                         <RadzenNumericRangeValidator Component="Minute"
                                                      Min="0" Max="59" Text="0…59" Popup="false" />
                     </div>
-                    <div>
-                        <RadzenLabel Text="Секунды" Component="Second" />
-                        <RadzenNumeric Name="Second"
-                                       TValue="int?"
-                                       @bind-Value="Model.Second"
-                                       Min="0" Max="59" Style="width:100%" />
+                    <div class="rz-flex rz-flex-column rz-gap-1" style="min-width:90px">
+                        <div class="rz-flex rz-align-center">
+                            <RadzenNumeric Name="Second"
+                                           TValue="int?"
+                                           @bind-Value="Model.Second"
+                                           Min="0" Max="59" Style="width:100%" />
+                            <RadzenLabel Text="с" Component="Second" Class="rz-ml-2" />
+                        </div>
                         <RadzenRequiredValidator Component="Second"
                                                  Text="Укажите секунды" Popup="false" />
                         <RadzenNumericRangeValidator Component="Second"
@@ -63,7 +68,7 @@
                 </div>
             </div>
 
-            <div class="rz-col-12 rz-flex rz-justify-end rz-gap-2 rz-mt-3">
+            <div class="rz-flex rz-justify-end rz-gap-2 rz-mt-3">
                 <RadzenButton ButtonStyle="ButtonStyle.Primary"
                               Icon="check"
                               Text="ОК"
