@@ -458,6 +458,14 @@
             return new WeighingInsertRequest(r.WeightKg, r.Timestamp);
         }
 
+        if (res is Radzen.DialogResult dialogResult && dialogResult.Result == true)
+        {
+            if (dialogResult.Data is WeighingInsertDialog.Result wrapped)
+            {
+                return new WeighingInsertRequest(wrapped.WeightKg, wrapped.Timestamp);
+            }
+        }
+
         return null;
 
         DateTime ClampToSelectedDay(DateTime value)
