@@ -17,5 +17,7 @@
         public sealed record GridRowVm(int No, GridRow Row);
 
         public sealed record DaySummary(int Count, decimal Sum, decimal? Min, decimal? Max, decimal? Avg);
+
+        public sealed record WeighingInsertRequest(decimal Weight, DateTime Timestamp);
     }
 }

@@ -1,15 +1,18 @@
 ﻿@page "/monitoring"
 @attribute [Authorize]
+@using System.Collections.Generic
 @using System.Globalization
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
 @using static Scalemon.WebApp.Models.WeighingModels
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using Scalemon.WebApp.Components.Dialogs
 @inject ProtectedLocalStorage PLS
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
 @inject ISettingsSource SettingsSource
+@inject DialogService DialogService
 
 <RadzenRow>   
 
@@ -425,6 +428,53 @@
         await PLS.SetAsync(ReturnKey, ticket);
     }
     
+    async Task<WeighingInsertRequest?> OpenInsertDialogAsync(string action)
+    {
+        if (_selectedCell?.Timestamp is not DateTime baseTimestamp)
+        {
+            return null;
+        }
+
+        var offsetSeconds = action == "addAbove" ? -1 : 1;
+        var defaultTimestamp = ClampToSelectedDay(baseTimestamp.AddSeconds(offsetSeconds));
+
+        var parameters = new Dictionary<string, object?>
+        {
+            [nameof(WeighingInsertDialog.InitialWeight)] = _selectedCell!.Weight,
+            [nameof(WeighingInsertDialog.InitialTimestamp)] = defaultTimestamp,
+            [nameof(WeighingInsertDialog.SelectedDate)] = SelectedDate
+        };
+
+        var title = action == "addAbove" ? "Добавить выше" : "Добавить ниже";
+        var options = new DialogOptions
+        {
+            Width = "420px",
+            CloseDialogOnEsc = true,
+            CloseDialogOnOverlayClick = true
+        };
+
+        var result = await DialogService.OpenAsync<WeighingInsertDialog>(title, parameters, options);
+        return result is WeighingInsertRequest insert ? insert : null;
+
+        DateTime ClampToSelectedDay(DateTime value)
+        {
+            var dayStart = SelectedDate.Date;
+            var dayEnd = dayStart.AddDays(1).AddTicks(-1);
+
+            if (value < dayStart)
+            {
+                return dayStart;
+            }
+
+            if (value > dayEnd)
+            {
+                return dayEnd;
+            }
+
+            return value;
+        }
+    }
+
     async Task OnActionFromGrid(string action)
     {
         if (_selectedCell?.HasValue != true) return;
@@ -432,17 +482,51 @@
 
         var userName = CurrentUser?.Identity?.Name;
 
+        var shouldReload = false;
+
         switch (action)
         {
-            case "inc":      await Data.AdjustAsync(id, +Step, userName); break;
-            case "dec":      await Data.AdjustAsync(id, -Step, userName); break;
-            case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0, userName); break;
-            case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0, userName); break;
-            case "delete":   await Data.DeleteAsync(id, userName); break;
-            case "logs": await SaveReturnTicketAsync(); Nav.NavigateTo("/logs?from=mon"); return;
+            case "inc":
+                await Data.AdjustAsync(id, +Step, userName);
+                shouldReload = true;
+                break;
+            case "dec":
+                await Data.AdjustAsync(id, -Step, userName);
+                shouldReload = true;
+                break;
+            case "addAbove":
+            case "addBelow":
+                var insertRequest = await OpenInsertDialogAsync(action);
+                if (insertRequest is null)
+                {
+                    return;
+                }
+
+                if (action == "addAbove")
+                {
+                    await Data.InsertAboveAsync(id, insertRequest.Weight, insertRequest.Timestamp, userName);
+                }
+                else
+                {
+                    await Data.InsertBelowAsync(id, insertRequest.Weight, insertRequest.Timestamp, userName);
+                }
+
+                shouldReload = true;
+                break;
+            case "delete":
+                await Data.DeleteAsync(id, userName);
+                shouldReload = true;
+                break;
+            case "logs":
+                await SaveReturnTicketAsync();
+                Nav.NavigateTo("/logs?from=mon");
+                return;
         }
 
-        await LoadPage(_pageIndex);
+        if (shouldReload)
+        {
+            await LoadPage(_pageIndex);
+        }
     }
 
     Task OnActionFromDetails(string action) => OnActionFromGrid(action);
