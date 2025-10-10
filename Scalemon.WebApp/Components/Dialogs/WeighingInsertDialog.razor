@@ -8,12 +8,12 @@
                 <RadzenNumeric Name="Weight"
                                TValue="decimal?"
                                @bind-Value="Model.Weight"
-                               Min="@WeightMinString" Max="@WeightMaxString" Step="@WeightStepString"
+                               Min="@(0.001m)" Max="@(1000m)" Step="@(0.01m)"
                                Style="width:100%" />
                 <RadzenRequiredValidator Component="Weight"
                                          Text="Укажите вес" Popup="false" />
                 <RadzenNumericRangeValidator Component="Weight"
-                                             Min="@WeightMinString" Max="@WeightMaxString"
+                                             Min="@(0.001m)" Max="@(1000m)"
                                              Text="Вес должен быть в диапазоне 0,001…1000 кг"
                                              Popup="false" />
             </div>
