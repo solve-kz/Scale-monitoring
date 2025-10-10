@@ -64,7 +64,10 @@
             </div>
 
             <div class="rz-col-12 rz-flex rz-justify-end rz-gap-2 rz-mt-3">
-                <RadzenButton ButtonStyle="ButtonStyle.Primary" Icon="check" Text="ОК" Submit="true" />
+                <RadzenButton ButtonStyle="ButtonStyle.Primary"
+                              Icon="check"
+                              Text="ОК"
+                              ButtonType="ButtonType.Submit" />
                 <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Text="Отмена"
                               Click="@(_ => DialogService.Close(null))" />
             </div>
