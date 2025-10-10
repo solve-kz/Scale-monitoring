@@ -49,8 +49,8 @@
                 {
                     <RadzenChart Style="min-height:320px; width:100%;">
                         <RadzenChartTooltip />
-                        <RadzenCategoryAxis LabelsRotation="45" />
-                        <RadzenValueAxis LabelFormatString="{0}" Min="0" />
+                        <RadzenCategoryAxis Step="4" LabelAutoRotation="-45" />
+                        <RadzenValueAxis Min="0" />
                         <RadzenColumnSeries Data="@_chartData"
                                              CategoryProperty="Interval"
                                              ValueProperty="Count"
