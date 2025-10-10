@@ -1,20 +1,261 @@
-﻿@page "/statistics"
+@page "/statistics"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@implements IDisposable
+@using System.Linq
+@using Radzen
+@using Radzen.Blazor
+@using Scalemon.WebApp.Data
+@using Microsoft.Extensions.Logging
+@using Scalemon.WebApp.Models
+@inject IWeighingDataService WeighingDataService
+@inject ILogger<Statistics> Logger
 
 <PageTitle>Статистика</PageTitle>
 
-<h1>Counter</h1>
+<RadzenCard class="rz-p-4 rz-w-100" Style="width:100%;">
+    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" class="rz-w-100">
+        <RadzenText Text="Скорость взвешиваний" TextStyle="TextStyle.H6" />
 
-<p role="status">Current count: @currentCount</p>
+        <RadzenRow class="rz-w-100" Style="align-items:stretch;">
+            <RadzenColumn Size="12" SizeLG="8" Style="display:flex; flex-direction:column;">
+                <RadzenText TextStyle="TextStyle.Subtitle2">
+                    @if (_hasDateSelection && _selectedDate != default)
+                    {
+                        <text>Данные за @_selectedDate:dd.MM.yyyy — @_totalWeighings взвешиваний</text>
+                    }
+                    else
+                    {
+                        <text>Выберите дату для отображения статистики</text>
+                    }
+                </RadzenText>
 
-<button class="btn btn-primary" @onclick="IncrementCount">Click me</button>
+                @if (!string.IsNullOrWhiteSpace(_chartError))
+                {
+                    <div class="rz-text-danger rz-mb-2">@_chartError</div>
+                }
+
+                @if (!_hasDateSelection)
+                {
+                    <div class="rz-text-align-center rz-py-4">Выберите дату в календаре справа.</div>
+                }
+                else if (_isChartLoading)
+                {
+                    <div class="rz-text-align-center rz-py-4">
+                        <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width:100%; max-width:240px;" />
+                    </div>
+                }
+                else
+                {
+                    <RadzenChart Style="min-height:320px; width:100%;">
+                        <RadzenChartTooltip />
+                        <RadzenCategoryAxis LabelsRotation="45" />
+                        <RadzenValueAxis LabelFormatString="{0}" Min="0" />
+                        <RadzenColumnSeries Data="@_chartData"
+                                             CategoryProperty="Interval"
+                                             ValueProperty="Count"
+                                             Title="Количество взвешиваний" />
+                    </RadzenChart>
+                }
+            </RadzenColumn>
+
+            <RadzenColumn Size="12" SizeLG="4" Style="display:flex; justify-content:center;">
+                <div class="rz-w-100" style="max-width:360px;">
+                    @if (!string.IsNullOrWhiteSpace(_calendarError))
+                    {
+                        <div class="rz-text-danger rz-mb-2">@_calendarError</div>
+                    }
+
+                    @if (_isCalendarLoading)
+                    {
+                        <div class="rz-text-align-center rz-pb-3">
+                            <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width:100%; max-width:240px;" />
+                        </div>
+                    }
+
+                    <CalendarWithMarks SelectedDate="@_selectedDate"
+                                       SelectedDateChanged="@OnDateSelectedAsync"
+                                       MarkedDays="@_markedDays"
+                                       MonthChanged="@OnMonthChangedAsync"
+                                       ClearSelection="@OnCalendarClearedAsync" />
+                </div>
+            </RadzenColumn>
+        </RadzenRow>
+    </RadzenStack>
+</RadzenCard>
 
 @code {
-    private int currentCount = 0;
+    private static readonly TimeSpan ChartStart = TimeSpan.FromHours(8);
+    private static readonly TimeSpan ChartEnd = TimeSpan.FromHours(20);
+    private const int IntervalMinutes = 30;
+    private const int IntervalCount = 24;
 
-    private void IncrementCount()
+    private readonly CancellationTokenSource _cts = new();
+    private bool _disposed;
+
+    private DateTime _selectedDate = DateTime.Today;
+    private HashSet<DateOnly> _markedDays = new();
+    private IReadOnlyList<WeighingRatePoint> _chartData = CreateEmptyChartData();
+    private bool _isChartLoading;
+    private bool _isCalendarLoading;
+    private bool _hasDateSelection = true;
+    private string? _chartError;
+    private string? _calendarError;
+    private int _totalWeighings;
+
+    private sealed record WeighingRatePoint(string Interval, int Count);
+
+    protected override async Task OnInitializedAsync()
     {
-        currentCount++;
+        await LoadMonthMarksAsync(_selectedDate.Year, _selectedDate.Month);
+        await LoadChartDataAsync(_selectedDate);
+    }
+
+    private async Task OnMonthChangedAsync((int Year, int Month) arg)
+    {
+        await LoadMonthMarksAsync(arg.Year, arg.Month);
+    }
+
+    private async Task OnDateSelectedAsync(DateTime date)
+    {
+        _selectedDate = date.Date;
+        _hasDateSelection = true;
+        await LoadChartDataAsync(_selectedDate);
+    }
+
+    private Task OnCalendarClearedAsync()
+    {
+        _hasDateSelection = false;
+        _chartError = null;
+        _chartData = CreateEmptyChartData();
+        _totalWeighings = 0;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadMonthMarksAsync(int year, int month)
+    {
+        _isCalendarLoading = true;
+        _calendarError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var stats = await WeighingDataService.GetMonthStatsAsync(year, month, _cts.Token);
+            _markedDays = stats.Keys.ToHashSet();
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Не удалось загрузить статистику календаря за {Year}-{Month}", year, month);
+            _calendarError = "Не удалось загрузить статистику календаря.";
+            _markedDays = new HashSet<DateOnly>();
+        }
+        finally
+        {
+            _isCalendarLoading = false;
+            if (!_disposed)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task LoadChartDataAsync(DateTime date)
+    {
+        _isChartLoading = true;
+        _chartError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var weighings = await WeighingDataService.GetDayAllAsync(DateOnly.FromDateTime(date), _cts.Token);
+            _chartData = BuildChartData(weighings);
+            _totalWeighings = _chartData.Sum(p => p.Count);
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Не удалось загрузить данные взвешиваний за {Date}", date);
+            _chartError = "Не удалось загрузить данные за выбранную дату.";
+            _chartData = CreateEmptyChartData();
+            _totalWeighings = 0;
+        }
+        finally
+        {
+            _isChartLoading = false;
+            if (!_disposed)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private static IReadOnlyList<WeighingRatePoint> CreateEmptyChartData()
+    {
+        var items = new List<WeighingRatePoint>(IntervalCount);
+        for (var i = 0; i < IntervalCount; i++)
+        {
+            var start = ChartStart + TimeSpan.FromMinutes(IntervalMinutes * i);
+            items.Add(new WeighingRatePoint(FormatIntervalLabel(start), 0));
+        }
+
+        return items;
+    }
+
+    private static IReadOnlyList<WeighingRatePoint> BuildChartData(IEnumerable<WeighingModels.Weighing> weighings)
+    {
+        var buckets = new int[IntervalCount];
+
+        foreach (var weighing in weighings)
+        {
+            var time = weighing.Timestamp.TimeOfDay;
+            if (time < ChartStart || time >= ChartEnd)
+            {
+                continue;
+            }
+
+            var minutes = (int)Math.Floor((time - ChartStart).TotalMinutes);
+            var index = minutes / IntervalMinutes;
+            if (index >= 0 && index < IntervalCount)
+            {
+                buckets[index]++;
+            }
+        }
+
+        var items = new List<WeighingRatePoint>(IntervalCount);
+        for (var i = 0; i < IntervalCount; i++)
+        {
+            var start = ChartStart + TimeSpan.FromMinutes(IntervalMinutes * i);
+            items.Add(new WeighingRatePoint(FormatIntervalLabel(start), buckets[i]));
+        }
+
+        return items;
+    }
+
+    private static string FormatIntervalLabel(TimeSpan start)
+    {
+        var end = start + TimeSpan.FromMinutes(IntervalMinutes);
+        return $"{FormatTime(start)}-{FormatTime(end)}";
+    }
+
+    private static string FormatTime(TimeSpan time)
+        => DateTime.Today.Add(time).ToString("HH:mm");
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }
