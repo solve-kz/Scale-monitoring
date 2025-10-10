@@ -453,12 +453,7 @@
 
         var res = await DialogService.OpenAsync<WeighingInsertDialog>(title, parms, opts);
 
-        if (res is WeighingInsertDialog.Result r)
-        {
-            return new WeighingInsertRequest(r.WeightKg, r.Timestamp);
-        }
-
-        return null;
+        return res as WeighingInsertRequest;
 
         DateTime ClampToSelectedDay(DateTime value)
         {
