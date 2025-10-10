@@ -1,5 +1,7 @@
-﻿// wwwroot/auth.js
-window.scalemon = {
+// wwwroot/auth.js
+window.scalemon = window.scalemon || {};
+
+Object.assign(window.scalemon, {
     login: async function (username, password) {
         const r = await fetch('/api/auth/login', {
             method: 'POST',
@@ -16,5 +18,4 @@ window.scalemon = {
         });
         return response.ok;
     }
-};
-
+});
