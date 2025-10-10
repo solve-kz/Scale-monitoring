@@ -11,15 +11,15 @@
                                TValue="decimal?"
                                @bind-Value="Model.Weight"
                                @bind-Value:format="@WeightFormat"
-                               Min="@WeightMinText"
-                               Max="@WeightMaxText"
+                               Min="@WeightMin"
+                               Max="@WeightMax"
                                Step="@WeightStepText"
                                Style="width:100%" />
                 <RadzenRequiredValidator Component="Weight"
                                          Text="Укажите вес" Popup="false" />
                 <RadzenNumericRangeValidator Component="Weight"
                                              Min="@WeightMinText" Max="@WeightMaxText"
-                                             Text="Вес должен быть в диапазоне 0,001…1000 кг"
+                                             Text="Вес должен быть в диапазоне 0,02…100 кг"
                                              Popup="false" />
             </div>
 
@@ -120,12 +120,12 @@
         public int? Second { get; set; }
     }
 
-    private const decimal WeightMin = 0.001m;
-    private const decimal WeightMax = 1000m;
-    private const decimal WeightStep = 0.001m;
+    private const decimal WeightMin = 0.02m;
+    private const decimal WeightMax = 100m;
+    private const decimal WeightStep = 0.02m;
     private static readonly string WeightMinText = WeightMin.ToString(CultureInfo.InvariantCulture);
     private static readonly string WeightMaxText = WeightMax.ToString(CultureInfo.InvariantCulture);
     private static readonly string WeightStepText = WeightStep.ToString(CultureInfo.InvariantCulture);
-    private const string WeightFormat = "0.000";
-    private const int WeightPrecisionDigits = 3;
+    private const string WeightFormat = "0.00";
+    private const int WeightPrecisionDigits = 2;
 }
