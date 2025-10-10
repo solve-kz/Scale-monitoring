@@ -17,14 +17,14 @@
                                    TValue="decimal?"
                                    @bind-Value="Model.Weight"
                                    Culture="@CultureInfo.CurrentCulture"
-                                   Min=@(double)WeightMin
-                                   Max=@(double)WeightMax
-                                   Step=@(double)WeightStep
+                                   Min=@((decimal)0.02)
+                                   Max=@((decimal)100)
+                                   Step="0.02"
                                    class="rz-w-100" />
                     <RadzenRequiredValidator Component="Weight"
                                              Text="Укажите вес" Popup="false" />
                     <RadzenNumericRangeValidator Component="Weight"
-                                                 Min="@WeightMinText" Max="@WeightMaxText"
+                                                 Min="0.02" Max="100"
                                                  Text="Вес должен быть в диапазоне 0,02…100 кг"
                                                  Popup="false" />
                 </RadzenStack>
