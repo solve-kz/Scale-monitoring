@@ -14,6 +14,7 @@
             <RadzenFormField Text="Время" HelpText="Укажите точное время фиксации">
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="8px">
                     <RadzenNumeric @bind-Value="Model.Hour"
+                                   @bind-Value:event="input"
                                    TValue="int?"
                                    Name="Hour"
                                    Min="0"
@@ -22,6 +23,7 @@
                                    Style="width:100%"
                                    Placeholder="Часы" />
                     <RadzenNumeric @bind-Value="Model.Minute"
+                                   @bind-Value:event="input"
                                    TValue="int?"
                                    Name="Minute"
                                    Min="0"
@@ -30,6 +32,7 @@
                                    Style="width:100%"
                                    Placeholder="Минуты" />
                     <RadzenNumeric @bind-Value="Model.Second"
+                                   @bind-Value:event="input"
                                    TValue="int?"
                                    Name="Second"
                                    Min="0"
