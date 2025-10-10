@@ -1,4 +1,5 @@
 ﻿@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.Generic
 @inject NavigationManager Nav
 @inject ContextMenuService ContextMenu
 @inject NotificationService NotificationService
@@ -201,16 +202,13 @@ else
         var cell = GetCell(args.Data.Row, colIndex);
         if (cell is not null && cell.HasValue)
         {
-            args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
-                                     + "cursor:pointer;"; // или "cursor:crosshair;", "cursor:default;" и т.п.
+            AppendStyle(args.Attributes, "cursor:pointer;"); // или "cursor:crosshair;", "cursor:default;" и т.п.
         }
         // сравниваем с GridRowVm.No
         if (_selectedCellPos is { } pos && pos.Row == args.Data.No && pos.Col == colIndex)
         {
-            // если стиль уже есть, добавляем к нему
-            var style = args.Attributes.ContainsKey("style") ? args.Attributes["style"] + ";" : "";
-            style += "background-color:#ffe0b2;"; // мягкий оранжевый фон
-            args.Attributes["style"] = style;
+            AppendStyle(args.Attributes,
+                "background-color: var(--rz-warning-lighter); color: var(--rz-warning-contrast);");
         }
 
     }
@@ -284,6 +282,18 @@ else
         int row = (idx % 40) + 1;     // 1..40 (GridRowVm.No)
         _selectedCellPos = (row, col);
         return InvokeAsync(StateHasChanged);
+    }
+
+    static void AppendStyle(IDictionary<string, object> attributes, string style)
+    {
+        if (attributes.TryGetValue("style", out var existing) && existing is string existingStyle && !string.IsNullOrWhiteSpace(existingStyle))
+        {
+            attributes["style"] = existingStyle.EndsWith(';') ? existingStyle + style : existingStyle + ";" + style;
+        }
+        else
+        {
+            attributes["style"] = style;
+        }
     }
 
 }
