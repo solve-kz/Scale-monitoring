@@ -53,9 +53,9 @@
   </RadzenStack>
 </RadzenStack>
 
-<div style="display:none">
+<RadzenStack Visible="false">
     <InputFile @ref="_importInput" Multiple OnChange="OnImportFilesSelected" />
-</div>
+</RadzenStack>
 
 <RadzenSplitter Style="height: calc(100vh - 210px); min-height:480px" 
                 Resize="@OnSplitterResize">
@@ -64,7 +64,7 @@
     <RadzenSplitterPane Size="@($"{LeftPaneSize.ToString(CultureInfo.InvariantCulture)}%")"
                         Min="25%"
                         Collapsible="false">
-                        <div style="height: 100%; overflow: auto;">
+        <RadzenStack Orientation="Orientation.Vertical" Style="height:100%;overflow:auto;">
         <!-- DataGrid как был -->
         <RadzenDataGrid TItem="ApiLogEntry"
                         Data="@Rows"
@@ -80,46 +80,61 @@
                 <RadzenDataGridColumn TItem="ApiLogEntry" Property="Timestamp" Title="Время" Width="190px" FormatString="{0:yyyy-MM-dd HH:mm:ss.fff}" />
                 <RadzenDataGridColumn TItem="ApiLogEntry" Title="Уровень" Width="110px">
                     <Template Context="row">
-                        <RadzenBadge Text="@row.Level" Style="@GetLevelStyle(row.Level)" />
+                        <RadzenBadge Text="@row.Level" Class="@GetLevelBadgeClass(row.Level)" />
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="ApiLogEntry" Property="Source" Title="Источник" Width="200px" />
                 <RadzenDataGridColumn TItem="ApiLogEntry" Property="Message" Title="Сообщение" />
             </Columns>
         </RadzenDataGrid>
-        </div>
+        </RadzenStack>
     </RadzenSplitterPane>
 
     <!-- ПРАВАЯ панель: НЕ указываем Size, только минимальную ширину -->
     <RadzenSplitterPane Min="280px"
                         Collapsible="false">
-                        <div style="height: 100%; overflow: auto;">
+        <RadzenStack Orientation="Orientation.Vertical" Style="height:100%;overflow:auto;">
         <RadzenCard Style="height:100%">
             @if (selected is null)
             {
-                <div class="rz-p-2 rz-text-secondary">Выберите запись в таблице.</div>
+                <RadzenStack Orientation="Orientation.Vertical" Class="rz-p-2 rz-text-secondary">
+                    <RadzenText Text="Выберите запись в таблице." />
+                </RadzenStack>
             }
             else
             {
-                <RadzenFieldset Text="Основное" Style="margin-bottom:8px">
-                    <div class="rz-p-2">
-                        <div><b>Время:</b> @selected.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")</div>
-                        <div><b>Уровень:</b> <RadzenBadge Text="@selected.Level" Style="@GetLevelStyle(selected.Level)" /></div>
-                        <div><b>Источник:</b> @selected.Source</div>
-                    </div>
+                <RadzenFieldset Text="Основное" Class="log-section">
+                    <RadzenStack Orientation="Orientation.Vertical" Class="rz-p-2" Gap="6px">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="6px" AlignItems="AlignItems.Center">
+                            <RadzenLabel Class="log-caption" Text="Время:" />
+                            <RadzenLabel Text="@selected.Timestamp.ToString(\"yyyy-MM-dd HH:mm:ss.fff\")" />
+                        </RadzenStack>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="6px" AlignItems="AlignItems.Center">
+                            <RadzenLabel Class="log-caption" Text="Уровень:" />
+                            <RadzenBadge Text="@selected.Level" Class="@GetLevelBadgeClass(selected.Level)" />
+                        </RadzenStack>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="6px" AlignItems="AlignItems.Center">
+                            <RadzenLabel Class="log-caption" Text="Источник:" />
+                            <RadzenLabel Text="@selected.Source" />
+                        </RadzenStack>
+                    </RadzenStack>
                 </RadzenFieldset>
-                <RadzenFieldset Text="Сообщение" Collapsible="true" Expanded="true" Style="margin-bottom:8px">
-                    <div class="rz-p-2" style="white-space:pre-wrap">@selected.Message</div>
+                <RadzenFieldset Text="Сообщение" Collapsible="true" Expanded="true" Class="log-section">
+                    <RadzenStack Orientation="Orientation.Vertical" Class="rz-p-2 log-entry-text">
+                        @selected.Message
+                    </RadzenStack>
                 </RadzenFieldset>
                 @if (!string.IsNullOrWhiteSpace(selected.Exception))
                 {
-                    <RadzenFieldset Text="Исключение" Collapsible="true" Expanded="false">
-                        <div class="rz-p-2" style="white-space:pre-wrap">@selected.Exception</div>
+                    <RadzenFieldset Text="Исключение" Collapsible="true" Expanded="false" Class="log-section">
+                        <RadzenStack Orientation="Orientation.Vertical" Class="rz-p-2 log-entry-text">
+                            @selected.Exception
+                        </RadzenStack>
                     </RadzenFieldset>
                 }
             }
         </RadzenCard>
-        </div>
+        </RadzenStack>
     </RadzenSplitterPane>
 </RadzenSplitter>
 
@@ -318,15 +333,15 @@
         await JS.InvokeVoidAsync("scalemon.resetFileInput", _importInput.Element);
     }
 
-  private string GetLevelStyle(string? level) => level?.ToLowerInvariant() switch
+  private string GetLevelBadgeClass(string? level) => level?.ToLowerInvariant() switch
   {
-    "verbose" => "background:#9e9e9e;color:white",
-    "debug" => "background:#607d8b;color:white",
-    "information" => "background:#1976d2;color:white",
-    "warning" => "background:#f9a825;color:black",
-    "error" => "background:#d32f2f;color:white",
-    "fatal" => "background:#6a1b9a;color:white",
-    _ => "background:#424242;color:white"
+    "verbose" => "log-level-badge log-level-verbose",
+    "debug" => "log-level-badge log-level-debug",
+    "information" => "log-level-badge log-level-info",
+    "warning" => "log-level-badge log-level-warning",
+    "error" => "log-level-badge log-level-error",
+    "fatal" => "log-level-badge log-level-fatal",
+    _ => "log-level-badge log-level-default"
   };
 
     public sealed class PagedResult<T>

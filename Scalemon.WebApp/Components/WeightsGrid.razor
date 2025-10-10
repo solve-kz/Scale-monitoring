@@ -35,10 +35,13 @@
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
                         }
-                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
-                             title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
-                            @cell?.Weight?.ToString("0.00")</b>
-                        </div>
+                        <RadzenStack Orientation="Orientation.Horizontal"
+                                     AlignItems="AlignItems.Center"
+                                     Class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
+                                     Title="@cell?.Timestamp?.ToString("HH:mm:ss")">
+                            <RadzenText Class="weight-value"
+                                        Text="@cell?.Weight?.ToString(\"0.00\")" />
+                        </RadzenStack>
                     </Template>
                     <FooterTemplate>
                     @(Totals is { Length: >= 10 }

@@ -5,12 +5,18 @@
 
 @if (_showAccessDenied)
 {
-    <div class="alert alert-warning">
-        <p>У вас нет доступа к этой странице.</p>
-        <p>
-            Попробуйте вернуться на <a href="/">главную страницу</a> или используйте доступные разделы приложения.
-        </p>
-    </div>
+    <RadzenAlert Severity="AlertSeverity.Warning" Title="Нет доступа">
+        <ChildContent>
+            <RadzenStack Orientation="Orientation.Vertical" Gap="6px">
+                <RadzenText Text="У вас нет доступа к этой странице." />
+                <RadzenText>
+                    Попробуйте вернуться на
+                    <RadzenLink Path="/" Text="главную страницу" />
+                    или используйте доступные разделы приложения.
+                </RadzenText>
+            </RadzenStack>
+        </ChildContent>
+    </RadzenAlert>
 }
 else if (_redirectStarted)
 {

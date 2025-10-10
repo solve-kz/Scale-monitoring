@@ -19,13 +19,13 @@
     <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
     <RadzenColumn Size="12" SizeLG="9">
         <!-- Новый заголовок с «сводкой» + переключатель режима -->
-        <RadzenCard Style="padding:0">
+        <RadzenCard Class="rz-p-0">
             <RadzenStack Orientation="Orientation.Horizontal"
                          JustifyContent="JustifyContent.SpaceBetween"
                          AlignItems="AlignItems.Center"
-                         class="rz-p-3 rz-pb-2">
+                         Class="rz-p-3 rz-pb-2">
 
-                <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
+                <RadzenStack Orientation="Orientation.Vertical" Class="rz-w-75 rz-pl-4">
 					<RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
 						@(
 												_totalCount > 0
@@ -33,7 +33,7 @@
 												: "Данные за день отсутствуют"
 												)
 					</RadzenText>
-                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Start">
 
 						<RadzenText TextStyle="TextStyle.Subtitle2">
 							@{
@@ -57,7 +57,7 @@
                 
                 
 
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="8px">
                     <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
                     <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
                 </RadzenStack>
@@ -79,10 +79,11 @@
     <RadzenColumn Size="12" SizeLG="3"
                   Style="display:flex; flex-direction:column; min-height:100vh;">
         <!-- Нижний блок, "прилипший" к низу окна -->
-        <div style="margin-top:auto; position:sticky; bottom:0px; z-index:10; width:100%;">
+        <RadzenStack Orientation="Orientation.Vertical"
+                     Style="margin-top:auto; position:sticky; bottom:0; z-index:10; width:100%;">
             <RadzenStack Orientation="Orientation.Vertical"
                          AlignItems="AlignItems.Center"
-                         Gap="0.75rem"
+                         Gap="12px"
                          Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
                 @if (_showDetails && _selectedCell?.HasValue == true)
                 {
@@ -91,16 +92,13 @@
                                         Visible="@_showDetails"
                                         ActionRequested="@OnActionFromDetails" />
                 }
-                <div style="min-height:calc(100vh - 700px);">
-
-                </div>
-
+                <RadzenStack Orientation="Orientation.Vertical" Style="min-height:calc(100vh - 700px);" />
                 <CalendarWithMarks SelectedDate="@SelectedDate"
                                    SelectedDateChanged="@OnDatePicked"
                                    MarkedDays="@_markedDays"
                                    MonthChanged="@OnMonthChanged" />
             </RadzenStack>
-        </div>
+        </RadzenStack>
     </RadzenColumn>
 
 </RadzenRow>

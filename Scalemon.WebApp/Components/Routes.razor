@@ -15,10 +15,10 @@
     </Found>
     <NotFound>
         <LayoutView Layout="typeof(Layout.MainLayout)">
-            <div class="rz-p-4">
-                <h3>Страница не найдена</h3>
-                <a href="/">На главную</a>
-            </div>
+            <RadzenCard Class="rz-p-4 rz-gap-2">
+                <RadzenText Text="Страница не найдена" TextStyle="TextStyle.H5" />
+                <RadzenLink Path="/" Text="На главную" />
+            </RadzenCard>
         </LayoutView>
     </NotFound>
 </Router>

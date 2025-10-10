@@ -1,0 +1,44 @@
+.log-entry-text {
+    white-space: pre-wrap;
+}
+
+.log-caption {
+    font-weight: 600;
+}
+
+.log-section {
+    margin-bottom: 8px;
+}
+
+.log-level-badge {
+    color: var(--rz-base-0);
+}
+
+.log-level-verbose {
+    background-color: var(--rz-base-400);
+}
+
+.log-level-debug {
+    background-color: var(--rz-info-lighter);
+}
+
+.log-level-info {
+    background-color: var(--rz-info);
+}
+
+.log-level-warning {
+    background-color: var(--rz-warning);
+    color: var(--rz-base-900);
+}
+
+.log-level-error {
+    background-color: var(--rz-danger);
+}
+
+.log-level-fatal {
+    background-color: var(--rz-secondary);
+}
+
+.log-level-default {
+    background-color: var(--rz-base-500);
+}

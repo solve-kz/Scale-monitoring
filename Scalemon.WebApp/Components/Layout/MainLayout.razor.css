@@ -91,7 +91,11 @@
     padding: 6px 8px;
 }
 
-/* Адаптивность */
+
+.weights-grid .weight-value {
+    font-weight: 600;
+}
+/* ГЂГ¤Г ГЇГІГЁГўГ­Г®Г±ГІГј */
 @media (max-width: 1200px) {
     .main-grid {
         grid-template-columns: 300px 1fr;
