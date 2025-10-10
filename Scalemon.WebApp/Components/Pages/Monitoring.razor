@@ -435,8 +435,8 @@
             return null;
         }
 
-        var offsetSeconds = action == "addAbove" ? -1 : 1;
-        var defaultTimestamp = ClampToSelectedDay(baseTimestamp.AddSeconds(offsetSeconds));
+        var offset = action == "addAbove" ? TimeSpan.FromMilliseconds(-500) : TimeSpan.FromMilliseconds(500);
+        var defaultTimestamp = baseTimestamp.Add(offset);
 
         var parameters = new Dictionary<string, object?>
         {
@@ -455,24 +455,6 @@
 
         var result = await DialogService.OpenAsync<WeighingInsertDialog>(title, parameters, options);
         return result is WeighingInsertRequest insert ? insert : null;
-
-        DateTime ClampToSelectedDay(DateTime value)
-        {
-            var dayStart = SelectedDate.Date;
-            var dayEnd = dayStart.AddDays(1).AddTicks(-1);
-
-            if (value < dayStart)
-            {
-                return dayStart;
-            }
-
-            if (value > dayEnd)
-            {
-                return dayEnd;
-            }
-
-            return value;
-        }
     }
 
     async Task OnActionFromGrid(string action)
