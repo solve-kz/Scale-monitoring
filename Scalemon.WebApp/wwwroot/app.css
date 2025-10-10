@@ -1,7 +1,9 @@
 .cell.last-edit-adjust {
-    background-color: #ffe6f3;
+    background-color: var(--rz-warning-lighter);
+    color: var(--rz-warning-contrast);
 }
 
 .cell.last-edit-insert {
-    background-color: #e6ffe6;
+    background-color: var(--rz-success-lighter);
+    color: var(--rz-success-contrast);
 }
