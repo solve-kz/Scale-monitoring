@@ -1,9 +1,13 @@
 @using System.Globalization
+@using Microsoft.AspNetCore.Components.Forms
 @using Scalemon.WebApp.Models
 @inject DialogService DialogService
 @inject NotificationService NotificationService
 
-<RadzenTemplateForm TItem="WeighingInsertDialog.FormModel" Data="@Model" Submit="@OnValidSubmit">
+<RadzenTemplateForm TItem="WeighingInsertDialog.FormModel"
+                    Data="@Model"
+                    Submit="@OnValidSubmit"
+                    @ref="_form">
     <RadzenFieldset>
         <RadzenStack Gap="12px">
             <RadzenFormField Text="Вес, кг" HelpText="Введите вес с точностью до сотых">
@@ -62,6 +66,7 @@
     [Parameter] public DateTime? InitialTimestamp { get; set; }
     [Parameter] public DateTime SelectedDate { get; set; }
 
+    RadzenTemplateForm<FormModel>? _form;
     FormModel Model { get; set; } = new();
     bool _prefilled;
 
@@ -111,6 +116,25 @@
     void OnCancel()
     {
         DialogService.Close(null);
+    }
+
+    void OnHourChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Hour), v => Model.Hour = v);
+
+    void OnMinuteChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Minute), v => Model.Minute = v);
+
+    void OnSecondChanged(int? value) => UpdateTimePart(value, nameof(FormModel.Second), v => Model.Second = v);
+
+    void UpdateTimePart(int? value, string fieldName, Action<int?> setter)
+    {
+        setter(value);
+
+        if (_form?.EditContext is null)
+        {
+            return;
+        }
+
+        var field = new FieldIdentifier(Model, fieldName);
+        _form.EditContext.NotifyFieldChanged(field);
     }
 
     private bool TryBuildTimestamp(FormModel model, out DateTime timestamp)
