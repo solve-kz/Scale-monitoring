@@ -1,0 +1,126 @@
+@using System.Globalization
+@using Scalemon.WebApp.Models
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenTemplateForm TItem="WeighingInsertDialog.FormModel" Data="@Model" Submit="@OnValidSubmit">
+    <RadzenFieldset>
+        <RadzenStack Gap="12px">
+            <RadzenFormField Text="Вес, кг" HelpText="Введите вес с точностью до сотых">
+                <RadzenTextBox @bind-Value="Model.WeightText" Name="Weight" Style="width:100%" />
+                <RadzenRequiredValidator Component="Weight" Text="Укажите вес" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Время" HelpText="Укажите точное время фиксации">
+                <RadzenTimePicker @bind-Value="Model.Time"
+                                   Name="RecordedAt"
+                                   TimeFormat="HH:mm:ss"
+                                   ShowSeconds="true"
+                                   HoursStep="1"
+                                   MinutesStep="1"
+                                   SecondsStep="1"
+                                   Style="width:100%" />
+                <RadzenRequiredValidator Component="RecordedAt" Text="Укажите время" />
+            </RadzenFormField>
+        </RadzenStack>
+    </RadzenFieldset>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:16px">
+        <RadzenButton Text="ОК" Icon="check" ButtonStyle="ButtonStyle.Primary" ButtonType="ButtonType.Submit" />
+        <RadzenButton Text="Отмена" Icon="close" Click="@OnCancel" />
+    </RadzenStack>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter] public decimal? InitialWeight { get; set; }
+    [Parameter] public DateTime? InitialTimestamp { get; set; }
+    [Parameter] public DateTime SelectedDate { get; set; }
+
+    FormModel Model { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        Model ??= new FormModel();
+
+        if (string.IsNullOrWhiteSpace(Model.WeightText) && InitialWeight is decimal weight)
+        {
+            Model.WeightText = weight.ToString("0.00", CultureInfo.CurrentCulture);
+        }
+
+        if (Model.Time is null)
+        {
+            var baseTimestamp = InitialTimestamp ?? SelectedDate;
+            var normalized = SelectedDate.Date.Add(baseTimestamp.TimeOfDay);
+            Model.Time = normalized;
+        }
+    }
+
+    Task OnValidSubmit(FormModel model)
+    {
+        if (!TryParseWeight(model.WeightText, out var weight))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Не удалось распознать вес. Используйте формат 12,34");
+            return Task.CompletedTask;
+        }
+
+        if (model.Time is null)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Добавление взвешивания", "Укажите время");
+            return Task.CompletedTask;
+        }
+
+        var timestamp = SelectedDate.Date.Add(model.Time.Value.TimeOfDay);
+        var rounded = Math.Round(weight, 2, MidpointRounding.AwayFromZero);
+
+        DialogService.Close(new WeighingModels.WeighingInsertRequest(rounded, timestamp));
+        return Task.CompletedTask;
+    }
+
+    void OnCancel()
+    {
+        DialogService.Close(null);
+    }
+
+    static bool TryParseWeight(string? input, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var trimmed = input.Trim();
+        var sanitized = trimmed.Replace(" ", string.Empty);
+
+        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.CurrentCulture, out value))
+        {
+            return true;
+        }
+
+        if (decimal.TryParse(sanitized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        var normalized = sanitized.Replace(',', '.');
+        if (decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        normalized = sanitized.Replace('.', ',');
+        var ruCulture = CultureInfo.GetCultureInfo("ru-RU");
+        if (decimal.TryParse(normalized, NumberStyles.Number, ruCulture, out value))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public sealed class FormModel
+    {
+        public string? WeightText { get; set; }
+        public DateTime? Time { get; set; }
+    }
+}

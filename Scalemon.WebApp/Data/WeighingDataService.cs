@@ -89,13 +89,25 @@ namespace Scalemon.WebApp.Data
             => InsertAboveAsync(refId, weight, null, ct);
 
         public Task<int> InsertAboveAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
-            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName);
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName, null);
+
+        public Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default)
+            => InsertAboveAsync(refId, weight, timestamp, null, ct);
+
+        public Task<int> InsertAboveAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default)
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(-500), userName, timestamp);
 
         public Task<int> InsertBelowAsync(int refId, decimal weight, CancellationToken ct = default)
             => InsertBelowAsync(refId, weight, null, ct);
 
         public Task<int> InsertBelowAsync(int refId, decimal weight, string? userName, CancellationToken ct = default)
-            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName);
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName, null);
+
+        public Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, CancellationToken ct = default)
+            => InsertBelowAsync(refId, weight, timestamp, null, ct);
+
+        public Task<int> InsertBelowAsync(int refId, decimal weight, DateTime timestamp, string? userName, CancellationToken ct = default)
+            => InsertNearAsync(refId, weight, TimeSpan.FromMilliseconds(500), userName, timestamp);
 
         public Task DeleteAsync(int id, CancellationToken ct = default)
             => DeleteAsync(id, null, ct);
@@ -125,7 +137,7 @@ namespace Scalemon.WebApp.Data
             return Task.CompletedTask;
         }
 
-        private Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName)
+        private Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName, DateTime? explicitTimestamp)
         {
             int newId = 0;
             lock (_sync)
@@ -137,7 +149,7 @@ namespace Scalemon.WebApp.Data
                 }
 
                 var refItem = _data[day][idx];
-                var ts = refItem.Timestamp.Add(offset);
+                var ts = explicitTimestamp ?? refItem.Timestamp.Add(offset);
 
                 newId = _nextId++;
                 var rounded = Round2(weight);
