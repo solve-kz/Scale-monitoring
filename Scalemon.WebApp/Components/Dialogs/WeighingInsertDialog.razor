@@ -1,4 +1,5 @@
 @using System.Globalization
+@using static Scalemon.WebApp.Models.WeighingModels
 
 @inject DialogService DialogService
 
@@ -76,9 +77,6 @@
     [Parameter] public DateTime? BaseDate { get; set; }     // дата строки реестра
     [Parameter] public decimal? InitialWeight { get; set; } // можно null
 
-    // Возвращаемое значение из диалога
-    public sealed record Result(decimal WeightKg, DateTime Timestamp);
-
     // Модель формы НЕ пересоздаём — только меняем свойства
     private readonly FormModel Model = new();
     private bool _initialized;
@@ -109,7 +107,7 @@
 
         var weight = Math.Round(Model.Weight!.Value, WeightPrecisionDigits, MidpointRounding.AwayFromZero);
 
-        DialogService.Close(new Result(weight, ts));
+        DialogService.Close(new WeighingInsertRequest(weight, ts));
     }
 
     public sealed class FormModel
