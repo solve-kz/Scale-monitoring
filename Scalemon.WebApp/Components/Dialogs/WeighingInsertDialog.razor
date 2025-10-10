@@ -9,19 +9,19 @@
             <div class="rz-col-12">
                 <RadzenLabel Text="Вес, кг" Component="Weight" />
                 <RadzenNumeric Name="Weight"
-                               TValue="decimal?"
-                               @bind-Value="Model.Weight"
-                               @bind-Value:format="@WeightFormat"
-                               Min="@WeightMin"
-                               Max="@WeightMax"
-                               Step="@WeightStepText"
+               TValue="decimal?"
+               @bind-Value="Model.Weight"
+               Culture="@CultureInfo.CurrentCulture"
+                               Min=@((decimal)0.02)
+                               Max=@((decimal)100)
+                               Step="0.01"
                                Style="width:100%" />
                 <RadzenRequiredValidator Component="Weight"
-                                         Text="Укажите вес" Popup="false" />
-                <RadzenNumericRangeValidator Component="Weight"
-                                             Min="@WeightMinText" Max="@WeightMaxText"
-                                             Text="Вес должен быть в диапазоне 0,02…100 кг"
-                                             Popup="false" />
+                         Text="Укажите вес" Popup="false" />
+               <RadzenNumericRangeValidator Component="Weight"
+                             Min="0.02" Max="100"
+                             Text="Вес должен быть в диапазоне 0,02…100 кг"
+                             Popup="false" />
             </div>
 
             <div class="rz-col-12">
