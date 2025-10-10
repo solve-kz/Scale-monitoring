@@ -1,4 +1,3 @@
-@using System.Globalization
 @inject DialogService DialogService
 
 <RadzenTemplateForm TItem="FormModel" Data="@Model" Submit="@OnValidSubmit">
@@ -113,4 +112,8 @@
         public int? Minute { get; set; }
         public int? Second { get; set; }
     }
+
+    private const string WeightMinString = "0.001";
+    private const string WeightMaxString = "1000";
+    private const string WeightStepString = "0.01";
 }
