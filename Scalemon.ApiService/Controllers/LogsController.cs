@@ -182,10 +182,22 @@ public sealed class LogsController : ControllerBase
     // ЭКСПОРТ CSV
     // GET /api/logs/export?path=..
     [HttpGet("export")]
-    public async Task<IActionResult> Export([FromQuery] string? path)
+    public async Task<IActionResult> Export(
+        [FromQuery] string? path,
+        [FromQuery] string? levels = null,
+        [FromQuery] string? search = null,
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null)
     {
         _ = path;
-        var entries = await _repository.GetAllAsync(null, null, null, null, HttpContext.RequestAborted);
+        var ct = HttpContext.RequestAborted;
+
+        var fromLocal = from?.ToLocalTime().DateTime;
+        var toLocal = to?.ToLocalTime().DateTime;
+        var allowedLevels = BuildLevelFilter(levels);
+        var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search;
+
+        var entries = await _repository.GetAllAsync(allowedLevels, searchTerm, fromLocal, toLocal, ct);
         var csv = BuildCsv(entries);
         var name = $"logs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
         return File(csv, "text/csv", name);
