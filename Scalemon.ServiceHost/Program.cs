@@ -112,7 +112,7 @@ builder.Services.AddSingleton<IScaleStateMachine>(sp =>
     var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();
     var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value;
     var cfg = new PlateauZeroStateMachine.Settings(
-        ZeroBandKg: (decimal)settings.SystemSettings.HystWeight * 0.2m,
+        ZeroBandKg: (decimal)settings.SystemSettings.HystWeight * 0.01m,
         ResidualBandKg: (decimal)settings.SystemSettings.HystWeight,
         NegativeBandKg: (decimal)settings.SystemSettings.HystWeight,
         MinWeightKg: (decimal)settings.SystemSettings.MinWeight,
