@@ -49,6 +49,7 @@ namespace Scalemon.FSM
         private int _consecutiveZeroCount = 0;
 
         private decimal _peak;          // пик на плато
+        private decimal _minStableWeight; // минимальный стабильный вес на плато
         private decimal _tail;          // положительный хвост (0..R)
         private bool _plateauConfirmed; // плато подтверждено (≥M)
         private bool _needTareForNegative; // нужно ли тарировать из-за отрицательных
@@ -196,6 +197,7 @@ namespace Scalemon.FSM
                     if (IsValidPlateauStart(cls))
                     {
                         _peak = w;
+                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
                         _plateauConfirmed = false;
                         Transition(FsmState.Weighing);
                     }
@@ -232,7 +234,8 @@ namespace Scalemon.FSM
                 case FsmState.Weighing:
                     if (cls == Class.ValidHeavy)
                     {
-                        if (w > _peak) _peak = w;
+                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
+                        _peak = Math.Max(_peak, w);
                         if (IsPlateauStable())
                         {
                             _plateauConfirmed = true;
@@ -250,7 +253,8 @@ namespace Scalemon.FSM
                 case FsmState.AwaitUnload:
                     if (cls == Class.ValidHeavy)
                     {
-                        if (w > _peak) _peak = w; // продолжаем копить пик
+                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
+                        _peak = Math.Max(_peak, w); // продолжаем копить пик
                     }
                     else if (IsZeroStable())
                     {
@@ -296,7 +300,7 @@ namespace Scalemon.FSM
         private async Task PrepareRecordAsync(Class cls, decimal w)
         {
 
-            if (_peak < _cfg.MinWeightKg)
+            if (_minStableWeight < _cfg.MinWeightKg)
             {
                 Transition(FsmState.IdleZero);
                 return;
@@ -305,13 +309,13 @@ namespace Scalemon.FSM
             Transition(FsmState.PostUnload);
 
             // 1) Расчёт net
-            decimal net = _peak - _tail;
+            decimal net = _minStableWeight - _tail;
             net = RoundToScaleStep(net);
 
             if (net < _cfg.MinWeightKg)
             {
-                _log.LogWarning("FSM ПРОПУСК ЗАПИСИ: Рассчитанный вес НЕТТО ({net} кг) меньше минимального порога ({minWeight} кг). Пик={peak}, Хвост={tail}",
-                        net, _cfg.MinWeightKg, _peak, _tail);
+                _log.LogWarning("FSM ПРОПУСК ЗАПИСИ: Рассчитанный вес НЕТТО ({net} кг) меньше минимального порога ({minWeight} кг). Минимум={minWeightStable}, Пик={peak}, Хвост={tail}",
+                        net, _cfg.MinWeightKg, _minStableWeight, _peak, _tail);
                 await _bus.SendAsync(Enums.ArduinoSignalCode.YellowRedOn); // <-- ОШИБКА ВЗВЕШИВАНИЯ
                 // Возврат в IdleZero или Tare в зависимости от хвоста/отрицательного
                 if (_tail > 0m || _needTareForNegative) SendTareAndWait();
@@ -326,8 +330,8 @@ namespace Scalemon.FSM
 
             try
             {
-                _log.LogInformation("Запись взвешивания: net={net:0.###}kg (peak={peak:0.###}, tail={tail:0.###}, flags={flags})",
-                    net, _peak, _tail, flags);
+                _log.LogInformation("Запись взвешивания: net={net:0.###}kg (recorded={recorded:0.###}, peak={peak:0.###}, tail={tail:0.###}, flags={flags})",
+                    net, _minStableWeight, _peak, _tail, flags);
                 if (_onRecordAsync != null)
                     await _onRecordAsync(net);
 
@@ -350,6 +354,7 @@ namespace Scalemon.FSM
         private void SendTareAndWait()
         {
             _needTareForNegative = false; // сбрасываем флаг: тарирование будет выполнено
+            _minStableWeight = 0m;
             Transition(FsmState.TarePending);
             try
             {
@@ -384,7 +389,7 @@ namespace Scalemon.FSM
                     _bus.SendAsync(Enums.ArduinoSignalCode.LinkOff); // <-- ВЫКЛЮЧИТЬ ВСЁ
                     break;
                 case FsmState.IdleZero:
-                    _peak = 0m; _tail = 0m; _plateauConfirmed = false; _tareRetries = 0; _needTareForNegative = false;
+                    _peak = 0m; _tail = 0m; _minStableWeight = 0m; _plateauConfirmed = false; _tareRetries = 0; _needTareForNegative = false;
                     _log.LogInformation("→ IdleZero");
                     break;
                 case FsmState.InvalidWeightState: // --- ДОБАВЛЕНО ---
@@ -400,12 +405,14 @@ namespace Scalemon.FSM
                     _log.LogDebug("→ PostUnload");
                     break;
                 case FsmState.TarePending:
+                    _minStableWeight = 0m;
                     _log.LogDebug("→ TarePending");
                     break;
                 case FsmState.WaitZeroAfterTare:
                     _log.LogDebug("→ WaitZeroAfterTare (timeout at {deadline:o})", _tareDeadlineUtc);
                     break;
                 case FsmState.ZeroFailed:
+                    _minStableWeight = 0m;
                     _log.LogError("→ ZeroFailed (автоноль не удался)");
                     break;
                 case FsmState.Alarm:
