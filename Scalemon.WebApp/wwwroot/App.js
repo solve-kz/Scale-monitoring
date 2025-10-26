@@ -82,6 +82,22 @@
                 element.value = "";
             }
         },
+        downloadFile(fileName, contentType, base64Data) {
+            try {
+                const link = document.createElement('a');
+                link.style.display = 'none';
+                link.download = fileName || 'download';
+
+                const dataUrl = `data:${contentType || 'application/octet-stream'};base64,${base64Data}`;
+                link.href = dataUrl;
+
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (e) {
+                console.error('downloadFile error', e);
+            }
+        },
         localTodayIso: function () {
             var d = new Date();
             var y = d.getFullYear();

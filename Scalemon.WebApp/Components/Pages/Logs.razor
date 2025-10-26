@@ -48,7 +48,7 @@
 
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
     <RadzenButton Icon="refresh" Text="Обновить" Click="@ReloadAsync" ButtonStyle="ButtonStyle.Primary" />
-    <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsv" />
+    <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsvAsync" />
     <RadzenButton Icon="upload" Text="Импорт логов" Click="@TriggerImportDialogAsync" />
   </RadzenStack>
 </RadzenStack>
@@ -231,15 +231,29 @@
 
     private void OnRowSelect(ApiLogEntry entry) => selected = entry;
 
-    private void DownloadCsv()
+    private async Task DownloadCsvAsync()
     {
-        NotificationService.Notify(new NotificationMessage
+        try
         {
-            Severity = NotificationSeverity.Info,
-            Summary = "Экспорт CSV",
-            Detail = "Реализуйте endpoint /api/logs/export для скачивания файла.",
-            Duration = 4000
-        });
+            var bytes = await Api.ExportLogsCsvAsync(path, _cts.Token);
+            if (bytes is null || bytes.Length == 0)
+            {
+                NotificationService.Notify(NotificationSeverity.Info, "Экспорт CSV", "Получен пустой файл логов.");
+                return;
+            }
+
+            var fileName = $"logs-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
+            var base64 = System.Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("scalemon.downloadFile", fileName, "text/csv", base64);
+        }
+        catch (OperationCanceledException)
+        {
+            // загрузка отменена пользователем — ничего не делаем
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Экспорт CSV", ex.Message);
+        }
     }
 
     private async Task TriggerImportDialogAsync()
