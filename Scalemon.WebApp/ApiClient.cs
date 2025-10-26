@@ -104,10 +104,24 @@ public sealed class ApiClient
                ?? new PagedResult<LogEntry>(Array.Empty<LogEntry>(), 0);
     }
 
-    // Экспорт CSV: GET /api/logs/export?path=..
-    public Task<byte[]> ExportLogsCsvAsync(string? path = null, CancellationToken ct = default)
+    // Экспорт CSV: GET /api/logs/export?path=..&levels=..&search=..&from=..&to=..
+    public Task<byte[]> ExportLogsCsvAsync(
+        string? path = null,
+        string? levels = null,
+        string? search = null,
+        DateTime? from = null,
+        DateTime? to = null,
+        CancellationToken ct = default)
     {
-        var url = string.IsNullOrWhiteSpace(path) ? "api/logs/export" : $"api/logs/export?path={Uri.EscapeDataString(path)}";
+        var q = HttpUtility.ParseQueryString(string.Empty);
+        if (!string.IsNullOrWhiteSpace(path)) q["path"] = path;
+        if (!string.IsNullOrWhiteSpace(levels)) q["levels"] = levels;
+        if (!string.IsNullOrWhiteSpace(search)) q["search"] = search;
+        if (from is not null) q["from"] = from.Value.ToString("O");
+        if (to is not null) q["to"] = to.Value.ToString("O");
+
+        var query = q.ToString();
+        var url = string.IsNullOrEmpty(query) ? "api/logs/export" : $"api/logs/export?{query}";
         return _http.GetByteArrayAsync(url, ct);
     }
 
