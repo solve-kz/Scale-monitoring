@@ -52,25 +52,40 @@
 }
 else
 {
-    <!-- Сводный режим: только заголовки и последняя строка -->
+    <!-- Сводный режим: сводные строки и итоги -->
     <RadzenDataGrid TItem="GridRowVm"
-                    Data="Array.Empty<GridRowVm>()"
+                    Data="SummaryRows"
                     AllowPaging="false"
                     AllowSorting="false"
                     AllowFiltering="false"
                     EmptyText=""
                     class="weights-grid summary-grid">
         <Columns>
-            <RadzenDataGridColumn TItem="GridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
+            <RadzenDataGridColumn TItem="GridRowVm" Property="No" Title="№" Width="80px" TextAlign="TextAlign.Center">
+                <Template Context="vm">
+                    @if (vm.No > 0)
+                    {
+                        @vm.No
+                    }
+                </Template>
                 <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
             </RadzenDataGridColumn>
 
             @for (var i = 1; i <= 10; i++)
             {
                 var colIndex = i;
-                <RadzenDataGridColumn TItem="GridRowVm" Title="@($"{colIndex}")" Width="1fr" TextAlign="TextAlign.Center">
+                <RadzenDataGridColumn TItem="GridRowVm" Property="@($"C{colIndex}")" Title="@($"{colIndex}")" Width="1fr" TextAlign="TextAlign.Center">
+                    <Template Context="vm">
+                        @{
+                            var cell = GetCell(vm.Row, colIndex);
+                        }
+                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
+                             title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
+                            @cell?.Weight?.ToString("0.00")</b>
+                        </div>
+                    </Template>
                     <FooterTemplate>
-						<b> @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")</b>
+                                                <b> @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")</b>
                     </FooterTemplate>
                 </RadzenDataGridColumn>
             }
@@ -85,6 +100,7 @@ else
     [Parameter] public bool IsDetailed { get; set; } = true;
     [Parameter] public decimal[]? Totals { get; set; } // длина 10
     [Parameter] public IReadOnlyList<GridRowVm> Rows { get; set; } = Array.Empty<GridRowVm>();
+    [Parameter] public IReadOnlyList<GridRowVm> SummaryRows { get; set; } = Array.Empty<GridRowVm>();
 
     [Parameter] public int TotalCount { get; set; }
     [Parameter] public int PageSize { get; set; } = 400;

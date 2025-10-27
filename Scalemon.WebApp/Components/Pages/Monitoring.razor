@@ -67,6 +67,7 @@
         <WeightsGrid @ref="_grid"
                      IsDetailed="@_isDetailed"
                      Rows="@_rows"
+                     SummaryRows="@_summaryRows"
                      Totals="@_totals"
                      TotalCount="@_totalCount"
                      PageSize="400"
@@ -120,6 +121,7 @@
     bool _isDetailed = true;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
+    IReadOnlyList<GridRowVm> _summaryRows = Array.Empty<GridRowVm>();
     IReadOnlyDictionary<int, WeighingEditEntry> _latestEdits = new Dictionary<int, WeighingEditEntry>();
     decimal[] _totals = new decimal[10];
     int _totalCount = 0;
@@ -363,10 +365,51 @@
             rows.Add(new GridRowVm(r + 1, data));
         }
         _rows = rows;
+        _summaryRows = BuildSummaryRows(rows);
 
         // итоги по столбцам
         for (int col = 0; col < 10; col++)
             _totals[col] = columns[col].Where(c => c.HasValue).Sum(c => c!.Weight!.Value);
+    }
+
+    static IReadOnlyList<GridRowVm> BuildSummaryRows(IReadOnlyList<GridRowVm> rows)
+    {
+        if (rows.Count == 0)
+            return Array.Empty<GridRowVm>();
+
+        var summary = new List<GridRowVm>();
+
+        summary.Add(rows[0]);
+        summary.Add(CreateEmptySummaryRow());
+
+        if (rows.Count >= 3)
+        {
+            var secondLastIndex = rows.Count - 2;
+            if (secondLastIndex != 0)
+            {
+                summary.Add(rows[secondLastIndex]);
+            }
+        }
+
+        if (rows.Count >= 2)
+        {
+            var lastIndex = rows.Count - 1;
+            if (lastIndex != 0)
+            {
+                summary.Add(rows[lastIndex]);
+            }
+        }
+
+        return summary;
+    }
+
+    static GridRowVm CreateEmptySummaryRow()
+    {
+        static Cell EmptyCell() => new(null, null, null);
+
+        return new GridRowVm(0, new GridRow(
+            EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(),
+            EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell()));
     }
 
     Task OnCellSelected(Cell? cell)
