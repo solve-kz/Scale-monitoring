@@ -339,6 +339,7 @@
         // Получаем ВСЕ записи за день (только для сводки)
         var allItems = await Data.GetDayAllAsync(dateOnly);
         var weights = allItems.Select(x => x.Weight).ToList();
+        var duplicateIdsForDay = CalculateDuplicateIds(allItems);
 
         _daySummary = new DaySummary(
             Count: weights.Count,
@@ -355,10 +356,10 @@
             .ToDictionary(x => x.WeighingId!.Value, x => x);
 
         // Построение матрицы — только для текущей страницы
-        BuildMatrix(items, _latestEdits);
+        BuildMatrix(items, _latestEdits, duplicateIdsForDay);
     }
 
-    void BuildMatrix(IReadOnlyList<Weighing> items, IReadOnlyDictionary<int, WeighingEditEntry> editsById)
+    static HashSet<int> CalculateDuplicateIds(IReadOnlyList<Weighing> items)
     {
         var ordered = items.OrderBy(x => x.Timestamp).ToList();
 
@@ -383,6 +384,13 @@
 
             index = runEnd;
         }
+
+        return duplicateIds;
+    }
+
+    void BuildMatrix(IReadOnlyList<Weighing> items, IReadOnlyDictionary<int, WeighingEditEntry> editsById, ISet<int> duplicateIds)
+    {
+        var ordered = items.OrderBy(x => x.Timestamp).ToList();
 
         // 10 столбцов по 40 ячеек
         var columns = new List<List<Cell>>(10);
