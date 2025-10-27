@@ -7,6 +7,8 @@
         public sealed record Cell(int? Id, decimal? Weight, DateTime? Timestamp, WeighingEditAction? LastEditAction = null)
         {
             public bool HasValue => Id.HasValue && Weight.HasValue && Timestamp.HasValue;
+
+            public bool IsDuplicateRun { get; init; } = false;
         }
 
         public sealed record GridRow(Cell C1, Cell C2, Cell C3, Cell C4, Cell C5, Cell C6, Cell C7, Cell C8, Cell C9, Cell C10)

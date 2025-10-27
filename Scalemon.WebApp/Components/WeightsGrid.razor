@@ -108,6 +108,7 @@ else
     [Parameter] public EventCallback<int> PageChanged { get; set; }
     [Parameter] public EventCallback<Cell?> CellSelected { get; set; }
     [Parameter] public EventCallback<string> ActionRequested { get; set; } // inc/dec/addAbove/addBelow/delete/logs
+    [Parameter] public bool HighlightDuplicates { get; set; }
 
     RadzenPager? pager;
 
@@ -263,12 +264,36 @@ else
         return InvokeAsync(StateHasChanged);
     }
 
-    static string GetHighlightClass(Cell? cell) => cell?.LastEditAction switch
+    string GetHighlightClass(Cell? cell)
     {
-        WeighingEditAction.Increment or WeighingEditAction.Decrement => "last-edit-adjust",
-        WeighingEditAction.Insert => "last-edit-insert",
-        _ => string.Empty
-    };
+        if (cell is null)
+        {
+            return string.Empty;
+        }
+
+        List<string>? classes = null;
+
+        switch (cell.LastEditAction)
+        {
+            case WeighingEditAction.Increment:
+            case WeighingEditAction.Decrement:
+                classes ??= new List<string>();
+                classes.Add("last-edit-adjust");
+                break;
+            case WeighingEditAction.Insert:
+                classes ??= new List<string>();
+                classes.Add("last-edit-insert");
+                break;
+        }
+
+        if (HighlightDuplicates && IsDetailed && cell.IsDuplicateRun)
+        {
+            classes ??= new List<string>();
+            classes.Add("duplicate-weight");
+        }
+
+        return classes is null ? string.Empty : string.Join(" ", classes);
+    }
 
     static Cell? GetCell(GridRow row, int col) => col switch
     {
