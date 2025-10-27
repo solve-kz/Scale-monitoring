@@ -57,15 +57,25 @@
                 
                 
 
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                    <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
-                    <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                    @if (_isDetailed)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
+                            <RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
+                        </RadzenStack>
+                    }
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
+                        <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                    </RadzenStack>
                 </RadzenStack>
             </RadzenStack>
         </RadzenCard>
 
         <WeightsGrid @ref="_grid"
                      IsDetailed="@_isDetailed"
+                     HighlightSameWeightCells="@(_isDetailed && _highlightRepeats)"
                      Rows="@_rows"
                      SummaryRows="@_summaryRows"
                      Totals="@_totals"
@@ -119,6 +129,7 @@
     DaySummary? _daySummary;
 
     bool _isDetailed = true;
+    bool _highlightRepeats;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
     IReadOnlyList<GridRowVm> _summaryRows = Array.Empty<GridRowVm>();
@@ -137,6 +148,7 @@
     sealed class MonitoringUiStateV2
     {
         public bool? IsDetailed { get; set; }
+        public bool? HighlightRepeats { get; set; }
     }
 
     sealed class ReturnToMonitoring
@@ -286,6 +298,10 @@
             {
                 _isDetailed = det;
             }
+            if (s?.HighlightRepeats is bool highlight)
+            {
+                _highlightRepeats = highlight;
+            }
         }
         catch { /* ok */ }
     }
@@ -293,7 +309,11 @@
     async Task SaveUiStateAsync()
     {
         if (!_uiLoaded) return;
-        await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2 { IsDetailed = _isDetailed });
+        await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2
+        {
+            IsDetailed = _isDetailed,
+            HighlightRepeats = _highlightRepeats
+        });
     }
 
 
@@ -423,6 +443,7 @@
     }
 
     async Task OnUiChanged() => await SaveUiStateAsync();
+    async Task OnHighlightToggleChanged() => await SaveUiStateAsync();
 
     
     async Task SaveReturnTicketAsync()
