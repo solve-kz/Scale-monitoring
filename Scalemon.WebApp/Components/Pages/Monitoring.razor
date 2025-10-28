@@ -14,22 +14,22 @@
 @inject ISettingsSource SettingsSource
 @inject DialogService DialogService
 
-<RadzenRow>   
+<RadzenRow class="monitoring-layout">
 
     <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
-    <RadzenColumn Size="12" SizeLG="9">
+    <RadzenColumn Size="12" SizeMD="12" SizeLG="8" SizeXL="9" class="monitoring-main-column">
         <!-- Новый заголовок с «сводкой» + переключатель режима -->
         <RadzenCard Style="padding:0">
             <RadzenStack Orientation="Orientation.Horizontal"
                          JustifyContent="JustifyContent.SpaceBetween"
                          AlignItems="AlignItems.Center"
-                         class="rz-p-3 rz-pb-2">
+                         class="rz-p-3 rz-pb-2 monitoring-header">
 
-                <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
-					<RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
-						@(
-												_totalCount > 0
-												? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+                <RadzenStack Orientation="Orientation.Vertical" class="monitoring-header-summary">
+                                        <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
+                                                @(
+                                                                                                _totalCount > 0
+                                                                                                ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
 												: "Данные за день отсутствуют"
 												)
 					</RadzenText>
@@ -87,29 +87,33 @@
     </RadzenColumn>
 
     <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
-    <RadzenColumn Size="12" SizeLG="3"
-                  Style="display:flex; flex-direction:column; min-height:100vh;">
+    <RadzenColumn Size="12" SizeMD="12" SizeLG="4" SizeXL="3"
+                  class="monitoring-side-column">
         <!-- Нижний блок, "прилипший" к низу окна -->
-        <div style="margin-top:auto; position:sticky; bottom:0px; z-index:10; width:100%;">
+        <div class="monitoring-side-sticky">
             <RadzenStack Orientation="Orientation.Vertical"
                          AlignItems="AlignItems.Center"
                          Gap="0.75rem"
-                         Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
+                         class="monitoring-side-stack">
                 @if (_showDetails && _selectedCell?.HasValue == true)
                 {
-                    <RecordDetailsPanel Cell="@_selectedCell"
+                    <div class="monitoring-panel-wrapper">
+                        <RecordDetailsPanel Cell="@_selectedCell"
                                         OrderInDay="@_selectedOrderInDay"
                                         Visible="@_showDetails"
                                         ActionRequested="@OnActionFromDetails" />
+                    </div>
                 }
-                <div style="min-height:calc(100vh - 700px);">
+                <div class="monitoring-side-spacer">
 
                 </div>
 
-                <CalendarWithMarks SelectedDate="@SelectedDate"
+                <div class="monitoring-calendar-wrapper">
+                    <CalendarWithMarks SelectedDate="@SelectedDate"
                                    SelectedDateChanged="@OnDatePicked"
                                    MarkedDays="@_markedDays"
                                    MonthChanged="@OnMonthChanged" />
+                </div>
             </RadzenStack>
         </div>
     </RadzenColumn>

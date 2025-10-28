@@ -1,1 +1,161 @@
-﻿
+.monitoring-layout {
+    gap: 1rem;
+}
+
+.monitoring-main-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.monitoring-header {
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.monitoring-header-summary {
+    flex: 1 1 420px;
+    padding-left: 1rem;
+}
+
+.monitoring-side-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.monitoring-side-sticky {
+    margin-top: auto;
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    z-index: 10;
+}
+
+.monitoring-side-stack {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+}
+
+.monitoring-panel-wrapper,
+.monitoring-calendar-wrapper {
+    width: 100%;
+}
+
+.monitoring-side-spacer {
+    min-height: calc(100vh - 700px);
+}
+
+:deep(.monitoring-grid .rz-data-grid-header-cell),
+:deep(.monitoring-grid .rz-cell-data) {
+    font-size: 0.95rem;
+    padding: 0.5rem;
+}
+
+:deep(.monitoring-grid .cell) {
+    padding: 6px 8px;
+    height: 28px;
+}
+
+:deep(.monitoring-grid-pager) {
+    margin-top: 0.5rem;
+}
+
+:deep(.monitoring-panel-card) {
+    width: 100%;
+}
+
+:deep(.monitoring-panel-stack) {
+    gap: 0.5rem;
+}
+
+:deep(.monitoring-calendar-card .rz-calendar) {
+    font-size: 0.95rem;
+}
+
+@media (max-width: 1400px) {
+    :deep(.monitoring-grid .rz-data-grid-header-cell),
+    :deep(.monitoring-grid .rz-cell-data) {
+        font-size: 0.9rem;
+        padding: 0.45rem;
+    }
+
+    :deep(.monitoring-grid .cell) {
+        padding: 4px 6px;
+        height: 26px;
+    }
+
+    :deep(.monitoring-calendar-card .rz-calendar) {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 1200px) {
+    .monitoring-side-column {
+        min-height: auto;
+    }
+
+    .monitoring-side-sticky {
+        position: static;
+    }
+
+    .monitoring-side-stack {
+        max-height: none;
+    }
+
+    .monitoring-side-spacer {
+        min-height: 0;
+    }
+
+    .monitoring-header-summary {
+        padding-left: 0;
+    }
+}
+
+@media (max-width: 992px) {
+    .monitoring-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .monitoring-header-summary {
+        flex-basis: 100%;
+    }
+
+    :deep(.monitoring-grid .rz-data-grid-header-cell),
+    :deep(.monitoring-grid .rz-cell-data) {
+        font-size: 0.85rem;
+        padding: 0.4rem;
+    }
+
+    :deep(.monitoring-grid .cell) {
+        padding: 3px 5px;
+        height: 24px;
+    }
+
+    :deep(.monitoring-calendar-card .rz-calendar) {
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 768px) {
+    :deep(.monitoring-grid .rz-data-grid-header-cell),
+    :deep(.monitoring-grid .rz-cell-data) {
+        font-size: 0.8rem;
+        padding: 0.35rem;
+    }
+
+    :deep(.monitoring-grid .cell) {
+        padding: 3px 4px;
+        height: 22px;
+    }
+
+    :deep(.monitoring-calendar-card .rz-calendar) {
+        font-size: 0.8rem;
+    }
+
+    :deep(.monitoring-panel-card) {
+        padding: 1rem !important;
+    }
+}

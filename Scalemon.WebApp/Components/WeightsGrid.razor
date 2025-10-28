@@ -16,7 +16,8 @@
                     CellClick="@OnCellClick"
                     CellDoubleClick="@OnCellDoubleClick"
                     CellContextMenu="@OnCellContextMenu"
-                    CellRender="@OnCellRender">
+                    CellRender="@OnCellRender"
+                    class="weights-grid detailed-grid monitoring-grid">
         <Columns>
             <RadzenDataGridColumn TItem="GridRowVm"
                                   Title="№"
@@ -61,7 +62,7 @@ else
                     AllowSorting="false"
                     AllowFiltering="false"
                     EmptyText=""
-                    class="weights-grid summary-grid">
+                    class="weights-grid summary-grid monitoring-grid">
         <Columns>
             <RadzenDataGridColumn TItem="GridRowVm" Property="No" Title="№" Width="80px" TextAlign="TextAlign.Center">
                 <Template Context="vm">
@@ -97,7 +98,7 @@ else
 }
 
 <!-- Пейджер под таблицей -->
-<RadzenPager @ref="pager" Count="@TotalCount" PageSize="@PageSize" PageChanged="@OnPagerChanged" AlwaysVisible="true" />
+<RadzenPager @ref="pager" Count="@TotalCount" PageSize="@PageSize" PageChanged="@OnPagerChanged" AlwaysVisible="true" class="monitoring-grid-pager" />
 
 @code {
     [Parameter] public bool IsDetailed { get; set; } = true;
