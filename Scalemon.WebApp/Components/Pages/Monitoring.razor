@@ -423,8 +423,6 @@
                 currentRow++;
 
                 var pageItems = ordered.Skip(page * pageSize).Take(pageSize).ToList();
-                var totals = new decimal[10];
-
                 for (var rowIdx = 0; rowIdx < 40; rowIdx++)
                 {
                     worksheet.Cell(currentRow + rowIdx, 1).Value = rowIdx + 1;
@@ -439,7 +437,6 @@
 
                         var weight = pageItems[index].Weight;
                         worksheet.Cell(currentRow + rowIdx, col + 2).Value = weight;
-                        totals[col] += weight;
                     }
                 }
 
@@ -448,12 +445,11 @@
                 worksheet.Cell(currentRow, 1).Value = "ИТОГО:";
                 for (var col = 0; col < 10; col++)
                 {
-                    if (totals[col] == 0)
-                    {
-                        continue;
-                    }
-
-                    worksheet.Cell(currentRow, col + 2).Value = totals[col];
+                    var columnLetter = XLHelper.GetColumnLetterFromNumber(col + 2);
+                    var dataStartRow = headerRow + 1;
+                    var dataEndRow = headerRow + 40;
+                    var formula = $"=SUM({columnLetter}{dataStartRow}:{columnLetter}{dataEndRow})";
+                    worksheet.Cell(currentRow, col + 2).SetFormulaA1(formula);
                 }
 
                 var dataRange = worksheet.Range(headerRow, 2, currentRow, 11);
