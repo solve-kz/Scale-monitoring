@@ -2,17 +2,24 @@
 @attribute [Authorize]
 @using System.Collections.Generic
 @using System.Globalization
+@using System.IO
+@using System.Linq
+@using ClosedXML.Excel
+@using Microsoft.JSInterop
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
+@using Scalemon.WebApp.Components.Dialogs
 @using static Scalemon.WebApp.Models.WeighingModels
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
-@using Scalemon.WebApp.Components.Dialogs
+@using Radzen
 @inject ProtectedLocalStorage PLS
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
 @inject ISettingsSource SettingsSource
 @inject DialogService DialogService
+@inject IJSRuntime JS
+@inject NotificationService NotificationService
 
 <RadzenRow>   
 
@@ -26,13 +33,19 @@
                          class="rz-p-3 rz-pb-2">
 
                 <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
-					<RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
-						@(
-												_totalCount > 0
-												? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
-												: "Данные за день отсутствуют"
-												)
-					</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
+                        @(
+                            _totalCount > 0
+                                ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+                                : "Данные за день отсутствуют"
+                            )
+                    </RadzenText>
+                    <RadzenButton Text="Экспорт в Excel"
+                                   Icon="file_download"
+                                   Size="ButtonSize.Small"
+                                   ButtonStyle="ButtonStyle.Secondary"
+                                   Click="@ExportToExcelAsync"
+                                   Style="align-self:flex-start" />
                     <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
 
 						<RadzenText TextStyle="TextStyle.Subtitle2">
@@ -345,6 +358,119 @@
 
         // Построение матрицы — только для текущей страницы
         BuildMatrix(items, _latestEdits);
+    }
+
+    async Task ExportToExcelAsync()
+    {
+        try
+        {
+            var dateOnly = DateOnly.FromDateTime(SelectedDate);
+            var allItems = await Data.GetDayAllAsync(dateOnly);
+            if (allItems is null || allItems.Count == 0)
+            {
+                NotificationService.Notify(NotificationSeverity.Info, "Экспорт в Excel", "За выбранный день нет данных для экспорта.");
+                return;
+            }
+
+            var ordered = allItems.OrderBy(x => x.Timestamp).ToList();
+            var summary = new DaySummary(
+                Count: ordered.Count,
+                Sum: ordered.Sum(x => x.Weight),
+                Min: ordered.Count > 0 ? ordered.Min(x => x.Weight) : null,
+                Max: ordered.Count > 0 ? ordered.Max(x => x.Weight) : null,
+                Avg: ordered.Count > 0 ? ordered.Average(x => x.Weight) : null);
+
+            const int pageSize = 400;
+            var pageCount = (int)Math.Ceiling(summary.Count / (double)pageSize);
+            var ru = CultureInfo.GetCultureInfo("ru-RU");
+
+            using var workbook = new XLWorkbook();
+
+            for (var page = 0; page < pageCount; page++)
+            {
+                var worksheet = workbook.Worksheets.Add($"Страница {page + 1}");
+                var currentRow = 1;
+
+                var title = $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}";
+                worksheet.Cell(currentRow, 1).Value = title;
+                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                currentRow++;
+
+                var totalText = $"Всего: {summary.Sum.ToString("N2", ru)} кг ({summary.Count.ToString("N0", ru)} шт.)";
+                worksheet.Cell(currentRow, 1).Value = totalText;
+                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                currentRow++;
+
+                var avgText = summary.Avg?.ToString("N2", ru) ?? "0,00";
+                var minText = summary.Min?.ToString("N2", ru) ?? "—";
+                var maxText = summary.Max?.ToString("N2", ru) ?? "—";
+                var summaryText = $"Средний вес {avgText} кг (min: {minText} кг, max: {maxText} кг)";
+                worksheet.Cell(currentRow, 1).Value = summaryText;
+                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                currentRow++;
+
+                worksheet.Cell(currentRow, 1).Value = $"Страница {page + 1} из {pageCount}";
+                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                currentRow += 2;
+
+                worksheet.Cell(currentRow, 1).Value = "№";
+                for (var col = 1; col <= 10; col++)
+                {
+                    worksheet.Cell(currentRow, col + 1).Value = col.ToString(CultureInfo.InvariantCulture);
+                }
+
+                var headerRow = currentRow;
+                currentRow++;
+
+                var pageItems = ordered.Skip(page * pageSize).Take(pageSize).ToList();
+                for (var rowIdx = 0; rowIdx < 40; rowIdx++)
+                {
+                    worksheet.Cell(currentRow + rowIdx, 1).Value = rowIdx + 1;
+
+                    for (var col = 0; col < 10; col++)
+                    {
+                        var index = col * 40 + rowIdx;
+                        if (index >= pageItems.Count)
+                        {
+                            continue;
+                        }
+
+                        var weight = pageItems[index].Weight;
+                        worksheet.Cell(currentRow + rowIdx, col + 2).Value = weight;
+                    }
+                }
+
+                currentRow += 40;
+
+                worksheet.Cell(currentRow, 1).Value = "ИТОГО:";
+                for (var col = 0; col < 10; col++)
+                {
+                    var columnLetter = XLHelper.GetColumnLetterFromNumber(col + 2);
+                    var dataStartRow = headerRow + 1;
+                    var dataEndRow = headerRow + 40;
+                    var formula = $"=SUM({columnLetter}{dataStartRow}:{columnLetter}{dataEndRow})";
+                    worksheet.Cell(currentRow, col + 2).SetFormulaA1(formula);
+                }
+
+                var dataRange = worksheet.Range(headerRow, 2, currentRow, 11);
+                dataRange.Style.NumberFormat.Format = "#,##0.00";
+                worksheet.Columns().AdjustToContents();
+            }
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            var base64 = Convert.ToBase64String(stream.ToArray());
+            var fileName = $"weighings-{SelectedDate:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync(
+                "scalemon.downloadFile",
+                fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                base64);
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Экспорт в Excel", ex.Message);
+        }
     }
 
     void BuildMatrix(IReadOnlyList<Weighing> items, IReadOnlyDictionary<int, WeighingEditEntry> editsById)
