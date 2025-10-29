@@ -26,65 +26,59 @@
     <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
     <RadzenColumn Order="2" OrderLG="1" Size="12" SizeLG="8" SizeXL="9">
         <!-- Новый заголовок с «сводкой» + переключатель режима -->
-        <RadzenCard Style="padding:0">
-            <RadzenStack Orientation="Orientation.Horizontal"
-                         JustifyContent="JustifyContent.SpaceBetween"
-                         AlignItems="AlignItems.Center"
-                         class="rz-p-3 rz-pb-2">
-
-                <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" class="rz-pb-2">
+            <RadzenStack Orientation="Orientation.Vertical">                               
+                <RadzenStack Orientation="Orientation.Horizontal">
                     <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
                         @(
                             _totalCount > 0
-                                ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
-                                : "Данные за день отсутствуют"
-                            )
+                            ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+                            : "Данные за день отсутствуют"
+                        )
                     </RadzenText>
-                    <RadzenButton Text="Экспорт в Excel"
+                    <RadzenButton Text="Скачать"
                                    Icon="file_download"
                                    Size="ButtonSize.Small"
                                    ButtonStyle="ButtonStyle.Secondary"
                                    Click="@ExportToExcelAsync"
                                    Style="align-self:flex-start" />
-                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
-
-						<RadzenText TextStyle="TextStyle.Subtitle2">
-							@{
-								var ru = CultureInfo.GetCultureInfo("ru-RU");
-								var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
-								var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
-							}
-							Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
-						</RadzenText>
-						<RadzenText TextStyle="TextStyle.Subtitle2">
-							@{
-								var ru = CultureInfo.GetCultureInfo("ru-RU");
-								var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
-								var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
-								var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
-							}
-							Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
-						</RadzenText>
-					</RadzenStack>
-                </RadzenStack>
-                
-                
-
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
-                    @if (_isDetailed)
-                    {
-                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
-                            <RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
-                        </RadzenStack>
-                    }
-                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                </RadzenStack> 
+			    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">
+						@{
+							var ru = CultureInfo.GetCultureInfo("ru-RU");
+							var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
+							var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
+						}
+						Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
+				    </RadzenText>
+				    <RadzenText TextStyle="TextStyle.Subtitle2">
+						@{
+							var ru = CultureInfo.GetCultureInfo("ru-RU");
+							var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
+							var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
+							var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
+						}
+						Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
+				    </RadzenText>
+			    </RadzenStack>
+			</RadzenStack>
+            <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" JustifyContent="JustifyContent.Start" AlignItems="AlignItems.End">
+                    
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
                         <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
                     </RadzenStack>
-                </RadzenStack>
+				@if (_isDetailed)
+				{
+					<RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+						<RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
+						<RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
+					</RadzenStack>
+				}
             </RadzenStack>
-        </RadzenCard>
+        </RadzenStack>
+        
 
         <WeightsGrid @ref="_grid"
                      IsDetailed="@_isDetailed"
