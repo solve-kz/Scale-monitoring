@@ -500,8 +500,7 @@
 
                 worksheet.PageSetup.PrintAreas.Clear();
                 var printAreaAddress = $"A1:K{currentRow.ToString(CultureInfo.InvariantCulture)}";
-                var printArea = worksheet.Range(printAreaAddress);
-                worksheet.PageSetup.PrintAreas.Add(printArea);
+                worksheet.PageSetup.PrintAreas.Add(printAreaAddress);
                 worksheet.PageSetup.FitToPages(1, 1);
                 worksheet.Columns().AdjustToContents();
             }
