@@ -419,7 +419,7 @@
                 worksheet.Cell(currentRow, 1).Value = $"Страница {page + 1} из {pageCount}";
                 var pagerRange = worksheet.Range(currentRow, 1, currentRow, 11);
                 pagerRange.Merge();
-                pagerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+                pagerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
                 pagerRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
                 currentRow += 2;
 
@@ -502,7 +502,9 @@
                 var printAreaAddress = $"A1:K{currentRow.ToString(CultureInfo.InvariantCulture)}";
                 worksheet.PageSetup.PrintAreas.Add(printAreaAddress);
                 worksheet.PageSetup.FitToPages(1, 1);
-                worksheet.Columns().AdjustToContents();
+
+                worksheet.Column(1).AdjustToContents();
+                worksheet.Columns(2, 11).Width = 8;
             }
 
             using var stream = new MemoryStream();
