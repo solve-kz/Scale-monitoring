@@ -498,8 +498,9 @@
                 totalRowRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
                 worksheet.Range(currentRow, 2, currentRow, 11).Style.NumberFormat.Format = "#,##0.00";
 
-                worksheet.PageSetup.PrintAreas.Clear();
-                worksheet.PageSetup.PrintAreas.Add(worksheet.Range(1, 1, currentRow, 11));
+                worksheet.PageSetup.ClearPrintAreas();
+                var printAreaAddress = $"A1:K{currentRow.ToString(CultureInfo.InvariantCulture)}";
+                worksheet.PageSetup.PrintAreas.Add(printAreaAddress);
                 worksheet.PageSetup.FitToPages(1, 1);
                 worksheet.Columns().AdjustToContents();
             }
