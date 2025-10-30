@@ -379,6 +379,8 @@
             var ru = CultureInfo.GetCultureInfo("ru-RU");
 
             using var workbook = new XLWorkbook();
+            workbook.Style.Font.SetFontName("Times New Roman");
+            workbook.Style.Font.SetFontSize(11);
 
             for (var page = 0; page < pageCount; page++)
             {
@@ -387,12 +389,20 @@
 
                 var title = $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}";
                 worksheet.Cell(currentRow, 1).Value = title;
-                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
-                currentRow++;
+                var titleRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                titleRange.Merge();
+                titleRange.Style.Font.SetFontSize(16);
+                titleRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                titleRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                worksheet.Row(currentRow).Height = 19.5;
+                currentRow += 2;
 
                 var totalText = $"Всего: {summary.Sum.ToString("N2", ru)} кг ({summary.Count.ToString("N0", ru)} шт.)";
                 worksheet.Cell(currentRow, 1).Value = totalText;
-                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                var totalRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                totalRange.Merge();
+                totalRange.Style.Font.SetFontSize(12);
+                worksheet.Row(currentRow).Height = 15;
                 currentRow++;
 
                 var avgText = summary.Avg?.ToString("N2", ru) ?? "0,00";
@@ -400,11 +410,17 @@
                 var maxText = summary.Max?.ToString("N2", ru) ?? "—";
                 var summaryText = $"Средний вес {avgText} кг (min: {minText} кг, max: {maxText} кг)";
                 worksheet.Cell(currentRow, 1).Value = summaryText;
-                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                var summaryRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                summaryRange.Merge();
+                summaryRange.Style.Font.SetFontSize(12);
+                worksheet.Row(currentRow).Height = 15;
                 currentRow++;
 
                 worksheet.Cell(currentRow, 1).Value = $"Страница {page + 1} из {pageCount}";
-                worksheet.Range(currentRow, 1, currentRow, 11).Merge();
+                var pagerRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                pagerRange.Merge();
+                pagerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+                pagerRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
                 currentRow += 2;
 
                 worksheet.Cell(currentRow, 1).Value = "№";
@@ -446,8 +462,47 @@
                     worksheet.Cell(currentRow, col + 2).SetFormulaA1(formula);
                 }
 
-                var dataRange = worksheet.Range(headerRow, 2, currentRow, 11);
-                dataRange.Style.NumberFormat.Format = "#,##0.00";
+                var headerRange = worksheet.Range(headerRow, 1, headerRow, 11);
+                headerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                headerRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                headerRange.Style.Fill.SetBackgroundColor(XLColor.LightYellow);
+                headerRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                headerRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Row(headerRow).Height = 16.5;
+
+                var dataStart = headerRow + 1;
+                var dataEnd = headerRow + 40;
+                var indexRange = worksheet.Range(dataStart, 1, dataEnd, 1);
+                indexRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                indexRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                indexRange.Style.Fill.SetBackgroundColor(XLColor.LightYellow);
+                indexRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                indexRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Rows(dataStart, dataEnd).Height = 15.75;
+
+                var valuesRange = worksheet.Range(dataStart, 2, dataEnd, 11);
+                valuesRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                valuesRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+                valuesRange.Style.Alignment.SetIndent(1);
+                valuesRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                valuesRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                valuesRange.Style.NumberFormat.Format = "#,##0.00";
+
+                var totalRowRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                totalRowRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                totalRowRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                totalRowRange.Style.Fill.SetBackgroundColor(XLColor.LightGreen);
+                totalRowRange.Style.Font.SetBold();
+                totalRowRange.Style.Font.SetFontColor(XLColor.DarkBlue);
+                totalRowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                totalRowRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Range(currentRow, 2, currentRow, 11).Style.NumberFormat.Format = "#,##0.00";
+
+                worksheet.PageSetup.PrintAreas.Clear();
+                var printAreaAddress = $"A1:K{currentRow.ToString(CultureInfo.InvariantCulture)}";
+                var printArea = worksheet.Range(printAreaAddress);
+                worksheet.PageSetup.PrintAreas.Add(printArea);
+                worksheet.PageSetup.FitToPages(1, 1);
                 worksheet.Columns().AdjustToContents();
             }
 
