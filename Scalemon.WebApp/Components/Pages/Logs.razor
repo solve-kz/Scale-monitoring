@@ -36,8 +36,8 @@
                         @bind-Value:after="OnFiltersChanged"
                         AllowClear="true"
                         Style="width:220px" />
-        <RadzenDatePicker @bind-Value="from" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="От" Style="width:200px" />
-        <RadzenDatePicker @bind-Value="to" TValue="DateTime?" @bind-Value:after="OnFiltersChanged"  DateFormat="yyyy-MM-dd HH:mm" ShowTime="true" Placeholder="До" Style="width:200px" />
+        <RadzenDatePicker @bind-Value="from" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="От" Style="width:200px" />
+        <RadzenDatePicker @bind-Value="to" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="До" Style="width:200px" />
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
             <RadzenSwitch @bind-Value="AutoRefresh" @bind-Value:after="OnFiltersChanged" />
       <span>Автообновление</span>
