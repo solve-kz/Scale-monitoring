@@ -1,6 +1,5 @@
 ﻿@page "/logs"
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Net.Http.Json
 @using System.Globalization
@@ -29,7 +28,6 @@
              JustifyContent="JustifyContent.SpaceBetween"
              Style="margin-bottom:8px">
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-        <RadzenTextBox @bind-Value="search" @bind-Value:after="OnFiltersChanged"  Placeholder="Поиск по сообщению" Style="width:280px" />
         <RadzenDropDown Data="@allLevels"
                         TValue="string"
                         @bind-Value="SelectedLevel"
@@ -38,24 +36,12 @@
                         Style="width:220px" />
         <RadzenDatePicker @bind-Value="from" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="От" Style="width:200px" />
         <RadzenDatePicker @bind-Value="to" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="До" Style="width:200px" />
-    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
-            <RadzenSwitch @bind-Value="AutoRefresh" @bind-Value:after="OnFiltersChanged" />
-      <span>Автообновление</span>
-            <RadzenNumeric @bind-Value="RefreshSeconds" Min="5" Max="300" Step="5" Style="width:90px" @bind-Value:after="OnFiltersChanged" />
-      <span>сек</span>
-    </RadzenStack>
   </RadzenStack>
 
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-    <RadzenButton Icon="refresh" Text="Обновить" Click="@ReloadAsync" ButtonStyle="ButtonStyle.Primary" />
     <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsvAsync" />
-    <RadzenButton Icon="upload" Text="Импорт логов" Click="@TriggerImportDialogAsync" />
   </RadzenStack>
 </RadzenStack>
-
-<div style="display:none">
-    <InputFile @ref="_importInput" Multiple OnChange="OnImportFilesSelected" />
-</div>
 
 <RadzenSplitter Style="height: calc(100vh - 210px); min-height:480px" 
                 Resize="@OnSplitterResize">
@@ -146,7 +132,6 @@
     private ApiLogEntry? selected;
 
     // ===== Фильтры (привяжите к вашим полям/контролам на странице) =====
-    private string? search;
     private string? path;
     private DateTime? from;
     private DateTime? to;
@@ -154,14 +139,6 @@
     private static readonly string[] allLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
 
     private CancellationTokenSource _cts = new();
-    private InputFile? _importInput;
-    private const long MaxImportFileSize = 256L * 1024 * 1024;
-  
-
-    // Auto refresh
-    private bool AutoRefresh = false;
-    private int RefreshSeconds = 15;
-    private System.Timers.Timer? _timer;
 
     private string? SelectedLevel { get; set; }
     const string SessionFromKey = "logs.from";
@@ -176,21 +153,6 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadUiStateAsync();
-        SetupTimer();
-    }
-
-    
-
-    private void SetupTimer()
-    {
-        _timer?.Dispose();
-        if (AutoRefresh)
-        {
-        _timer = new System.Timers.Timer(RefreshSeconds * 1000);
-        _timer.Elapsed += async (_, __) => { try { await InvokeAsync(ReloadAsync); } catch { } };
-        _timer.AutoReset = true;
-        _timer.Start();
-        }
     }
 
     
@@ -212,7 +174,6 @@
                 skip: skip,
                 take: take,
                 levels: SelectedLevel,
-                search: search,
                 from: from,
                 to: to,
                 path: path,
@@ -238,7 +199,6 @@
             var bytes = await Api.ExportLogsCsvAsync(
                 path: path,
                 levels: SelectedLevel,
-                search: search,
                 from: from,
                 to: to,
                 ct: _cts.Token);
@@ -260,82 +220,6 @@
         {
             NotificationService.Notify(NotificationSeverity.Error, "Экспорт CSV", ex.Message);
         }
-    }
-
-    private async Task TriggerImportDialogAsync()
-    {
-        if (_importInput is null)
-        {
-            return;
-        }
-
-        await JS.InvokeVoidAsync("scalemon.triggerFileDialog", _importInput.Element);
-    }
-
-    private async Task OnImportFilesSelected(InputFileChangeEventArgs e)
-    {
-        var files = e.GetMultipleFiles();
-        if (files.Count == 0)
-        {
-            await ResetImportInputAsync();
-            return;
-        }
-
-        var uploads = new List<ApiClient.UploadFilePayload>(files.Count);
-
-        try
-        {
-            foreach (var file in files)
-            {
-                var stream = file.OpenReadStream(MaxImportFileSize);
-                uploads.Add(new ApiClient.UploadFilePayload(stream, file.Name, file.ContentType, file.Name));
-            }
-
-            var results = await Api.ImportLogsAsync(uploads, _cts.Token);
-
-            var successes = results.Where(r => string.IsNullOrEmpty(r.Error)).ToList();
-            foreach (var item in successes)
-            {
-                var target = item.Database ?? item.Path ?? "выбранную базу";
-                NotificationService.Notify(NotificationSeverity.Success, "Импорт логов",
-                    $"Файл {item.File} импортирован ({item.Imported} записей) в {target}.");
-            }
-
-            var failures = results.Where(r => !string.IsNullOrEmpty(r.Error)).ToList();
-            foreach (var item in failures)
-            {
-                NotificationService.Notify(NotificationSeverity.Error, "Импорт логов",
-                    $"Файл {item.File}: {item.Error}");
-            }
-
-            if (successes.Count > 0)
-            {
-                await ReloadAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            NotificationService.Notify(NotificationSeverity.Error, "Импорт логов", ex.Message);
-        }
-        finally
-        {
-            foreach (var upload in uploads)
-            {
-                upload.Stream.Dispose();
-            }
-
-            await ResetImportInputAsync();
-        }
-    }
-
-    private async Task ResetImportInputAsync()
-    {
-        if (_importInput is null)
-        {
-            return;
-        }
-
-        await JS.InvokeVoidAsync("scalemon.resetFileInput", _importInput.Element);
     }
 
   private string GetLevelStyle(string? level) => level?.ToLowerInvariant() switch
@@ -366,12 +250,9 @@
 
     private sealed class LogsUiState
     {
-        public string? Search { get; set; }
         public string? SelectedLevel { get; set; }
         public DateTime? FromDate { get; set; }
         public DateTime? ToDate { get; set; }
-        public bool AutoRefresh { get; set; }
-        public int RefreshSeconds { get; set; }
 
         // размеры сплиттера в процентах
         public double? LeftPaneSize { get; set; }     // например, 65
@@ -482,12 +363,9 @@
             var s = res.Success ? res.Value : null;
             if (s is null) return;
 
-            search = s.Search;
             SelectedLevel = s.SelectedLevel;
             from = s.FromDate;
             to = s.ToDate;
-            AutoRefresh = s.AutoRefresh;
-            RefreshSeconds = s.RefreshSeconds > 0 ? s.RefreshSeconds : 15;
 
             if (s.LeftPaneSize is double lp)
                 LeftPaneSize = Clamp(lp, 15, 90);
@@ -502,12 +380,9 @@
         if (!_uiLoaded) return; // не сохраняем до первой загрузки
         var s = new LogsUiState
         {
-            Search = search,
             SelectedLevel = SelectedLevel,
             FromDate = from,
             ToDate = to,
-            AutoRefresh = AutoRefresh,
-            RefreshSeconds = RefreshSeconds,
             LeftPaneSize = Math.Round(Clamp(LeftPaneSize, 15, 90), 1)
         };
         await PLS.SetAsync(UiStateKey, s);
@@ -515,7 +390,6 @@
 
     private async Task OnFiltersChanged()
     {
-        SetupTimer();
         await PersistDatesToSessionAsync();  // <-- добавлено
         await SaveUiStateAsync();
         await ReloadAsync();
