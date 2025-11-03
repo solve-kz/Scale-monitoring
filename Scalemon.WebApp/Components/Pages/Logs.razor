@@ -5,6 +5,7 @@
 @using System.Globalization
 @using System.Collections.Generic
 @using System.Linq
+@using System.Text
 @using ApiLogEntry = Scalemon.WebApp.ApiClient.LogEntry
 @inject NavigationManager Nav
 @inject ApiClient Api
@@ -28,12 +29,18 @@
              JustifyContent="JustifyContent.SpaceBetween"
              Style="margin-bottom:8px">
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+        <RadzenSwitch TValue="bool"
+                       @bind-Value="IsScaleMode"
+                       @bind-Value:after="OnModeChanged"
+                       OffLabel="Служба"
+                       OnLabel="Весы" />
         <RadzenDropDown Data="@allLevels"
                         TValue="string"
                         @bind-Value="SelectedLevel"
                         @bind-Value:after="OnFiltersChanged"
                         AllowClear="true"
-                        Style="width:220px" />
+                        Style="width:220px"
+                        Visible="@(!IsScaleMode)" />
         <RadzenDatePicker @bind-Value="from" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="От" Style="width:200px" />
         <RadzenDatePicker @bind-Value="to" TValue="DateTime?" @bind-Value:after="OnFiltersChanged" DateFormat="MM-dd HH:mm:ss" ShowTime="true" ShowSeconds="true" Placeholder="До" Style="width:200px" />
   </RadzenStack>
@@ -131,6 +138,11 @@
     private int PageSize = 50;
     private ApiLogEntry? selected;
 
+    private bool IsScaleMode { get; set; }
+    private string? _levelBeforeScaleMode;
+    private bool _scaleCacheValid;
+    private List<ApiLogEntry> _scaleModeEntries = new();
+
     // ===== Фильтры (привяжите к вашим полям/контролам на странице) =====
     private string? path;
     private DateTime? from;
@@ -170,6 +182,16 @@
             var skip = args.Skip ?? 0;
             var take = args.Top ?? PageSize;
 
+            if (IsScaleMode)
+            {
+                await EnsureScaleCacheAsync(Math.Max(take, 200), _cts.Token);
+                Rows = _scaleModeEntries.Skip(skip).Take(take).ToList();
+                TotalCount = _scaleModeEntries.Count;
+                PageSize = take;
+                StateHasChanged();
+                return;
+            }
+
             var res = await Api.GetLogsPagedAsync(
                 skip: skip,
                 take: take,
@@ -184,6 +206,10 @@
             PageSize = take;
             StateHasChanged();
         }
+        catch (OperationCanceledException)
+        {
+            // отменено — игнорируем
+        }
         catch (Exception ex)
         {
             NotificationService.Notify(NotificationSeverity.Error, "Загрузка лога", ex.Message);
@@ -192,20 +218,121 @@
 
     private void OnRowSelect(ApiLogEntry entry) => selected = entry;
 
+    private async Task EnsureScaleCacheAsync(int batchSize, CancellationToken ct)
+    {
+        if (_scaleCacheValid)
+        {
+            return;
+        }
+
+        _scaleModeEntries = new List<ApiLogEntry>();
+        var take = Math.Max(batchSize, 50);
+        var skip = 0;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var res = await Api.GetLogsPagedAsync(
+                skip: skip,
+                take: take,
+                levels: null,
+                from: from,
+                to: to,
+                path: path,
+                ct: ct);
+
+            if (res.Items.Count == 0)
+            {
+                break;
+            }
+
+            _scaleModeEntries.AddRange(res.Items.Where(IsScaleRelevant));
+
+            skip += take;
+            if (skip >= res.Total || res.Items.Count < take)
+            {
+                break;
+            }
+        }
+
+        _scaleCacheValid = true;
+    }
+
+    private static bool IsScaleRelevant(ApiLogEntry entry)
+    {
+        if (entry.Source == "Scalemon.SerialLink.ScaleProcessor")
+        {
+            return true;
+        }
+
+        if (entry.Source == "Scalemon.FSM.PlateauZeroStateMachine")
+        {
+            return entry.Message?.StartsWith("Запись взвешивания: net=", System.StringComparison.Ordinal) == true;
+        }
+
+        return false;
+    }
+
+    private void InvalidateScaleCache()
+    {
+        _scaleCacheValid = false;
+        _scaleModeEntries = new List<ApiLogEntry>();
+    }
+
+    private static string ToCsvField(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var sanitized = value
+            .Replace(System.Environment.NewLine, " ")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace(';', ',');
+
+        return sanitized;
+    }
+
     private async Task DownloadCsvAsync()
     {
         try
         {
-            var bytes = await Api.ExportLogsCsvAsync(
-                path: path,
-                levels: SelectedLevel,
-                from: from,
-                to: to,
-                ct: _cts.Token);
-            if (bytes is null || bytes.Length == 0)
+            byte[] bytes;
+
+            if (IsScaleMode)
             {
-                NotificationService.Notify(NotificationSeverity.Info, "Экспорт CSV", "Получен пустой файл логов.");
-                return;
+                await EnsureScaleCacheAsync(Math.Max(PageSize, 200), _cts.Token);
+                if (_scaleModeEntries.Count == 0)
+                {
+                    NotificationService.Notify(NotificationSeverity.Info, "Экспорт CSV", "Нет записей для выгрузки.");
+                    return;
+                }
+
+                var sb = new StringBuilder();
+                sb.AppendLine("Timestamp;Level;Source;Message;Exception");
+                foreach (var entry in _scaleModeEntries)
+                {
+                    sb.AppendLine($"{entry.Timestamp:O};{ToCsvField(entry.Level)};{ToCsvField(entry.Source)};{ToCsvField(entry.Message)};{ToCsvField(entry.Exception)}");
+                }
+
+                bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            }
+            else
+            {
+                bytes = await Api.ExportLogsCsvAsync(
+                    path: path,
+                    levels: SelectedLevel,
+                    from: from,
+                    to: to,
+                    ct: _cts.Token);
+                if (bytes is null || bytes.Length == 0)
+                {
+                    NotificationService.Notify(NotificationSeverity.Info, "Экспорт CSV", "Получен пустой файл логов.");
+                    return;
+                }
             }
 
             var fileName = $"logs-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
@@ -257,6 +384,7 @@
         // размеры сплиттера в процентах
         public double? LeftPaneSize { get; set; }     // например, 65
         public double? RightPaneSize { get; set; }    // например, 35
+        public bool? IsScaleMode { get; set; }
     }
 
     
@@ -367,6 +495,12 @@
             from = s.FromDate;
             to = s.ToDate;
 
+            IsScaleMode = s.IsScaleMode ?? false;
+            if (IsScaleMode)
+            {
+                _levelBeforeScaleMode = SelectedLevel;
+            }
+
             if (s.LeftPaneSize is double lp)
                 LeftPaneSize = Clamp(lp, 15, 90);
             else
@@ -383,16 +517,33 @@
             SelectedLevel = SelectedLevel,
             FromDate = from,
             ToDate = to,
-            LeftPaneSize = Math.Round(Clamp(LeftPaneSize, 15, 90), 1)
+            LeftPaneSize = Math.Round(Clamp(LeftPaneSize, 15, 90), 1),
+            IsScaleMode = IsScaleMode
         };
         await PLS.SetAsync(UiStateKey, s);
     }
 
     private async Task OnFiltersChanged()
     {
+        InvalidateScaleCache();
         await PersistDatesToSessionAsync();  // <-- добавлено
         await SaveUiStateAsync();
         await ReloadAsync();
+    }
+
+    private Task OnModeChanged()
+    {
+        if (IsScaleMode)
+        {
+            _levelBeforeScaleMode = SelectedLevel;
+        }
+        else
+        {
+            SelectedLevel = _levelBeforeScaleMode;
+        }
+
+        InvalidateScaleCache();
+        return OnFiltersChanged();
     }
 
     private async Task OnSplitterResize(RadzenSplitterResizeEventArgs args)
