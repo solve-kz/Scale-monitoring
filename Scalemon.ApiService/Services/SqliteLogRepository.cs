@@ -98,7 +98,7 @@ LIMIT $limit;";
                 dataCmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
 FROM {LogDatabaseInitializer.TableName}
 {whereClause}
-ORDER BY datetime(Timestamp) DESC;";
+ORDER BY datetime(Timestamp) ASC;";
                 AddParameters(dataCmd, filterParameters);
 
                 await using var reader = await dataCmd.ExecuteReaderAsync(ct);
@@ -109,7 +109,7 @@ ORDER BY datetime(Timestamp) DESC;";
             }
         }
 
-        items.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
+        items.Sort(static (a, b) => a.Timestamp.CompareTo(b.Timestamp));
         var pageItems = items.Skip(skip).Take(take).ToList();
 
         return new PagedResult<LogEntry>(pageItems, (int)Math.Min(int.MaxValue, total));
@@ -137,7 +137,7 @@ ORDER BY datetime(Timestamp) DESC;";
             cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
 FROM {LogDatabaseInitializer.TableName}
 {whereClause}
-ORDER BY datetime(Timestamp) DESC;";
+ORDER BY datetime(Timestamp) ASC;";
             AddParameters(cmd, filterParameters);
 
             await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -147,7 +147,7 @@ ORDER BY datetime(Timestamp) DESC;";
             }
         }
 
-        items.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
+        items.Sort(static (a, b) => a.Timestamp.CompareTo(b.Timestamp));
         return items;
     }
 
