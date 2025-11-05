@@ -96,12 +96,17 @@
     <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
     <RadzenColumn Order="1" OrderLG="2" Size="12" SizeLG="4" SizeXL="3"
                   Style="display:flex; flex-direction:column; min-height:100vh;">
-        <!-- Нижний блок, "прилипший" к низу окна -->
-        <div style="margin-top:auto; position:sticky; bottom:0px; z-index:10; width:100%;">
+        <!-- Верхний блок, «приклеенный» к верху окна -->
+        <div style="position:sticky; top:0; z-index:10; width:100%;">
             <RadzenStack Orientation="Orientation.Vertical"
-                         AlignItems="AlignItems.Center"
+                         AlignItems="AlignItems.Stretch"
                          Gap="0.75rem"
                          Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
+                <CalendarWithMarks SelectedDate="@SelectedDate"
+                                   SelectedDateChanged="@OnDatePicked"
+                                   MarkedDays="@_markedDays"
+                                   MonthChanged="@OnMonthChanged" />
+
                 @if (_showDetails && _selectedCell?.HasValue == true)
                 {
                     <RecordDetailsPanel Cell="@_selectedCell"
@@ -109,14 +114,6 @@
                                         Visible="@_showDetails"
                                         ActionRequested="@OnActionFromDetails" />
                 }
-                <div style="min-height:calc(100vh - 700px);">
-
-                </div>
-
-                <CalendarWithMarks SelectedDate="@SelectedDate"
-                                   SelectedDateChanged="@OnDatePicked"
-                                   MarkedDays="@_markedDays"
-                                   MonthChanged="@OnMonthChanged" />
             </RadzenStack>
         </div>
     </RadzenColumn>
