@@ -21,104 +21,114 @@
 @inject IJSRuntime JS
 @inject NotificationService NotificationService
 
-<RadzenRow>   
+<RadzenSplitter Orientation="SplitterOrientation.Horizontal"
+                Style="min-height:100vh;"
+                class="monitoring-splitter">
 
-    <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
-    <RadzenColumn Order="2" OrderLG="1" Size="12" SizeLG="8" SizeXL="9">
-        <!-- Новый заголовок с «сводкой» + переключатель режима -->
-        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" class="rz-pb-2">
-            <RadzenStack Orientation="Orientation.Vertical">                               
-                <RadzenStack Orientation="Orientation.Horizontal">
-                    <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
-                        @(
-                            _totalCount > 0
-                            ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
-                            : "Данные за день отсутствуют"
-                        )
-                    </RadzenText>
-                    <RadzenButton Text="Скачать"
-                                   Icon="file_download"
-                                   Size="ButtonSize.Small"
-                                   ButtonStyle="ButtonStyle.Secondary"
-                                   Click="@ExportToExcelAsync"
-                                   Style="align-self:flex-start" />
-                </RadzenStack> 
-			    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
-                    <RadzenText TextStyle="TextStyle.Subtitle2">
-						@{
-							var ru = CultureInfo.GetCultureInfo("ru-RU");
-							var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
-							var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
-						}
-						Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
-				    </RadzenText>
-				    <RadzenText TextStyle="TextStyle.Subtitle2">
-						@{
-							var ru = CultureInfo.GetCultureInfo("ru-RU");
-							var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
-							var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
-							var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
-						}
-						Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
-				    </RadzenText>
-			    </RadzenStack>
-			</RadzenStack>
-            <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" JustifyContent="JustifyContent.Start" AlignItems="AlignItems.End">
-                    
+    <!-- ЛЕВАЯ ПАНЕЛЬ: заголовок + таблица -->
+    <RadzenSplitterPane Size="70%"
+                        Min="60%"
+                        Style="display:flex; flex-direction:column; min-width:0;">
+        <div class="monitoring-pane monitoring-pane-left">
+            <!-- Новый заголовок с «сводкой» + переключатель режима -->
+            <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" class="rz-pb-2">
+                <RadzenStack Orientation="Orientation.Vertical">
+                    <RadzenStack Orientation="Orientation.Horizontal">
+                        <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
+                            @(
+                                _totalCount > 0
+                                ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+                                : "Данные за день отсутствуют"
+                            )
+                        </RadzenText>
+                        <RadzenButton Text="Скачать"
+                                       Icon="file_download"
+                                       Size="ButtonSize.Small"
+                                       ButtonStyle="ButtonStyle.Secondary"
+                                       Click="@ExportToExcelAsync"
+                                       Style="align-self:flex-start" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
+                        <RadzenText TextStyle="TextStyle.Subtitle2">
+                            @{
+                                var ru = CultureInfo.GetCultureInfo("ru-RU");
+                                var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
+                                var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
+                            }
+                            Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Subtitle2">
+                            @{
+                                var ru = CultureInfo.GetCultureInfo("ru-RU");
+                                var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
+                                var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
+                                var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
+                            }
+                            Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
+                        </RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" JustifyContent="JustifyContent.Start" AlignItems="AlignItems.End">
+
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
                         <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
                     </RadzenStack>
-				@if (_isDetailed)
-				{
-					<RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-						<RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
-						<RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
-					</RadzenStack>
-				}
+                    @if (_isDetailed)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
+                            <RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
+                        </RadzenStack>
+                    }
+                </RadzenStack>
             </RadzenStack>
-        </RadzenStack>
-        
 
-        <WeightsGrid @ref="_grid"
-                     IsDetailed="@_isDetailed"
-                     HighlightSameWeightCells="@(_isDetailed && _highlightRepeats)"
-                     Rows="@_rows"
-                     SummaryRows="@_summaryRows"
-                     Totals="@_totals"
-                     TotalCount="@_totalCount"
-                     PageSize="400"
-                     PageChanged="@OnPageChanged"
-                     CellSelected="@OnCellSelected"
-                     ActionRequested="@OnActionFromGrid" />
-    </RadzenColumn>
-
-    <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
-    <RadzenColumn Order="1" OrderLG="2" Size="12" SizeLG="4" SizeXL="3"
-                  Style="display:flex; flex-direction:column; min-height:100vh;">
-        <!-- Верхний блок, «приклеенный» к верху окна -->
-        <div style="position:sticky; top:0; z-index:10; width:100%;">
-            <RadzenStack Orientation="Orientation.Vertical"
-                         AlignItems="AlignItems.Stretch"
-                         Gap="0.75rem"
-                         Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
-                <CalendarWithMarks SelectedDate="@SelectedDate"
-                                   SelectedDateChanged="@OnDatePicked"
-                                   MarkedDays="@_markedDays"
-                                   MonthChanged="@OnMonthChanged" />
-
-                @if (_showDetails && _selectedCell?.HasValue == true)
-                {
-                    <RecordDetailsPanel Cell="@_selectedCell"
-                                        OrderInDay="@_selectedOrderInDay"
-                                        Visible="@_showDetails"
-                                        ActionRequested="@OnActionFromDetails" />
-                }
-            </RadzenStack>
+            <div class="monitoring-grid-container">
+                <WeightsGrid @ref="_grid"
+                             IsDetailed="@_isDetailed"
+                             HighlightSameWeightCells="@(_isDetailed && _highlightRepeats)"
+                             Rows="@_rows"
+                             SummaryRows="@_summaryRows"
+                             Totals="@_totals"
+                             TotalCount="@_totalCount"
+                             PageSize="400"
+                             PageChanged="@OnPageChanged"
+                             CellSelected="@OnCellSelected"
+                             ActionRequested="@OnActionFromGrid" />
+            </div>
         </div>
-    </RadzenColumn>
+    </RadzenSplitterPane>
 
-</RadzenRow>
+    <!-- ПРАВАЯ ПАНЕЛЬ: календарь + детали -->
+    <RadzenSplitterPane Size="30%"
+                        Min="20%"
+                        Style="display:flex; flex-direction:column; min-width:0;">
+        <div class="monitoring-pane monitoring-pane-right">
+            <!-- Верхний блок, «приклеенный» к верху окна -->
+            <div class="monitoring-sidebar-sticky">
+                <RadzenStack Orientation="Orientation.Vertical"
+                             AlignItems="AlignItems.Stretch"
+                             Gap="0.75rem"
+                             Style="width:100%; max-height:calc(100vh - 24px); overflow:auto;">
+                    <CalendarWithMarks SelectedDate="@SelectedDate"
+                                       SelectedDateChanged="@OnDatePicked"
+                                       MarkedDays="@_markedDays"
+                                       MonthChanged="@OnMonthChanged" />
+
+                    @if (_showDetails && _selectedCell?.HasValue == true)
+                    {
+                        <RecordDetailsPanel Cell="@_selectedCell"
+                                            OrderInDay="@_selectedOrderInDay"
+                                            Visible="@_showDetails"
+                                            ActionRequested="@OnActionFromDetails" />
+                    }
+                </RadzenStack>
+            </div>
+        </div>
+    </RadzenSplitterPane>
+
+</RadzenSplitter>
 
 @code {
 
