@@ -1,1 +1,48 @@
 ﻿
+::deep .monitoring-splitter {
+    width: 100%;
+}
+
+.monitoring-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    height: 100%;
+    min-width: 0;
+}
+
+.monitoring-grid-container {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.monitoring-grid-container ::deep .rz-datagrid {
+    width: 100%;
+    min-width: 0;
+}
+
+.monitoring-pane-right {
+    position: relative;
+}
+
+.monitoring-sidebar-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    width: 100%;
+}
+
+.monitoring-pane-right ::deep .rz-card,
+.monitoring-pane-right ::deep .rz-datepicker,
+.monitoring-pane-right ::deep .rz-datepicker-inline,
+.monitoring-pane-right ::deep .rz-calendar,
+.monitoring-pane-right ::deep .rz-calendar-content,
+.monitoring-pane-right ::deep .rz-calendar-table {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.monitoring-pane-right ::deep .rz-calendar-table {
+    table-layout: fixed;
+}
