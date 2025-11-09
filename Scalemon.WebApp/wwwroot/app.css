@@ -7,3 +7,14 @@
     background-color: var(--rz-success-lighter);
     color: var(--rz-success-contrast);
 }
+
+.monitoring-calendar-panel .rz-dropdown-item {
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.5rem;
+    box-sizing: border-box;
+}
+
+.monitoring-calendar-panel .rz-picker-panel,
+.monitoring-calendar-panel .rz-dropdown-panel {
+    box-sizing: border-box;
+}
