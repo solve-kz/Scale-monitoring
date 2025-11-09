@@ -1,1 +1,48 @@
-﻿
+.monitoring-calendar-card {
+    padding: 0.5rem;
+    box-sizing: border-box;
+}
+
+::deep .monitoring-calendar {
+    box-sizing: border-box;
+}
+
+::deep .monitoring-calendar * {
+    box-sizing: border-box;
+}
+
+::deep .monitoring-calendar .rz-calendar {
+    font-size: 0.875rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-header {
+    padding: 0.25rem 0.5rem;
+}
+
+::deep .monitoring-calendar .rz-button-icon-only {
+    width: 1.75rem;
+    height: 1.75rem;
+}
+
+::deep .monitoring-calendar .rz-button-icon-only .rz-icon {
+    font-size: 1rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-title {
+    font-size: 0.9375rem;
+    padding: 0.25rem 0.5rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-table button {
+    width: 2rem;
+    height: 2rem;
+    padding: 0.25rem;
+    font-size: 0.8125rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-monthview button,
+::deep .monitoring-calendar .rz-calendar-yearview button {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8125rem;
+    width: 100%;
+}
