@@ -16,12 +16,23 @@
 }
 
 ::deep .monitoring-calendar .rz-calendar-header {
-    padding: 0.25rem 0.5rem;
+    padding: 0.2rem 0.4rem;
+    column-gap: 0.25rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-navigation {
+    column-gap: 0.25rem;
+}
+
+::deep .monitoring-calendar .rz-calendar-header .rz-button {
+    min-height: 1.5rem;
+    padding: 0.125rem 0.4rem;
+    font-size: 0.8125rem;
 }
 
 ::deep .monitoring-calendar .rz-button-icon-only {
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.6rem;
+    height: 1.6rem;
 }
 
 ::deep .monitoring-calendar .rz-button-icon-only .rz-icon {
