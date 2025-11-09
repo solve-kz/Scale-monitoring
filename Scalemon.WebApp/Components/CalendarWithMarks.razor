@@ -1,15 +1,17 @@
 ﻿@using System.Globalization
 
-<RadzenCard class="rz-p-4 rz-w-stretch">
-        <div class="rz-text-align-center">
-            <RadzenDatePicker @bind-Value="SelectedDate"
-                              TValue="DateTime"
-                              Inline="true"
-                              ShowTime="false"
-                              DateRender="@OnDateRender"
-                              CurrentDateChanged="@OnCurrentDateChanged"
-                              Change="@OnDateChanged"/>
-        </div>
+<RadzenCard class="rz-p-4 rz-w-stretch monitoring-calendar-card">
+    <div class="rz-text-align-center">
+        <RadzenDatePicker @bind-Value="SelectedDate"
+                          TValue="DateTime"
+                          Inline="true"
+                          ShowTime="false"
+                          CalendarClass="monitoring-calendar"
+                          PopupClass="monitoring-calendar-panel"
+                          DateRender="@OnDateRender"
+                          CurrentDateChanged="@OnCurrentDateChanged"
+                          Change="@OnDateChanged"/>
+    </div>
 </RadzenCard>
 
 @code {
