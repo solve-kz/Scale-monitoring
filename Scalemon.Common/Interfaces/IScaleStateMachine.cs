@@ -12,7 +12,11 @@ namespace Scalemon.Common
         FsmState CurrentState { get; }
         Task SetConnectionAsync(bool isConnected);
         Task SetAlarmAsync(bool isAlarm);
-        Task OnWeightSampleAsync(decimal weightKg);
+
+        /// <summary>
+        /// Передаёт в FSM полный снимок свежего ответа весового терминала.
+        /// </summary>
+        Task OnScaleSampleAsync(ScaleDataPoint sample);
 
         Task OnDatabaseFailedAsync(Exception ex); // без изменений в остальной системе
         Task OnDatabaseRestoredAsync();

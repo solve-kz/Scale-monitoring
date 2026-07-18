@@ -73,9 +73,9 @@ public class ScalemonService : BackgroundService
             await _fsm.SetConnectionAsync(data.IsConnected);
             await _fsm.SetAlarmAsync(data.IsAlarm);
 
-            if (data.IsStable)
+            if (data.HasFreshMeasurement)
             {
-                await _fsm.OnWeightSampleAsync(data.WeightKg);
+                await _fsm.OnScaleSampleAsync(data);
             }
 
             var fsmState = _fsm.CurrentState;
@@ -89,6 +89,10 @@ public class ScalemonService : BackgroundService
             {
                 signalToSend = Enums.ArduinoSignalCode.LinkOff;
             }
+            else if (fsmState == FsmState.InvalidWeightState)
+            {
+                signalToSend = Enums.ArduinoSignalCode.RedOn;
+            }
             else if (data.IsStable)
             {
                 switch (fsmState)
@@ -101,9 +105,6 @@ public class ScalemonService : BackgroundService
                             signalToSend = Enums.ArduinoSignalCode.Completed;
                         else
                             signalToSend = Enums.ArduinoSignalCode.Unstable;
-                        break;
-                    case FsmState.InvalidWeightState:
-                        signalToSend = Enums.ArduinoSignalCode.YellowRedOn;
                         break;
                 }
             }

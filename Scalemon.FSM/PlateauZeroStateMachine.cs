@@ -1,468 +1,521 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Scalemon.Common;
 using System;
-using System.Diagnostics;
-using System.Globalization;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using static Scalemon.Common.Enums;
 
-namespace Scalemon.FSM
+namespace Scalemon.FSM;
+
+/// <summary>
+/// FSM автоматической фиксации: стабильное плато → немедленная запись → подтверждённая разгрузка.
+/// </summary>
+public sealed class PlateauZeroStateMachine
 {
+    private readonly SystemSettings _settings;
+    private readonly ILogger _log;
+    private readonly Func<decimal, Task> _onRecordAsync;
+    private readonly Func<ResidualCorrectionRequest, CancellationToken, Task<ScaleCommandResult>> _correctResidualAsync;
+    private readonly List<decimal> _plateauSamples = new();
+    private readonly List<decimal> _unloadSamples = new();
+
+    private FsmState _state = FsmState.Disconnected;
+    private bool _connected;
+    private bool _alarm;
+    private bool _armed;
+    private bool _cycleRecorded;
+    private bool _waitingForPostCommandZero;
+    private bool _redLatched;
+    private bool _correctionAllowedAfterChange;
+    private bool _suppressIdleCorrectionUntilLoad;
+    private decimal _blockedAtWeightKg;
+    private decimal _divisionKg = 0.01m;
+
     /// <summary>
-    /// FSM "плато → ноль" для автоматической фиксации взвешиваний.
-    /// Подключается поверх существующего цикла опроса.
+    /// Создаёт конечный автомат автоматической фиксации веса.
     /// </summary>
-    public sealed class PlateauZeroStateMachine
+    public PlateauZeroStateMachine(
+        SystemSettings settings,
+        ILogger logger,
+        Func<decimal, Task> onRecordAsync,
+        Func<ResidualCorrectionRequest, CancellationToken, Task<ScaleCommandResult>> correctResidualAsync)
     {
+        settings.ValidateWeighing();
+        _settings = settings;
+        _log = logger;
+        _onRecordAsync = onRecordAsync;
+        _correctResidualAsync = correctResidualAsync;
 
-        [Flags]
-        public enum Flags
+        _log.LogInformation(
+            "FSM: Min={Min}kg, ZeroMax={ZeroMax}kg, TareMax={TareMax}kg, " +
+            "Plateau={PlateauSamples}x/{PlateauWindow}kg, Unload={UnloadSamples}x, CommandTimeout={Timeout}ms",
+            _settings.MinWeight,
+            _settings.ZeroResidualMaxKg,
+            _settings.TareMaxKg,
+            _settings.PlateauStableSamples,
+            _settings.PlateauWindowKg,
+            _settings.UnloadStableSamples,
+            _settings.CommandTimeoutMs);
+    }
+
+    public FsmState CurrentState => _state;
+
+    /// <summary>
+    /// Обновляет подтверждённое состояние соединения с весами.
+    /// </summary>
+    public void SetConnection(bool isConnected)
+    {
+        if (_connected == isConnected)
+            return;
+
+        _connected = isConnected;
+        _plateauSamples.Clear();
+        _unloadSamples.Clear();
+
+        if (!_connected)
         {
-            None = 0,
-            ResidualTared = 1 << 0, // был положительный хвост; сделали автоноль
-            NegativeTared = 1 << 1, // было стабильное отрицательное; сделали автоноль
-            TareFailed = 1 << 2  // автоноль не удался
+            Transition(FsmState.Disconnected);
+            return;
         }
 
-        public sealed record Settings(
-            decimal ZeroBandKg,       // Z: |w| ≤ Z — "ноль"
-            decimal ResidualBandKg,   // R: 0 < w ≤ R — "хвост"
-            decimal NegativeBandKg,   // N: −N ≤ w < 0 — "малое отрицательное"
-            decimal MinWeightKg,      // минимально валидный вес продукта
-            int PlateauStableSamples, // M
-            int ZeroStableSamples,    // K
-            TimeSpan TareTimeout,     // ожидание нуля после SetToZero()
-            int TareMaxRetries        // повторы автонуля
-        );
+        _log.LogInformation("Связь с весами восстановлена");
+    }
 
-        // Внешние зависимости (инъекции):
-        private readonly ILogger _log;
-        private readonly Settings _cfg;
-        private readonly Func<decimal, Task> _onRecordAsync;
-        private readonly Action _sendTare;
-        private readonly ISignalBus _bus;// SetToZero() на драйвер
+    /// <summary>
+    /// Обновляет аппаратный аварийный статус весов.
+    /// </summary>
+    public Task SetAlarmAsync(bool isAlarm)
+    {
+        if (_alarm == isAlarm)
+            return Task.CompletedTask;
 
-        // Служебные поля:
-        private FsmState _st = FsmState.Disconnected;
-        private bool _connected;
-        private bool _alarm;
-        private int _consecutiveZeroCount = 0;
+        _alarm = isAlarm;
+        _plateauSamples.Clear();
+        _unloadSamples.Clear();
 
-        private decimal _peak;          // пик на плато
-        private decimal _minStableWeight; // минимальный стабильный вес на плато
-        private decimal _tail;          // положительный хвост (0..R)
-        private bool _plateauConfirmed; // плато подтверждено (≥M)
-        private bool _needTareForNegative; // нужно ли тарировать из-за отрицательных
-
-        private int _stableCount;       // счётчик стабильности текущей "классификации"
-        private Class _lastClass = Class.Unknown;
-
-        private DateTime _tareDeadlineUtc;
-        private int _tareRetries;
-
-        private enum Class { Unknown, Zero, ResidualPos, Negative, InvalidLight, ValidHeavy }
-
-        public PlateauZeroStateMachine(
-            Settings cfg,
-            ILogger logger,
-            ISignalBus bus, // <-- ПРИНИМАЕМ ЗАВИСИМОСТЬ
-            Func<decimal, Task> onRecordAsync,
-            Action sendTare)
+        if (_alarm)
         {
-            _cfg = cfg;
-            _log = logger;
-            _bus = bus; // <-- СОХРАНЯЕМ
-            _onRecordAsync = onRecordAsync;
-            _sendTare = sendTare;
+            Transition(FsmState.Alarm);
+        }
+        else
+        {
+            _log.LogInformation("Аварийный сигнал весов снят");
+        }
 
-            // Валидация порогов
-            if (_cfg.MinWeightKg <= _cfg.ResidualBandKg)
-                _log.LogWarning("MinWeight ({min}) ≤ ResidualBand ({res}). Рекомендую повысить MinWeight.", _cfg.MinWeightKg, _cfg.ResidualBandKg);
+        return Task.CompletedTask;
+    }
 
+    /// <summary>
+    /// Обрабатывает очередной свежий ответ массы от терминала.
+    /// </summary>
+    public async Task OnSampleAsync(ScaleDataPoint sample)
+    {
+        if (!_connected)
+        {
+            Transition(FsmState.Disconnected);
+            return;
+        }
+
+        if (_alarm)
+        {
+            Transition(FsmState.Alarm);
+            return;
+        }
+
+        if (!sample.HasFreshMeasurement)
+            return;
+
+        if (!sample.IsStable)
+        {
+            _plateauSamples.Clear();
+            _unloadSamples.Clear();
+            return;
+        }
+
+        if (sample.DivisionKg > 0m)
+            _divisionKg = sample.DivisionKg;
+
+        if (_cycleRecorded)
+        {
+            await HandleAwaitUnloadAsync(sample);
+            return;
+        }
+
+        if (_waitingForPostCommandZero)
+        {
+            await HandlePostCommandConfirmationAsync(sample);
+            return;
+        }
+
+        if (_redLatched)
+        {
+            await HandleBlockedAsync(sample);
+            return;
+        }
+
+        if (!_armed)
+        {
+            await HandleUnarmedAsync(sample);
+            return;
+        }
+
+        await HandleArmedAsync(sample);
+    }
+
+    private async Task HandleArmedAsync(ScaleDataPoint sample)
+    {
+        var minWeightKg = (decimal)_settings.MinWeight;
+        if (sample.WeightKg >= minWeightKg)
+        {
+            _suppressIdleCorrectionUntilLoad = false;
+            _unloadSamples.Clear();
+            await AddPlateauSampleAsync(sample.WeightKg);
+            return;
+        }
+
+        _plateauSamples.Clear();
+        if (sample.IsTerminalZero ||
+            sample.WeightKg == 0m ||
+            (_suppressIdleCorrectionUntilLoad && sample.WeightKg > 0m))
+        {
+            _unloadSamples.Clear();
+            Transition(FsmState.IdleZero);
+            return;
+        }
+
+        Transition(FsmState.Weighing);
+        await AddUnloadSampleAsync(sample);
+    }
+
+    private async Task HandleUnarmedAsync(ScaleDataPoint sample)
+    {
+        _plateauSamples.Clear();
+        Transition(FsmState.Weighing);
+        await AddUnloadSampleAsync(sample);
+    }
+
+    private async Task AddPlateauSampleAsync(decimal weightKg)
+    {
+        AddToStableWindow(
+            _plateauSamples,
+            weightKg,
+            _settings.PlateauStableSamples,
+            (decimal)_settings.PlateauWindowKg);
+        Transition(FsmState.Weighing);
+
+        if (_plateauSamples.Count < _settings.PlateauStableSamples)
+            return;
+
+        var recordedWeight = RoundToDivision(Median(_plateauSamples));
+        _plateauSamples.Clear();
+        if (recordedWeight < (decimal)_settings.MinWeight)
+            return;
+
+        // Блокировка цикла устанавливается до обращения к БД: ошибка записи не должна создавать дубль.
+        _cycleRecorded = true;
+        _armed = false;
+        Transition(FsmState.AwaitUnload);
+
+        try
+        {
             _log.LogInformation(
-                "FSM thresholds: ZeroBand={zero}kg, ResidualBand={res}kg, NegativeBand={neg}kg, MinWeight={min}kg, M={M}, K={K}, Ttare={T}s, MaxRetries={R}",
-                _cfg.ZeroBandKg, _cfg.ResidualBandKg, _cfg.NegativeBandKg, _cfg.MinWeightKg,
-                _cfg.PlateauStableSamples, _cfg.ZeroStableSamples, (int)_cfg.TareTimeout.TotalSeconds, _cfg.TareMaxRetries);
+                "Запись подтверждённого плато: Weight={Weight:0.###}kg, Division={Division:0.####}kg, Samples={Samples}",
+                recordedWeight,
+                _divisionKg,
+                _settings.PlateauStableSamples);
+            await _onRecordAsync(recordedWeight);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Ошибка записи взвешивания в БД; автоматический повтор отключён во избежание дубля");
+        }
+    }
+
+    private async Task HandleAwaitUnloadAsync(ScaleDataPoint sample)
+    {
+        if (sample.WeightKg >= (decimal)_settings.MinWeight)
+        {
+            _unloadSamples.Clear();
+            Transition(FsmState.AwaitUnload);
+            return;
         }
 
-        // --- ДОБАВЛЯЕМ НОВОЕ СОСТОЯНИЕ В ENUM ---
-        // Важно: этот enum скорее всего лежит в отдельном файле, например, Scalemon.Common/Enums.cs
-        // Тебе нужно будет добавить `InvalidWeightState` туда.
-        // public enum FsmState { Disconnected, IdleZero, ..., InvalidWeightState }
+        await AddUnloadSampleAsync(sample);
+    }
 
-        public FsmState CurrentState => _st;
+    private async Task AddUnloadSampleAsync(ScaleDataPoint sample)
+    {
+        AddToStableWindow(
+            _unloadSamples,
+            sample.WeightKg,
+            _settings.UnloadStableSamples,
+            (decimal)_settings.PlateauWindowKg);
 
-        // Вызывай это из твоего цикла опроса каждый раз, когда обновился статус соединения
-        public void SetConnection(bool nowConnected)
+        if (_unloadSamples.Count < _settings.UnloadStableSamples)
+            return;
+
+        var residualKg = Median(_unloadSamples);
+        _unloadSamples.Clear();
+        _cycleRecorded = false;
+        await HandleConfirmedResidualAsync(residualKg, sample.IsTerminalZero);
+    }
+
+    private async Task HandleConfirmedResidualAsync(decimal residualKg, bool terminalZero)
+    {
+        _armed = false;
+        var absoluteResidual = Math.Abs(residualKg);
+        var zeroMaxKg = (decimal)_settings.ZeroResidualMaxKg;
+        var tareMaxKg = (decimal)_settings.TareMaxKg;
+
+        if (terminalZero || residualKg == 0m)
         {
-            if (_connected == nowConnected) return;
-            _connected = nowConnected;
-
-            if (!_connected)
-            {
-                Transition(FsmState.Disconnected);
-            }
-            else
-            {
-                // В момент восстановления не насилуем переходы — класс определит OnSample
-                _log.LogInformation("Связь с весами восстановлена");
-            }
+            CompleteRecovery();
+            return;
         }
 
-        // Вызывай при смене аварийного статуса
-        public Task SetAlarmAsync(bool alarmOn)
+        if (absoluteResidual > tareMaxKg)
         {
-            if (_alarm == alarmOn) return Task.CompletedTask; // <-- Добавили возврат здесь
-            _alarm = alarmOn;
-
-            if (_alarm)
-            {
-                Transition(FsmState.Alarm);
-            }
-            else
-            {
-                _log.LogInformation("Снята авария весов, продолжаю работу");
-            }
-
-            return Task.CompletedTask; // <-- Добавили возврат здесь
+            EnterRedLatch(
+                residualKg,
+                "Остаточный вес требует очистки платформы");
+            return;
         }
 
-        /// <summary>
-        /// Главный вход: передавай СТАБИЛИЗИРОВАННЫЕ образцы веса сюда (т.е. уже отфильтрованные твоими M/K или сырые — тогда используем внутренний счётчик).
-        /// Рекомендуется вызывать каждые 200мс, как сейчас.
-        /// </summary>
-        public async Task OnSampleAsync(decimal w)
+        ScaleCommandResult result;
+        if (residualKg < 0m)
         {
-            if (w != 0)
+            result = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.TareCurrentWeight));
+            if (!result.Succeeded)
             {
-                // Если вес не нулевой, сбрасываем счетчик и всегда пишем в лог
-                _consecutiveZeroCount = 0;
-                _log.LogInformation("FSM получил семпл: Вес={weight}, Текущее состояние={state}", w, _st);
-            }
-            else
-            {
-                // Если вес нулевой, увеличиваем счетчик
-                _consecutiveZeroCount++;
-                // и пишем в лог, только если он не больше 3
-                if (_consecutiveZeroCount <= 3)
-                {
-                    _log.LogInformation("FSM получил семпл: Вес={weight}, Текущее состояние={state}", w, _st);
-                }
-            }
-            if (!_connected)
-            {
-                if (_st != FsmState.Disconnected) Transition(FsmState.Disconnected);
-                return;
-            }
-            if (_alarm)
-            {
-                if (_st != FsmState.Alarm) Transition(FsmState.Alarm);
+                HandleCorrectionFailure(result, residualKg, "TARE текущей отрицательной нагрузки");
                 return;
             }
 
-            // 1) Классификация и внутренняя стабильность
-            var cls = Classify(w);
-            UpdateStability(cls);
-
-            // 2) Тиковая обработка тайм-аута тарирования
-            if (_st == FsmState.WaitZeroAfterTare && DateTime.UtcNow >= _tareDeadlineUtc)
+            result = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetZero));
+            if (!result.Succeeded)
             {
-                if (_tareRetries < _cfg.TareMaxRetries)
-                {
-                    _tareRetries++;
-                    _log.LogWarning("Автоноль: тайм-аут, повтор {try}/{max}", _tareRetries, _cfg.TareMaxRetries);
-                    SendTareAndWait();
-                }
-                else
-                {
-                    _log.LogError("Автоноль: все попытки исчерпаны");
-                    Transition(FsmState.ZeroFailed);
-                }
+                HandleCorrectionFailure(result, residualKg, "ZERO после снятия отрицательной тары");
                 return;
             }
 
-            // 3) Логика состояний
-            switch (_st)
-            {
-                case FsmState.Disconnected:
-                    if (IsZeroStable()) Transition(FsmState.IdleZero);
-                    else if (IsValidPlateauStart(cls)) Transition(FsmState.Weighing);
-                    break;
-
-                case FsmState.Alarm:
-                    // Ждём снятия аварии; переход обработается SetAlarmAsync
-                    break;
-
-                case FsmState.IdleZero:
-                    if (IsValidPlateauStart(cls))
-                    {
-                        _peak = w;
-                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
-                        _plateauConfirmed = false;
-                        Transition(FsmState.Weighing);
-                    }
-                    else if (IsResidualStable())
-                    {
-                        _log.LogInformation("Обнаружен стабильный остаточный вес ({weight} кг) в состоянии готовности. Инициирую автоноль.", w);
-                        SendTareAndWait();
-                    }
-                    else if (IsNegativeStable())
-                    {
-                        _log.LogInformation("Обнаружен стабильный отрицательный вес ({weight} кг) в состоянии готовности. Инициирую автоноль.", w);
-                        SendTareAndWait();
-                    }
-                    // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-                    else if (IsInvalidLightStable())
-                    {
-                        _log.LogWarning("Обнаружен стабильный, но невалидный вес ({weight} кг) в диапазоне ({min}-{max} кг). Переход в состояние ошибки.",
-                            w, _cfg.ResidualBandKg, _cfg.MinWeightKg);
-                        Transition(FsmState.InvalidWeightState);
-                    }
-                    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-                    break;
-
-                // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-                case FsmState.InvalidWeightState:
-                    if (cls != Class.InvalidLight)
-                    {
-                        _log.LogInformation("Вес изменился ({weight} кг), выход из состояния ошибки.", w);
-                        Transition(FsmState.IdleZero);
-                    }
-                    break;
-                // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
-                case FsmState.Weighing:
-                    if (cls == Class.ValidHeavy)
-                    {
-                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
-                        _peak = Math.Max(_peak, w);
-                        if (IsPlateauStable())
-                        {
-                            _plateauConfirmed = true;
-                            Transition(FsmState.AwaitUnload);
-                        }
-                    }
-                    else if (IsZeroishStable(cls))
-                    {
-                        // плато не подтвердилось — сбрасываем цикл, возвращаемся к нулю
-                        Transition(FsmState.IdleZero);
-                    }
-                    // иначе игнорируем промежуточное "InvalidLight"
-                    break;
-
-                case FsmState.AwaitUnload:
-                    if (cls == Class.ValidHeavy)
-                    {
-                        _minStableWeight = _minStableWeight == 0m ? w : Math.Min(_minStableWeight, w);
-                        _peak = Math.Max(_peak, w); // продолжаем копить пик
-                    }
-                    else if (IsZeroStable())
-                    {
-                        _tail = 0m;
-                        await PrepareRecordAsync(cls, w);
-                    }
-                    else if (IsResidualStable())
-                    {
-                        _tail = w; // 0 < w ≤ R
-                        await PrepareRecordAsync(cls, w);
-                    }
-                    else if (IsNegativeStable())
-                    {
-                        _tail = 0m;
-                        _needTareForNegative = true;
-                        await PrepareRecordAsync(cls, w);
-                    }
-                    break;
-
-                case FsmState.PostUnload:
-                    // входное действие PostUnload вызывает PrepareRecordAsync → OnRecord → далее в Tare/IdleZero
-                    break;
-
-                case FsmState.TarePending:
-                case FsmState.WaitZeroAfterTare:
-                    if (IsZeroStable())
-                    {
-                        _log.LogInformation("Автоноль подтверждён стабильным нулём");
-                        Transition(FsmState.IdleZero);
-                    }
-                    break;
-
-                case FsmState.ZeroFailed:
-                    if (IsZeroStable())
-                    {
-                        _log.LogInformation("Ноль подтверждён, выходим из ZeroFailed");
-                        Transition(FsmState.IdleZero);
-                    }
-                    break;
-            }
+            BeginPostCommandConfirmation();
+            return;
         }
 
-        private async Task PrepareRecordAsync(Class cls, decimal w)
+        if (absoluteResidual <= zeroMaxKg)
         {
-
-            if (_minStableWeight < _cfg.MinWeightKg)
+            result = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetZero));
+            if (result.Succeeded)
             {
-                Transition(FsmState.IdleZero);
+                BeginPostCommandConfirmation();
                 return;
             }
 
-            Transition(FsmState.PostUnload);
-
-            // 1) Расчёт net
-            decimal net = _minStableWeight - _tail;
-            net = RoundToScaleStep(net);
-
-            if (net < _cfg.MinWeightKg)
+            if (result.IsTransportError)
             {
-                _log.LogWarning("FSM ПРОПУСК ЗАПИСИ: Рассчитанный вес НЕТТО ({net} кг) меньше минимального порога ({minWeight} кг). Минимум={minWeightStable}, Пик={peak}, Хвост={tail}",
-                        net, _cfg.MinWeightKg, _minStableWeight, _peak, _tail);
-                await _bus.SendAsync(Enums.ArduinoSignalCode.YellowRedOn); // <-- ОШИБКА ВЗВЕШИВАНИЯ
-                // Возврат в IdleZero или Tare в зависимости от хвоста/отрицательного
-                if (_tail > 0m || _needTareForNegative) SendTareAndWait();
-                else Transition(FsmState.IdleZero);
+                HandleCorrectionFailure(result, residualKg, "ZERO");
                 return;
             }
 
-            // 2) Запись
-            var flags = Flags.None;
-            if (_tail > 0m) flags |= Flags.ResidualTared;
-            if (_needTareForNegative) flags |= Flags.NegativeTared;
-
-            try
+            // Только явный отказ ZERO разрешает переход к явной установке тары.
+            _log.LogInformation(
+                "ZERO отклонён терминалом; выполняется один TARE остатка {Residual:0.###} кг",
+                residualKg);
+            result = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetTare, residualKg));
+            if (!result.Succeeded)
             {
-                _log.LogInformation("Запись взвешивания: net={net:0.###}kg (recorded={recorded:0.###}, peak={peak:0.###}, tail={tail:0.###}, flags={flags})",
-                    net, _minStableWeight, _peak, _tail, flags);
-                if (_onRecordAsync != null)
-                    await _onRecordAsync(net);
-
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Ошибка записи взвешивания в БД");
-                // при ошибке записи не тарируем автоматически
-                Transition(FsmState.IdleZero);
+                HandleCorrectionFailure(result, residualKg, "TARE после отказа ZERO");
                 return;
             }
 
-            // 3) Автоноль (если нужно)
-            if (_tail > 0m || _needTareForNegative)
-                SendTareAndWait();
-            else
-                Transition(FsmState.IdleZero);
+            BeginPostCommandConfirmation();
+            return;
         }
 
-        private void SendTareAndWait()
+        result = await SendCorrectionAsync(
+            new ResidualCorrectionRequest(ResidualCorrectionCommand.SetTare, residualKg));
+        if (!result.Succeeded)
         {
-            _needTareForNegative = false; // сбрасываем флаг: тарирование будет выполнено
-            _minStableWeight = 0m;
-            Transition(FsmState.TarePending);
-            try
-            {
-                _sendTare?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Ошибка отправки SetToZero()");
-                Transition(FsmState.ZeroFailed);
-                return;
-            }
-            _tareDeadlineUtc = DateTime.UtcNow + _cfg.TareTimeout;
-            Transition(FsmState.WaitZeroAfterTare);
+            HandleCorrectionFailure(result, residualKg, "TARE остатка");
+            return;
         }
 
-        // ----------------- Вспомогательные методы -----------------
+        BeginPostCommandConfirmation();
+    }
 
-        private void Transition(FsmState to)
+    private async Task<ScaleCommandResult> SendCorrectionAsync(ResidualCorrectionRequest request)
+    {
+        return await _correctResidualAsync(request, CancellationToken.None);
+    }
+
+    private void HandleCorrectionFailure(
+        ScaleCommandResult result,
+        decimal residualKg,
+        string operation)
+    {
+        if (result.IsTransportError)
         {
-
-            if (_st == to) return;
-
-            var from = _st;
-            _st = to;
-            _log.LogDebug("FSM: Переход из [{from}] в [{to}]", from, to);
-
-            // При входе в ключевые состояния — один раз в лог
-            switch (to)
-            {
-                case FsmState.Disconnected:
-                    _log.LogWarning("Связь с весами потеряна");
-                    _bus.SendAsync(Enums.ArduinoSignalCode.LinkOff); // <-- ВЫКЛЮЧИТЬ ВСЁ
-                    break;
-                case FsmState.IdleZero:
-                    _peak = 0m; _tail = 0m; _minStableWeight = 0m; _plateauConfirmed = false; _tareRetries = 0; _needTareForNegative = false;
-                    _log.LogInformation("→ IdleZero");
-                    break;
-                case FsmState.InvalidWeightState: // --- ДОБАВЛЕНО ---
-                    _log.LogWarning("→ InvalidWeightState (обнаружен некорректный стабильный вес)");
-                    break;
-                case FsmState.Weighing:
-                    _log.LogDebug("→ Weighing (start), peak={peak:0.###}", _peak);
-                    break;
-                case FsmState.AwaitUnload:
-                    _log.LogDebug("→ AwaitUnload (plateau confirmed), peak≈{peak:0.###}", _peak);
-                    break;
-                case FsmState.PostUnload:
-                    _log.LogDebug("→ PostUnload");
-                    break;
-                case FsmState.TarePending:
-                    _minStableWeight = 0m;
-                    _log.LogDebug("→ TarePending");
-                    break;
-                case FsmState.WaitZeroAfterTare:
-                    _log.LogDebug("→ WaitZeroAfterTare (timeout at {deadline:o})", _tareDeadlineUtc);
-                    break;
-                case FsmState.ZeroFailed:
-                    _minStableWeight = 0m;
-                    _log.LogError("→ ZeroFailed (автоноль не удался)");
-                    break;
-                case FsmState.Alarm:
-                    _log.LogError("→ Alarm");
-                    break;
-            }
-
-            // Сброс счётчиков стабильности при смене режимов
-            _lastClass = Class.Unknown;
-            _stableCount = 0;
-
-            _log.LogTrace("FSM: {from} → {to}", from, to);
+            _connected = false;
+            _waitingForPostCommandZero = false;
+            _redLatched = true;
+            _correctionAllowedAfterChange = false;
+            _blockedAtWeightKg = residualKg;
+            _log.LogWarning(
+                "Потеря связи при {Operation}: {Error}. Повторная команда не отправляется",
+                operation,
+                result.ResponseText);
+            Transition(FsmState.Disconnected);
+            return;
         }
 
-        private Class Classify(decimal w)
+        EnterRedLatch(
+            residualKg,
+            $"Терминал отклонил {operation}: {result.ResponseText} (code={result.ResponseCode})");
+    }
+
+    private void BeginPostCommandConfirmation()
+    {
+        _waitingForPostCommandZero = true;
+        _correctionAllowedAfterChange = false;
+        _unloadSamples.Clear();
+        Transition(_redLatched ? FsmState.InvalidWeightState : FsmState.Weighing);
+    }
+
+    private async Task HandlePostCommandConfirmationAsync(ScaleDataPoint sample)
+    {
+        if (Math.Abs(sample.WeightKg) > (decimal)_settings.ZeroResidualMaxKg)
         {
-            if (w < 0m)
-            {
-                if (w >= -_cfg.NegativeBandKg) return Class.Negative;
-                return Class.InvalidLight; // "сильно отрицательный" считаем шумом/ошибкой датчика
-            }
-
-            if (w <= _cfg.ZeroBandKg) return Class.Zero;
-            if (w <= _cfg.ResidualBandKg) return Class.ResidualPos;
-            if (w < _cfg.MinWeightKg) return Class.InvalidLight; // --- ИЗМЕНЕНО --- было w <= ...
-            return Class.ValidHeavy;
+            _waitingForPostCommandZero = false;
+            EnterRedLatch(sample.WeightKg, "После команды не подтверждён околонулевой результат");
+            return;
         }
 
-        private void UpdateStability(Class cls)
+        AddToStableWindow(
+            _unloadSamples,
+            sample.WeightKg,
+            _settings.UnloadStableSamples,
+            (decimal)_settings.PlateauWindowKg);
+        Transition(_redLatched ? FsmState.InvalidWeightState : FsmState.Weighing);
+
+        if (_unloadSamples.Count < _settings.UnloadStableSamples)
+            return;
+
+        _unloadSamples.Clear();
+        CompleteRecovery(suppressIdleCorrectionUntilLoad: true);
+        await Task.CompletedTask;
+    }
+
+    private async Task HandleBlockedAsync(ScaleDataPoint sample)
+    {
+        Transition(FsmState.InvalidWeightState);
+        if (Math.Abs(sample.WeightKg - _blockedAtWeightKg) > (decimal)_settings.PlateauWindowKg)
+            _correctionAllowedAfterChange = true;
+
+        if (Math.Abs(sample.WeightKg) > (decimal)_settings.ZeroResidualMaxKg)
         {
-            if (cls == _lastClass) _stableCount++;
-            else { _lastClass = cls; _stableCount = 1; }
+            _unloadSamples.Clear();
+            return;
         }
 
-        private bool IsPlateauStable() => _stableCount >= _cfg.PlateauStableSamples && _lastClass == Class.ValidHeavy;
-        private bool IsZeroStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.Zero;
-        private bool IsResidualStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.ResidualPos;
-        private bool IsNegativeStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.Negative;
-        // --- ДОБАВЛЕНО ---
-        private bool IsInvalidLightStable() => _stableCount >= _cfg.ZeroStableSamples && _lastClass == Class.InvalidLight;
+        AddToStableWindow(
+            _unloadSamples,
+            sample.WeightKg,
+            _settings.UnloadStableSamples,
+            (decimal)_settings.PlateauWindowKg);
 
-        private static decimal RoundToScaleStep(decimal x)
+        if (_unloadSamples.Count < _settings.UnloadStableSamples)
+            return;
+
+        var residualKg = Median(_unloadSamples);
+        _unloadSamples.Clear();
+        if (sample.IsTerminalZero || residualKg == 0m)
         {
-            // Настрой при необходимости под дискретность АЦП. По умолчанию — 0.01 кг.
-            const decimal step = 0.01m;
-            return Math.Round(x / step, MidpointRounding.AwayFromZero) * step;
+            CompleteRecovery();
+            return;
         }
 
-        private bool IsZeroishStable(Class cls) => IsZeroStable() || IsResidualStable() || IsNegativeStable();
+        if (!_correctionAllowedAfterChange)
+            return;
 
-        private bool IsValidPlateauStart(Class cls) => cls == Class.ValidHeavy; // старт по первому валидному семплу
+        _correctionAllowedAfterChange = false;
+        await HandleConfirmedResidualAsync(residualKg, sample.IsTerminalZero);
+    }
+
+    private void EnterRedLatch(decimal residualKg, string reason)
+    {
+        var wasLatched = _redLatched;
+        _redLatched = true;
+        _waitingForPostCommandZero = false;
+        _armed = false;
+        _blockedAtWeightKg = residualKg;
+        _correctionAllowedAfterChange = false;
+        _plateauSamples.Clear();
+        _unloadSamples.Clear();
+        Transition(FsmState.InvalidWeightState);
+
+        if (!wasLatched)
+            _log.LogWarning("{Reason}. Weight={Weight:0.###}kg", reason, residualKg);
+    }
+
+    private void CompleteRecovery(bool suppressIdleCorrectionUntilLoad = false)
+    {
+        if (_redLatched)
+            _log.LogInformation("Коррекция остатка подтверждена; красная сигнализация снята");
+
+        _redLatched = false;
+        _waitingForPostCommandZero = false;
+        _correctionAllowedAfterChange = false;
+        _suppressIdleCorrectionUntilLoad = suppressIdleCorrectionUntilLoad;
+        _blockedAtWeightKg = 0m;
+        _cycleRecorded = false;
+        _armed = true;
+        _plateauSamples.Clear();
+        _unloadSamples.Clear();
+        Transition(FsmState.IdleZero);
+    }
+
+    private static void AddToStableWindow(
+        List<decimal> samples,
+        decimal value,
+        int requiredSamples,
+        decimal maxSpreadKg)
+    {
+        samples.Add(value);
+        while (samples.Count > 1 && samples.Max() - samples.Min() > maxSpreadKg)
+            samples.RemoveAt(0);
+
+        while (samples.Count > requiredSamples)
+            samples.RemoveAt(0);
+    }
+
+    private decimal RoundToDivision(decimal value)
+    {
+        var division = _divisionKg > 0m ? _divisionKg : 0.01m;
+        return Math.Round(value / division, 0, MidpointRounding.AwayFromZero) * division;
+    }
+
+    private static decimal Median(IReadOnlyCollection<decimal> samples)
+    {
+        var ordered = samples.OrderBy(value => value).ToArray();
+        var middle = ordered.Length / 2;
+        return ordered.Length % 2 == 0
+            ? (ordered[middle - 1] + ordered[middle]) / 2m
+            : ordered[middle];
+    }
+
+    private void Transition(FsmState next)
+    {
+        if (_state == next)
+            return;
+
+        var previous = _state;
+        _state = next;
+        _log.LogDebug("FSM: {Previous} → {Next}", previous, next);
     }
 }

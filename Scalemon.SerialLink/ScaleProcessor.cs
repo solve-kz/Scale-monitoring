@@ -12,10 +12,7 @@ namespace Scalemon.SerialLink
         private readonly IScaleDriver _driver;
 
         private readonly string _portName;
-        private readonly int _stableThreshold;
-        private readonly int _unstableThreshold;
         private readonly int _pollingIntervalMs;
-        private bool _disconnectionLogged = false;
 
         private CancellationTokenSource? _cts;
         private Task? _loopTask;
@@ -34,32 +31,21 @@ namespace Scalemon.SerialLink
 
         // Таймаут потери связи: после какого молчания считаем "потеряно"
         private int LostTimeoutMs => Math.Max(5 * _pollingIntervalMs, 2000);
-        private int _stableCount;
-        private int _unstableCount;
-
-        private DateTime _lastNoConnLog = DateTime.MinValue;
-        private static readonly TimeSpan NoConnLogInterval = TimeSpan.FromSeconds(5);
-
-
         public ScaleProcessor(
             ILogger<ScaleProcessor> log,
             IScaleDriver driver,
             string portName,
-            int stableThreshold,
-            int unstableThreshold,
             int pollingIntervalMs)
         {
             _log = log;
             _driver = driver;
 
             _portName = portName ?? "COM1";
-            _stableThreshold = Math.Max(1, stableThreshold);
-            _unstableThreshold = Math.Max(1, unstableThreshold);
             _pollingIntervalMs = Math.Max(50, pollingIntervalMs);
 
             _log.LogDebug(
-                "Библиотека ScaleProcessor инициализирована: PollInterval={interval}ms, StableThreshold={stable}, UnstableThreshold={unstable}",
-                _pollingIntervalMs, _stableThreshold, _unstableThreshold);
+                "Библиотека ScaleProcessor инициализирована: PollInterval={interval}ms",
+                _pollingIntervalMs);
         }
 
         public event Func<ScaleDataPoint, Task>? DataReceived;
@@ -88,28 +74,49 @@ namespace Scalemon.SerialLink
             _driver.CloseConnection();
         }
 
-        public Task ResetToZeroAsync(CancellationToken ct = default)
+        public Task<ScaleCommandResult> ResetToZeroAsync(int timeoutMs, CancellationToken ct = default) =>
+            ExecuteCommandAsync(() => _driver.SetToZero(timeoutMs), "ZERO", ct);
+
+        public Task<ScaleCommandResult> SetTareAsync(
+            decimal tareKg,
+            int timeoutMs,
+            CancellationToken ct = default) =>
+            ExecuteCommandAsync(() => _driver.SetTare(tareKg, timeoutMs), "TARE", ct);
+
+        public Task<ScaleCommandResult> TareCurrentWeightAsync(int timeoutMs, CancellationToken ct = default) =>
+            ExecuteCommandAsync(() => _driver.TareCurrentWeight(timeoutMs), "TARE CURRENT", ct);
+
+        private Task<ScaleCommandResult> ExecuteCommandAsync(
+            Func<ScaleCommandResult> command,
+            string operation,
+            CancellationToken ct)
         {
             return Task.Run(() =>
             {
-                try
+                var result = command();
+                if (result.Succeeded)
                 {
-                    _driver.SetToZero();
+                    _log.LogInformation("Команда {Operation} выполнена", operation);
+                }
+                else if (result.IsTransportError)
+                {
+                    _connected = false;
+                    _goodStreak = 0;
+                    _log.LogDebug(
+                        "Ошибка связи при выполнении {Operation}: {Error}",
+                        operation,
+                        result.ResponseText);
+                }
+                else
+                {
+                    _log.LogDebug(
+                        "Терминал отклонил {Operation}: {Error} (code={Code})",
+                        operation,
+                        result.ResponseText,
+                        result.ResponseCode);
+                }
 
-                    if (_driver.LastResponseNum == 0)
-                    {
-                        _log.LogInformation("Команда >0< выполнена успешно");
-                    }
-                    else
-                    {
-                        _log.LogWarning("Не удалось установить >0<: {text} (code={code})", _driver.LastResponseText, _driver.LastResponseNum);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Логируем как Error, т.к. исключение - это более серьёзная проблема
-                    _log.LogError(ex, "Критическое исключение при отправке команды >0<");
-                }
+                return result;
             }, ct);
         }
 
@@ -155,7 +162,12 @@ namespace Scalemon.SerialLink
                             weightKg: _driver.Weight,
                             isStable: _driver.Stable,
                             isConnected: _connected, // <-- Используем актуальное состояние из процессора!
-                            isAlarm: _driver.IsScaleAlarm
+                            isAlarm: _driver.IsScaleAlarm,
+                            hasFreshMeasurement: _driver.HasFreshMeasurement,
+                            divisionKg: _driver.DivisionKg,
+                            isTerminalZero: _driver.IsTerminalZero,
+                            isNet: _driver.IsNet,
+                            tareKg: _driver.TareKg
                         );
 
                         if (dataPoint.WeightKg != 0)

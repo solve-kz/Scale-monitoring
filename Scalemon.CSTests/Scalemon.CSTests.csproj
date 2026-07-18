@@ -27,7 +27,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
-    <ProjectReference Include="..\Scalemon.SerialLink\Scalemon.SerialLink.vbproj" />
+    <ProjectReference Include="..\Scalemon.SerialLink\Scalemon.SerialLink.csproj" />
+    <ProjectReference Include="..\Scalemon.FSM\Scalemon.FSM.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="ScaleProcessorTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

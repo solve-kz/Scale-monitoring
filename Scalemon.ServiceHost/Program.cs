@@ -89,7 +89,7 @@ builder.Services.AddSingleton<IScaleProcessor>(sp =>
     var driver = new SerialPortScaleDriver100(sp.GetRequiredService<ILogger<SerialPortScaleDriver100>>());
     return new ScaleProcessor(
         sp.GetRequiredService<ILogger<ScaleProcessor>>(), driver, settings.PortName,
-        settings.StableThreshold, settings.UnstableThreshold, settings.PollingIntervalMs);
+        settings.PollingIntervalMs);
 });
 
 builder.Services.AddSingleton<IDataAccess>(sp =>
@@ -111,22 +111,26 @@ builder.Services.AddSingleton<IScaleStateMachine>(sp =>
 {
     var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();
     var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value;
-    var cfg = new PlateauZeroStateMachine.Settings(
-        ZeroBandKg: (decimal)settings.SystemSettings.HystWeight * 0.01m,
-        ResidualBandKg: (decimal)settings.SystemSettings.HystWeight,
-        NegativeBandKg: (decimal)settings.SystemSettings.HystWeight,
-        MinWeightKg: (decimal)settings.SystemSettings.MinWeight,
-        PlateauStableSamples: Math.Max(1, settings.ScaleSettings.StableThreshold),
-        ZeroStableSamples: Math.Max(2, settings.ScaleSettings.UnstableThreshold),
-        TareTimeout: TimeSpan.FromMilliseconds(Math.Clamp(settings.SystemSettings.SemaphoreTimeMs, 1500, 5000)),
-        TareMaxRetries: 2);
+    var systemSettings = settings.SystemSettings;
+    systemSettings.ValidateWeighing();
 
     var db = sp.GetRequiredService<IDataAccess>();
-    var bus = sp.GetRequiredService<ISignalBus>();
     var scale = sp.GetRequiredService<IScaleProcessor>();
 
-    var core = new PlateauZeroStateMachine(cfg, log, bus, onRecordAsync: net => db.SaveWeighingAsync(net),
-        sendTare: () => scale.ResetToZeroAsync().GetAwaiter().GetResult());
+    var core = new PlateauZeroStateMachine(
+        systemSettings,
+        log,
+        onRecordAsync: net => db.SaveWeighingAsync(net),
+        correctResidualAsync: (request, ct) => request.Command switch
+        {
+            ResidualCorrectionCommand.SetZero =>
+                scale.ResetToZeroAsync(systemSettings.CommandTimeoutMs, ct),
+            ResidualCorrectionCommand.SetTare =>
+                scale.SetTareAsync(request.WeightKg, systemSettings.CommandTimeoutMs, ct),
+            ResidualCorrectionCommand.TareCurrentWeight =>
+                scale.TareCurrentWeightAsync(systemSettings.CommandTimeoutMs, ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Command))
+        });
 
     return new PlateauZeroFsmAdapter(core, log);
 });

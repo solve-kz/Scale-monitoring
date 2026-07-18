@@ -23,7 +23,7 @@ namespace Scalemon.FSM
             return Task.CompletedTask; 
         }
         public Task SetAlarmAsync(bool isAlarm) => _core.SetAlarmAsync(isAlarm);
-        public Task OnWeightSampleAsync(decimal weightKg) => _core.OnSampleAsync(weightKg);
+        public Task OnScaleSampleAsync(ScaleDataPoint sample) => _core.OnSampleAsync(sample);
 
         public Task OnDatabaseFailedAsync(Exception ex) { _log.LogError(ex, "DB failed"); return Task.CompletedTask; }
         public Task OnDatabaseRestoredAsync() { _log.LogInformation("DB restored"); return Task.CompletedTask; }

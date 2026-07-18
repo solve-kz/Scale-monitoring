@@ -157,23 +157,6 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="3">
-              <RadzenFormField Text="Порог стабильности" HelpText="Отклонение, при котором вес считается стабильным">
-                
-                  <RadzenNumeric @bind-Value="Model.ScaleSettings.StableThreshold" Name="StableTh" Min="0" Step="1" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="StableTh" Min="0" Text="Неотрицательное" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="3">
-              <RadzenFormField Text="Порог нестабильности" HelpText="Отклонение, фиксирующее нестабильность показаний">
-                
-                  <RadzenNumeric @bind-Value="Model.ScaleSettings.UnstableThreshold" Name="UnstableTh" Min="0" Step="1" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="UnstableTh" Min="0" Text="Неотрицательное" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
           </RadzenRow>
 
           <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
@@ -182,31 +165,68 @@
         </RadzenFieldset>
 
         <RadzenFieldset Text="Логика фиксации">
+          <p>Изменения этого раздела применяются после перезапуска службы.</p>
           <RadzenRow>
             <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Мин. вес" HelpText="Минимальное значение для начала фиксации события">
+              <RadzenFormField Text="Мин. вес продукции, кг" HelpText="Минимальное значение для начала фиксации взвешивания">
                 
-                  <RadzenNumeric @bind-Value="Model.SystemSettings.MinWeight" Name="MinW" Min="0" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="MinW" Min="0" Text="Неотрицательное" />
-                
-              </RadzenFormField>
-            </RadzenColumn>
-
-            <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Гистерезис" HelpText="Дельта веса, уменьшающая ложные срабатывания">
-                
-                  <RadzenNumeric @bind-Value="Model.SystemSettings.HystWeight" Name="HystW" Min="0" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="HystW" Min="0" Text="Неотрицательное" />
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.MinWeight" Name="MinW" Min="0.01" Step="0.01" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="MinW" Min="0.01" Text="Значение должно быть больше нуля" />
                 
               </RadzenFormField>
             </RadzenColumn>
 
             <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Семафор, мс" HelpText="Минимальная длительность устойчивого состояния">
+              <RadzenFormField Text="Максимум ZERO, кг" HelpText="До этого остатка включительно сначала отправляется команда ZERO">
                 
-                  <RadzenNumeric @bind-Value="Model.SystemSettings.SemaphoreTimeMs" Name="SemMs" Min="0" Step="1" Style="width:100%" />
-                  <RadzenNumericRangeValidator Component="SemMs" Min="0" Text="Неотрицательное" />
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.ZeroResidualMaxKg" Name="ZeroResidualMax" Min="0.001" Step="0.01" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="ZeroResidualMax" Min="0.001" Text="Значение должно быть больше нуля" />
                 
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Допуск TARE, %" HelpText="На сколько процентов остаток может превышать максимум ZERO для прямого TARE">
+                
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.TareAllowancePercent" Name="TareAllowance" Min="0" Max="1000" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="TareAllowance" Min="0" Max="1000" Text="Допустимо 0..1000 %" />
+                
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Верхняя граница TARE, кг" HelpText="Вычисляется из максимума ZERO и процентного допуска">
+                  <RadzenNumeric TValue="decimal" Value="@Model.SystemSettings.TareMaxKg" Disabled="true" Style="width:100%" />
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Стабильных измерений плато" HelpText="Сколько стабильных ответов требуется перед записью веса">
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.PlateauStableSamples" Name="PlateauSamples" Min="2" Max="20" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="PlateauSamples" Min="2" Max="20" Text="Допустимо 2..20" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Окно плато, кг" HelpText="Максимальный разброс стабильных измерений одного плато">
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.PlateauWindowKg" Name="PlateauWindow" Min="0.001" Step="0.01" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="PlateauWindow" Min="0.001" Text="Значение должно быть больше нуля" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Измерений разгрузки" HelpText="Сколько стабильных ответов подтверждают снятие туши">
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.UnloadStableSamples" Name="UnloadSamples" Min="2" Max="20" Step="1" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="UnloadSamples" Min="2" Max="20" Text="Допустимо 2..20" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Тайм-аут команды, мс" HelpText="Ожидание единственного ответа на ZERO или TARE">
+                  <RadzenNumeric @bind-Value="Model.SystemSettings.CommandTimeoutMs" Name="CommandTimeout" Min="100" Max="3000" Step="50" Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="CommandTimeout" Min="100" Max="3000" Text="Допустимо 100..3000 мс" />
               </RadzenFormField>
             </RadzenColumn>
           </RadzenRow>
@@ -471,6 +491,7 @@
         _saving = true;
         try
         {
+            dto.SystemSettings.ValidateWeighing();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await SettingsSource.SaveAsync(dto, cts.Token);
             NotificationService.Notify(NotificationSeverity.Success, "Сохранено", "Файл настроек успешно сохранён.");
