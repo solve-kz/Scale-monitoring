@@ -98,6 +98,15 @@
                 console.error('downloadFile error', e);
             }
         },
+        downloadUrl(url) {
+            const link = document.createElement('a');
+            link.style.display = 'none';
+            link.href = url;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        },
         localTodayIso: function () {
             var d = new Date();
             var y = d.getFullYear();

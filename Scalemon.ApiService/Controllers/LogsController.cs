@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Linq;
+using System.Diagnostics;
 using Scalemon.ApiService.Models;
 using Scalemon.ApiService.Services;
 
@@ -197,10 +198,45 @@ public sealed class LogsController : ControllerBase
         var allowedLevels = BuildLevelFilter(levels);
         var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search;
 
-        var entries = await _repository.GetAllAsync(allowedLevels, searchTerm, fromLocal, toLocal, ct);
-        var csv = BuildCsv(entries);
-        var name = $"logs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-        return File(csv, "text/csv", name);
+        var downloadName = $"logs_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var temporaryPath = Path.Combine(
+            Path.GetTempPath(),
+            $"scalemon-logs-{Guid.NewGuid():N}.csv");
+        var temporaryFile = new FileStream(
+            temporaryPath,
+            FileMode.CreateNew,
+            FileAccess.ReadWrite,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var entries = _repository.StreamAllAsync(
+                allowedLevels,
+                searchTerm,
+                fromLocal,
+                toLocal,
+                ct);
+            var rowCount = await WriteCsvAsync(temporaryFile, entries, ct);
+            temporaryFile.Position = 0;
+
+            _logger.LogInformation(
+                "Подготовлен экспорт логов: Rows={Rows}, SizeBytes={SizeBytes}, ElapsedMs={ElapsedMs}",
+                rowCount,
+                temporaryFile.Length,
+                stopwatch.ElapsedMilliseconds);
+
+            // MVC копирует FileStream в HTTP-ответ частями и затем закрывает его.
+            // DeleteOnClose гарантирует удаление временного файла.
+            return File(temporaryFile, "text/csv; charset=utf-8", downloadName);
+        }
+        catch
+        {
+            await temporaryFile.DisposeAsync();
+            throw;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -357,26 +393,65 @@ public sealed class LogsController : ControllerBase
         return true;
     }
 
-    private static byte[] BuildCsv(IEnumerable<LogEntry> entries)
+    private static async Task<long> WriteCsvAsync(
+        Stream output,
+        IAsyncEnumerable<LogEntry> entries,
+        CancellationToken ct)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("Timestamp,Level,Source,Message,Exception");
-        foreach (var e in entries)
-        {
-            sb.Append(Escape(e.Timestamp.ToString("O"))).Append(',');
-            sb.Append(Escape(e.Level)).Append(',');
-            sb.Append(Escape(e.Source)).Append(',');
-            sb.Append(Escape(e.Message)).Append(',');
-            sb.AppendLine(Escape(e.Exception));
-        }
-        return Encoding.UTF8.GetBytes(sb.ToString());
+        await using var writer = new StreamWriter(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+            bufferSize: 64 * 1024,
+            leaveOpen: true);
+        await writer.WriteLineAsync("Timestamp,Level,Source,Message,Exception".AsMemory(), ct);
 
-        static string Escape(string? s)
+        var row = new StringBuilder(512);
+        long rowCount = 0;
+        await foreach (var entry in entries.WithCancellation(ct))
         {
-            s ??= string.Empty;
-            if (s.Contains('"') || s.Contains(',') || s.Contains('\n') || s.Contains('\r'))
-                return $"\"{s.Replace("\"", "\"\"")}\"";
-            return s;
+            row.Clear();
+            AppendCsvField(row, entry.Timestamp.ToString("O", CultureInfo.InvariantCulture));
+            row.Append(',');
+            AppendCsvField(row, entry.Level);
+            row.Append(',');
+            AppendCsvField(row, entry.Source);
+            row.Append(',');
+            AppendCsvField(row, entry.Message);
+            row.Append(',');
+            AppendCsvField(row, entry.Exception);
+
+            await writer.WriteLineAsync(row.ToString().AsMemory(), ct);
+            rowCount++;
+            if (rowCount % 4096 == 0)
+            {
+                await writer.FlushAsync(ct);
+            }
         }
+
+        await writer.FlushAsync(ct);
+        return rowCount;
+    }
+
+    private static void AppendCsvField(StringBuilder builder, string? value)
+    {
+        value ??= string.Empty;
+        if (!value.Contains('"') &&
+            !value.Contains(',') &&
+            !value.Contains('\n') &&
+            !value.Contains('\r'))
+        {
+            builder.Append(value);
+            return;
+        }
+
+        builder.Append('"');
+        foreach (var character in value)
+        {
+            if (character == '"')
+                builder.Append("\"\"");
+            else
+                builder.Append(character);
+        }
+        builder.Append('"');
     }
 }

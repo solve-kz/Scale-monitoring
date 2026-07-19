@@ -151,6 +151,43 @@ ORDER BY datetime(Timestamp) DESC;";
         return items;
     }
 
+    /// <summary>
+    /// Последовательно читает отфильтрованные записи без накопления всего результата в памяти.
+    /// </summary>
+    public async IAsyncEnumerable<LogEntry> StreamAllAsync(
+        IReadOnlyList<string>? allowedLevels,
+        string? search,
+        DateTime? from,
+        DateTime? to,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var filterParameters = new List<(string Name, object? Value)>();
+        var whereClause = BuildWhereClause(allowedLevels, search, from, to, filterParameters);
+        var dbFiles = _databaseProvider.EnumerateDatabases(from, to);
+
+        // Файлы и записи внутри них идут от новых к старым, поэтому штатные
+        // суточные БД образуют общий поток с тем же порядком.
+        foreach (var db in dbFiles)
+        {
+            ct.ThrowIfCancellationRequested();
+            await using var connection = CreateConnection(db.Path);
+            await connection.OpenAsync(ct);
+
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = $@"SELECT Timestamp, Level, Source, Message, Exception
+FROM {LogDatabaseInitializer.TableName}
+{whereClause}
+ORDER BY datetime(Timestamp) DESC;";
+            AddParameters(cmd, filterParameters);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                yield return ReadEntry(reader);
+            }
+        }
+    }
+
     public async Task AppendAsync(IReadOnlyCollection<LogEntry> entries, CancellationToken ct)
     {
         if (entries.Count == 0) return;

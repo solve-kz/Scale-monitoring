@@ -104,14 +104,15 @@ public sealed class ApiClient
                ?? new PagedResult<LogEntry>(Array.Empty<LogEntry>(), 0);
     }
 
-    // Экспорт CSV: GET /api/logs/export?path=..&levels=..&search=..&from=..&to=..
-    public Task<byte[]> ExportLogsCsvAsync(
+    /// <summary>
+    /// Формирует URL прямого экспорта CSV с текущими фильтрами страницы логов.
+    /// </summary>
+    public string GetLogsExportUrl(
         string? path = null,
         string? levels = null,
         string? search = null,
         DateTime? from = null,
-        DateTime? to = null,
-        CancellationToken ct = default)
+        DateTime? to = null)
     {
         var q = HttpUtility.ParseQueryString(string.Empty);
         if (!string.IsNullOrWhiteSpace(path)) q["path"] = path;
@@ -121,8 +122,7 @@ public sealed class ApiClient
         if (to is not null) q["to"] = to.Value.ToString("O");
 
         var query = q.ToString();
-        var url = string.IsNullOrEmpty(query) ? "api/logs/export" : $"api/logs/export?{query}";
-        return _http.GetByteArrayAsync(url, ct);
+        return string.IsNullOrEmpty(query) ? "api/logs/export" : $"api/logs/export?{query}";
     }
 
     // Очистка активного лога: DELETE /api/logs?path=..

@@ -235,26 +235,14 @@
     {
         try
         {
-            var bytes = await Api.ExportLogsCsvAsync(
+            var relativeUrl = Api.GetLogsExportUrl(
                 path: path,
                 levels: SelectedLevel,
                 search: search,
                 from: from,
-                to: to,
-                ct: _cts.Token);
-            if (bytes is null || bytes.Length == 0)
-            {
-                NotificationService.Notify(NotificationSeverity.Info, "Экспорт CSV", "Получен пустой файл логов.");
-                return;
-            }
-
-            var fileName = $"logs-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
-            var base64 = System.Convert.ToBase64String(bytes);
-            await JS.InvokeVoidAsync("scalemon.downloadFile", fileName, "text/csv", base64);
-        }
-        catch (OperationCanceledException)
-        {
-            // загрузка отменена пользователем — ничего не делаем
+                to: to);
+            var absoluteUrl = Nav.ToAbsoluteUri(relativeUrl).ToString();
+            await JS.InvokeVoidAsync("scalemon.downloadUrl", absoluteUrl);
         }
         catch (Exception ex)
         {
