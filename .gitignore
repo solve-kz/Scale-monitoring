@@ -361,3 +361,43 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Local runtime databases and SQLite sidecar files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+
+# Additional IDE and generated tool state
+.idea/
+.vscode/
+__vm/
+*.bak
+
+# Local Codex analysis and document-generation workspaces
+/.codex_analysis_*/
+/.codex_report/
+
+# Local diagnostics and production-data exports kept at repository root
+/logs*.csv
+/weighings*.xlsx
+/*_compared.xlsx
+/wtest.txt
+/IMG_*.jpg
+/Receipt-*.pdf
+/Сканы/
+/АНАЛИЗ_*.md
+/Анализ_*.md
+/Отчёт_*.md
+/Проверка_*.md
