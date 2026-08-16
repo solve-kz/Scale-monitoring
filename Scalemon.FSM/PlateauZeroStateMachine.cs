@@ -32,6 +32,19 @@ public sealed class PlateauZeroStateMachine
     private bool _suppressIdleCorrectionUntilLoad;
     private decimal _blockedAtWeightKg;
     private decimal _divisionKg = 0.01m;
+    private CorrectionKind _warningCorrectionKind;
+    private ResidualCorrectionCommand? _lastFailedCorrectionCommand;
+    private bool _retryAfterConnectionRecovery;
+    private int _consecutiveFreshUnloadSamples;
+
+    private enum CorrectionKind
+    {
+        None,
+        SetZeroNegative,
+        SetZeroPositive,
+        SetTarePositive,
+        CleaningRequired
+    }
 
     /// <summary>
     /// Создаёт конечный автомат автоматической фиксации веса.
@@ -50,14 +63,16 @@ public sealed class PlateauZeroStateMachine
 
         _log.LogInformation(
             "FSM: Min={Min}kg, ZeroMax={ZeroMax}kg, TareMax={TareMax}kg, " +
-            "Plateau={PlateauSamples}x/{PlateauWindow}kg, Unload={UnloadSamples}x, CommandTimeout={Timeout}ms",
+            "Plateau={PlateauSamples}x/{PlateauWindow}kg, Unload={UnloadSamples}x, " +
+            "CommandTimeout={Timeout}ms, NonBlockingCorrection={NonBlockingCorrection}",
             _settings.MinWeight,
             _settings.ZeroResidualMaxKg,
             _settings.TareMaxKg,
             _settings.PlateauStableSamples,
             _settings.PlateauWindowKg,
             _settings.UnloadStableSamples,
-            _settings.CommandTimeoutMs);
+            _settings.CommandTimeoutMs,
+            _settings.EnableNonBlockingCorrection);
     }
 
     public FsmState CurrentState => _state;
@@ -73,11 +88,19 @@ public sealed class PlateauZeroStateMachine
         _connected = isConnected;
         _plateauSamples.Clear();
         _unloadSamples.Clear();
+        _consecutiveFreshUnloadSamples = 0;
 
         if (!_connected)
         {
             Transition(FsmState.Disconnected);
             return;
+        }
+
+        if (_settings.EnableNonBlockingCorrection &&
+            _redLatched &&
+            _lastFailedCorrectionCommand.HasValue)
+        {
+            _armed = true;
         }
 
         _log.LogInformation("Связь с весами восстановлена");
@@ -94,6 +117,7 @@ public sealed class PlateauZeroStateMachine
         _alarm = isAlarm;
         _plateauSamples.Clear();
         _unloadSamples.Clear();
+        _consecutiveFreshUnloadSamples = 0;
 
         if (_alarm)
         {
@@ -127,19 +151,19 @@ public sealed class PlateauZeroStateMachine
         if (!sample.HasFreshMeasurement)
             return;
 
-        if (!sample.IsStable)
-        {
-            _plateauSamples.Clear();
-            _unloadSamples.Clear();
-            return;
-        }
-
         if (sample.DivisionKg > 0m)
             _divisionKg = sample.DivisionKg;
 
         if (_cycleRecorded)
         {
             await HandleAwaitUnloadAsync(sample);
+            return;
+        }
+
+        if (!sample.IsStable)
+        {
+            _plateauSamples.Clear();
+            _unloadSamples.Clear();
             return;
         }
 
@@ -178,7 +202,10 @@ public sealed class PlateauZeroStateMachine
         _plateauSamples.Clear();
         if (sample.IsTerminalZero ||
             sample.WeightKg == 0m ||
-            (_suppressIdleCorrectionUntilLoad && sample.WeightKg > 0m))
+            (_suppressIdleCorrectionUntilLoad &&
+             (_settings.EnableNonBlockingCorrection
+                 ? Math.Abs(sample.WeightKg) <= (decimal)_settings.ZeroResidualMaxKg
+                 : sample.WeightKg > 0m)))
         {
             _unloadSamples.Clear();
             Transition(FsmState.IdleZero);
@@ -191,6 +218,15 @@ public sealed class PlateauZeroStateMachine
 
     private async Task HandleUnarmedAsync(ScaleDataPoint sample)
     {
+        if (sample.WeightKg >= (decimal)_settings.MinWeight)
+        {
+            _armed = true;
+            _suppressIdleCorrectionUntilLoad = false;
+            _unloadSamples.Clear();
+            await AddPlateauSampleAsync(sample.WeightKg);
+            return;
+        }
+
         _plateauSamples.Clear();
         Transition(FsmState.Weighing);
         await AddUnloadSampleAsync(sample);
@@ -216,6 +252,7 @@ public sealed class PlateauZeroStateMachine
         // Блокировка цикла устанавливается до обращения к БД: ошибка записи не должна создавать дубль.
         _cycleRecorded = true;
         _armed = false;
+        _consecutiveFreshUnloadSamples = 0;
         Transition(FsmState.AwaitUnload);
 
         try
@@ -235,14 +272,52 @@ public sealed class PlateauZeroStateMachine
 
     private async Task HandleAwaitUnloadAsync(ScaleDataPoint sample)
     {
-        if (sample.WeightKg >= (decimal)_settings.MinWeight)
+        var tareMaxKg = (decimal)_settings.TareMaxKg;
+        if (Math.Abs(sample.WeightKg) > tareMaxKg)
         {
+            _consecutiveFreshUnloadSamples = 0;
             _unloadSamples.Clear();
             Transition(FsmState.AwaitUnload);
             return;
         }
 
-        await AddUnloadSampleAsync(sample);
+        _consecutiveFreshUnloadSamples++;
+        if (sample.IsStable)
+        {
+            AddToStableWindow(
+                _unloadSamples,
+                sample.WeightKg,
+                _settings.UnloadStableSamples,
+                (decimal)_settings.PlateauWindowKg);
+        }
+        else
+        {
+            _unloadSamples.Clear();
+        }
+
+        if (_consecutiveFreshUnloadSamples < 2)
+        {
+            Transition(FsmState.AwaitUnload);
+            return;
+        }
+
+        _consecutiveFreshUnloadSamples = 0;
+        _cycleRecorded = false;
+        _armed = true;
+        _plateauSamples.Clear();
+        _log.LogDebug(
+            "Разгрузка подтверждена по двум свежим показаниям в диапазоне ±{TareMax:0.###} кг",
+            tareMaxKg);
+
+        if (sample.IsStable && _unloadSamples.Count >= _settings.UnloadStableSamples)
+        {
+            var residualKg = Median(_unloadSamples);
+            _unloadSamples.Clear();
+            await HandleConfirmedResidualAsync(residualKg, sample.IsTerminalZero);
+            return;
+        }
+
+        Transition(_redLatched ? FsmState.InvalidWeightState : FsmState.Weighing);
     }
 
     private async Task AddUnloadSampleAsync(ScaleDataPoint sample)
@@ -264,6 +339,131 @@ public sealed class PlateauZeroStateMachine
 
     private async Task HandleConfirmedResidualAsync(decimal residualKg, bool terminalZero)
     {
+        if (_settings.EnableNonBlockingCorrection)
+        {
+            await HandleConfirmedResidualNonBlockingAsync(residualKg, terminalZero);
+            return;
+        }
+
+        await HandleConfirmedResidualLegacyAsync(residualKg, terminalZero);
+    }
+
+    private async Task HandleConfirmedResidualNonBlockingAsync(decimal residualKg, bool terminalZero)
+    {
+        _armed = true;
+        var absoluteResidual = Math.Abs(residualKg);
+        var zeroMaxKg = (decimal)_settings.ZeroResidualMaxKg;
+        var tareMaxKg = (decimal)_settings.TareMaxKg;
+
+        if (terminalZero || residualKg == 0m)
+        {
+            CompleteRecovery();
+            return;
+        }
+
+        var correctionKind = ClassifyCorrection(residualKg, zeroMaxKg, tareMaxKg);
+        if (!ShouldAttemptCorrection(residualKg, correctionKind))
+        {
+            _plateauSamples.Clear();
+            _unloadSamples.Clear();
+            Transition(FsmState.InvalidWeightState);
+            return;
+        }
+
+        _retryAfterConnectionRecovery = false;
+        if (correctionKind == CorrectionKind.CleaningRequired)
+        {
+            EnterCorrectionWarning(
+                residualKg,
+                correctionKind,
+                failedCommand: null,
+                reason: "Остаточный вес требует очистки платформы");
+            return;
+        }
+
+        if (residualKg < 0m)
+        {
+            var negativeZeroResult = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetZero));
+            if (!negativeZeroResult.Succeeded)
+            {
+                HandleNonBlockingCorrectionFailure(
+                    negativeZeroResult,
+                    residualKg,
+                    correctionKind,
+                    ResidualCorrectionCommand.SetZero,
+                    "ZERO отрицательного остатка");
+                return;
+            }
+
+            MarkAcceptedCorrection(residualKg, correctionKind);
+            BeginPostCommandConfirmation();
+            return;
+        }
+
+        if (absoluteResidual <= zeroMaxKg)
+        {
+            var zeroResult = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetZero));
+            if (zeroResult.Succeeded)
+            {
+                MarkAcceptedCorrection(residualKg, correctionKind);
+                BeginPostCommandConfirmation();
+                return;
+            }
+
+            if (zeroResult.IsTransportError)
+            {
+                HandleNonBlockingCorrectionFailure(
+                    zeroResult,
+                    residualKg,
+                    correctionKind,
+                    ResidualCorrectionCommand.SetZero,
+                    "ZERO");
+                return;
+            }
+
+            _log.LogInformation(
+                "ZERO отклонён терминалом; выполняется один TARE положительного остатка {Residual:0.###} кг",
+                residualKg);
+            var tareAfterZeroResult = await SendCorrectionAsync(
+                new ResidualCorrectionRequest(ResidualCorrectionCommand.SetTare, residualKg));
+            if (!tareAfterZeroResult.Succeeded)
+            {
+                HandleNonBlockingCorrectionFailure(
+                    tareAfterZeroResult,
+                    residualKg,
+                    correctionKind,
+                    ResidualCorrectionCommand.SetTare,
+                    "TARE после отказа ZERO");
+                return;
+            }
+
+            MarkAcceptedCorrection(residualKg, correctionKind);
+            BeginPostCommandConfirmation();
+            return;
+        }
+
+        var tareResult = await SendCorrectionAsync(
+            new ResidualCorrectionRequest(ResidualCorrectionCommand.SetTare, residualKg));
+        if (!tareResult.Succeeded)
+        {
+            HandleNonBlockingCorrectionFailure(
+                tareResult,
+                residualKg,
+                correctionKind,
+                ResidualCorrectionCommand.SetTare,
+                "TARE остатка");
+            return;
+        }
+
+        MarkAcceptedCorrection(residualKg, correctionKind);
+        BeginPostCommandConfirmation();
+    }
+
+    private async Task HandleConfirmedResidualLegacyAsync(decimal residualKg, bool terminalZero)
+    {
+        // Прежний блокирующий алгоритм оставлен только как временный путь отката.
         _armed = false;
         var absoluteResidual = Math.Abs(residualKg);
         var zeroMaxKg = (decimal)_settings.ZeroResidualMaxKg;
@@ -382,6 +582,8 @@ public sealed class PlateauZeroStateMachine
     private void BeginPostCommandConfirmation()
     {
         _waitingForPostCommandZero = true;
+        if (_settings.EnableNonBlockingCorrection)
+            _armed = true;
         _correctionAllowedAfterChange = false;
         _unloadSamples.Clear();
         Transition(_redLatched ? FsmState.InvalidWeightState : FsmState.Weighing);
@@ -389,10 +591,38 @@ public sealed class PlateauZeroStateMachine
 
     private async Task HandlePostCommandConfirmationAsync(ScaleDataPoint sample)
     {
+        if (_settings.EnableNonBlockingCorrection &&
+            sample.WeightKg >= (decimal)_settings.MinWeight)
+        {
+            _waitingForPostCommandZero = false;
+            _armed = true;
+            _unloadSamples.Clear();
+            _log.LogInformation(
+                "Подтверждение коррекции прервано новым грузом {Weight:0.###} кг; автофиксация продолжена",
+                sample.WeightKg);
+            await AddPlateauSampleAsync(sample.WeightKg);
+            return;
+        }
+
         if (Math.Abs(sample.WeightKg) > (decimal)_settings.ZeroResidualMaxKg)
         {
             _waitingForPostCommandZero = false;
-            EnterRedLatch(sample.WeightKg, "После команды не подтверждён околонулевой результат");
+            if (_settings.EnableNonBlockingCorrection)
+            {
+                var correctionKind = ClassifyCorrection(
+                    sample.WeightKg,
+                    (decimal)_settings.ZeroResidualMaxKg,
+                    (decimal)_settings.TareMaxKg);
+                EnterCorrectionWarning(
+                    sample.WeightKg,
+                    correctionKind,
+                    failedCommand: null,
+                    reason: "После команды не подтверждён околонулевой результат");
+            }
+            else
+            {
+                EnterRedLatch(sample.WeightKg, "После команды не подтверждён околонулевой результат");
+            }
             return;
         }
 
@@ -413,6 +643,12 @@ public sealed class PlateauZeroStateMachine
 
     private async Task HandleBlockedAsync(ScaleDataPoint sample)
     {
+        if (_settings.EnableNonBlockingCorrection)
+        {
+            await HandleCorrectionWarningAsync(sample);
+            return;
+        }
+
         Transition(FsmState.InvalidWeightState);
         if (Math.Abs(sample.WeightKg - _blockedAtWeightKg) > (decimal)_settings.PlateauWindowKg)
             _correctionAllowedAfterChange = true;
@@ -447,6 +683,142 @@ public sealed class PlateauZeroStateMachine
         await HandleConfirmedResidualAsync(residualKg, sample.IsTerminalZero);
     }
 
+    private async Task HandleCorrectionWarningAsync(ScaleDataPoint sample)
+    {
+        if (sample.WeightKg >= (decimal)_settings.MinWeight)
+        {
+            _suppressIdleCorrectionUntilLoad = false;
+            _unloadSamples.Clear();
+            await AddPlateauSampleAsync(sample.WeightKg);
+            return;
+        }
+
+        _plateauSamples.Clear();
+        Transition(FsmState.InvalidWeightState);
+        AddToStableWindow(
+            _unloadSamples,
+            sample.WeightKg,
+            _settings.UnloadStableSamples,
+            (decimal)_settings.PlateauWindowKg);
+
+        if (_unloadSamples.Count < _settings.UnloadStableSamples)
+            return;
+
+        var residualKg = Median(_unloadSamples);
+        _unloadSamples.Clear();
+        await HandleConfirmedResidualAsync(residualKg, sample.IsTerminalZero);
+    }
+
+    private void HandleNonBlockingCorrectionFailure(
+        ScaleCommandResult result,
+        decimal residualKg,
+        CorrectionKind correctionKind,
+        ResidualCorrectionCommand failedCommand,
+        string operation)
+    {
+        if (result.IsTransportError)
+        {
+            _connected = false;
+            _waitingForPostCommandZero = false;
+            _armed = true;
+            _retryAfterConnectionRecovery = true;
+            EnterCorrectionWarning(
+                residualKg,
+                correctionKind,
+                failedCommand,
+                $"Потеря связи при {operation}: {result.ResponseText}",
+                transitionToWarningState: false,
+                continuationMessage: "автофиксация продолжится после восстановления связи");
+            Transition(FsmState.Disconnected);
+            return;
+        }
+
+        EnterCorrectionWarning(
+            residualKg,
+            correctionKind,
+            failedCommand,
+            $"Терминал отклонил {operation}: {result.ResponseText} (code={result.ResponseCode})");
+    }
+
+    private void EnterCorrectionWarning(
+        decimal residualKg,
+        CorrectionKind correctionKind,
+        ResidualCorrectionCommand? failedCommand,
+        string reason,
+        bool transitionToWarningState = true,
+        string continuationMessage = "автофиксация продолжена")
+    {
+        var shouldLog = !_redLatched || HasMaterialCorrectionChange(residualKg, correctionKind);
+        _redLatched = true;
+        _waitingForPostCommandZero = false;
+        _armed = true;
+        _blockedAtWeightKg = residualKg;
+        _warningCorrectionKind = correctionKind;
+        _lastFailedCorrectionCommand = failedCommand;
+        _correctionAllowedAfterChange = false;
+        _plateauSamples.Clear();
+        _unloadSamples.Clear();
+
+        if (transitionToWarningState)
+            Transition(FsmState.InvalidWeightState);
+
+        if (shouldLog)
+        {
+            _log.LogWarning(
+                "{Reason}. Weight={Weight:0.###}kg; {ContinuationMessage}",
+                reason,
+                residualKg,
+                continuationMessage);
+        }
+    }
+
+    private bool ShouldAttemptCorrection(decimal residualKg, CorrectionKind correctionKind)
+    {
+        if (!_redLatched)
+            return true;
+
+        if (_retryAfterConnectionRecovery)
+            return true;
+
+        return HasMaterialCorrectionChange(residualKg, correctionKind);
+    }
+
+    private bool HasMaterialCorrectionChange(decimal residualKg, CorrectionKind correctionKind)
+    {
+        if (correctionKind != _warningCorrectionKind)
+            return true;
+
+        if (Math.Sign(residualKg) != Math.Sign(_blockedAtWeightKg))
+            return true;
+
+        var retryThresholdKg = Math.Max(_divisionKg, (decimal)_settings.PlateauWindowKg);
+        return Math.Abs(residualKg - _blockedAtWeightKg) >= retryThresholdKg;
+    }
+
+    private static CorrectionKind ClassifyCorrection(
+        decimal residualKg,
+        decimal zeroMaxKg,
+        decimal tareMaxKg)
+    {
+        if (Math.Abs(residualKg) > tareMaxKg)
+            return CorrectionKind.CleaningRequired;
+        if (residualKg < 0m)
+            return CorrectionKind.SetZeroNegative;
+        if (residualKg <= zeroMaxKg)
+            return CorrectionKind.SetZeroPositive;
+        return CorrectionKind.SetTarePositive;
+    }
+
+    private void MarkAcceptedCorrection(decimal residualKg, CorrectionKind correctionKind)
+    {
+        if (!_redLatched)
+            return;
+
+        _blockedAtWeightKg = residualKg;
+        _warningCorrectionKind = correctionKind;
+        _lastFailedCorrectionCommand = null;
+    }
+
     private void EnterRedLatch(decimal residualKg, string reason)
     {
         var wasLatched = _redLatched;
@@ -471,6 +843,9 @@ public sealed class PlateauZeroStateMachine
         _redLatched = false;
         _waitingForPostCommandZero = false;
         _correctionAllowedAfterChange = false;
+        _warningCorrectionKind = CorrectionKind.None;
+        _lastFailedCorrectionCommand = null;
+        _retryAfterConnectionRecovery = false;
         _suppressIdleCorrectionUntilLoad = suppressIdleCorrectionUntilLoad;
         _blockedAtWeightKg = 0m;
         _cycleRecorded = false;

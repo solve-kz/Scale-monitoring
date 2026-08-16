@@ -217,7 +217,7 @@
             </RadzenColumn>
 
             <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Измерений разгрузки" HelpText="Сколько стабильных ответов подтверждают снятие туши">
+              <RadzenFormField Text="Измерений остатка" HelpText="Сколько стабильных ответов подтверждают остаток перед ZERO или TARE">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.UnloadStableSamples" Name="UnloadSamples" Min="2" Max="20" Step="1" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="UnloadSamples" Min="2" Max="20" Text="Допустимо 2..20" />
               </RadzenFormField>
@@ -227,6 +227,12 @@
               <RadzenFormField Text="Тайм-аут команды, мс" HelpText="Ожидание единственного ответа на ZERO или TARE">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.CommandTimeoutMs" Name="CommandTimeout" Min="100" Max="3000" Step="50" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="CommandTimeout" Min="100" Max="3000" Text="Допустимо 100..3000 мс" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Неблокирующая коррекция" HelpText="Продолжать автофиксацию при отказе ZERO или TARE">
+                  <RadzenCheckBox @bind-Value="Model.SystemSettings.EnableNonBlockingCorrection" TriState="false" />
               </RadzenFormField>
             </RadzenColumn>
           </RadzenRow>

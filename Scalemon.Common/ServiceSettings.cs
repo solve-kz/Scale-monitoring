@@ -113,7 +113,7 @@
         public decimal PlateauWindowKg { get; set; } = 0.04m;
 
         /// <summary>
-        /// Количество стабильных измерений, подтверждающих разгрузку платформы.
+        /// Количество стабильных измерений для подтверждения остатка перед ZERO/TARE.
         /// </summary>
         public int UnloadStableSamples { get; set; } = 3;
 
@@ -121,6 +121,12 @@
         /// Тайм-аут одиночной команды ZERO/TARE, мс.
         /// </summary>
         public int CommandTimeoutMs { get; set; } = 500;
+
+        /// <summary>
+        /// Разрешает продолжать автофиксацию при отказе коррекции ZERO/TARE.
+        /// Отключение временно возвращает прежнее блокирующее поведение для отката.
+        /// </summary>
+        public bool EnableNonBlockingCorrection { get; set; } = true;
 
         /// <summary>
         /// Верхняя граница остатка, который разрешено компенсировать тарированием.
@@ -144,7 +150,7 @@
             if (PlateauStableSamples is < 2 or > 20)
                 throw new InvalidOperationException("Число измерений плато должно быть в диапазоне 2..20.");
             if (UnloadStableSamples is < 2 or > 20)
-                throw new InvalidOperationException("Число измерений разгрузки должно быть в диапазоне 2..20.");
+                throw new InvalidOperationException("Число стабильных измерений остатка должно быть в диапазоне 2..20.");
             if (PlateauWindowKg <= 0 || PlateauWindowKg >= (decimal)MinWeight)
                 throw new InvalidOperationException("Окно плато должно быть больше нуля и меньше минимального веса продукции.");
             if (CommandTimeoutMs is < 100 or > 3000)

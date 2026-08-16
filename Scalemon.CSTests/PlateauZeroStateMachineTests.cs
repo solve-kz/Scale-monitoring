@@ -31,6 +31,75 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
+    public async Task AwaitUnloadAcceptsTwoConsecutiveFreshLowReadingsWithoutStableFlag()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(records, commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+        await FeedSampleAsync(fsm, 0.24m, isStable: false);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+
+        await FeedSampleAsync(fsm, 0.20m, isStable: false);
+        await FeedAsync(fsm, 8.10m, 8.10m, 8.10m);
+
+        Assert.Equal(new[] { 7.50m, 8.10m }, records);
+        Assert.Empty(commands);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task AwaitUnloadRequiresLowFreshReadingsToBeConsecutive()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(records, commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+        await FeedSampleAsync(fsm, 0.20m, isStable: false);
+        await FeedSampleAsync(fsm, 0.40m, isStable: false);
+        await FeedSampleAsync(fsm, 0.18m, isStable: false);
+
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+
+        await FeedSampleAsync(fsm, 0.16m, isStable: false);
+        await FeedAsync(fsm, 8.10m, 8.10m, 8.10m);
+
+        Assert.Equal(new[] { 7.50m, 8.10m }, records);
+    }
+
+    [Fact]
+    public async Task StableLoadImmediatelyStartsPlateauAfterStartup()
+    {
+        var records = new List<decimal>();
+        var fsm = CreateFsm(records, new());
+        fsm.SetConnection(true);
+
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task StableLoadImmediatelyStartsPlateauAfterConnectionRecovery()
+    {
+        var records = new List<decimal>();
+        var fsm = CreateFsm(records, new());
+        fsm.SetConnection(true);
+        fsm.SetConnection(false);
+        fsm.SetConnection(true);
+
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
     public async Task ResidualAfterUnloadDoesNotChangeAlreadyRecordedPlateau()
     {
         var records = new List<decimal>();
@@ -110,7 +179,7 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task NegativeResidualUsesTareCurrentThenZero()
+    public async Task NegativeResidualUsesOnlyZero()
     {
         var commands = new List<ResidualCorrectionRequest>();
         var fsm = CreateFsm(new(), commands);
@@ -118,23 +187,23 @@ public class PlateauZeroStateMachineTests
 
         await FeedAsync(fsm, -0.05m, -0.05m, -0.05m);
 
-        Assert.Collection(
-            commands,
-            request => Assert.Equal(ResidualCorrectionCommand.TareCurrentWeight, request.Command),
-            request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
     }
 
     [Fact]
-    public async Task LargeNegativeResidualRequiresCleaningWithoutCommands()
+    public async Task LargeNegativeResidualWarnsWithoutBlockingNextLoad()
     {
+        var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
-        var fsm = CreateFsm(new(), commands);
+        var fsm = CreateFsm(records, commands);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, -0.31m, -0.31m, -0.31m);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
 
+        Assert.Equal(new[] { 7.50m }, records);
         Assert.Empty(commands);
-        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
     }
 
     [Fact]
@@ -151,7 +220,6 @@ public class PlateauZeroStateMachineTests
         Assert.Collection(
             commands,
             request => Assert.Equal(ResidualCorrectionCommand.SetTare, request.Command),
-            request => Assert.Equal(ResidualCorrectionCommand.TareCurrentWeight, request.Command),
             request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
     }
 
@@ -175,6 +243,162 @@ public class PlateauZeroStateMachineTests
 
         await FeedZeroAsync(fsm);
         Assert.Equal(FsmState.IdleZero, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task NegativeZeroRejectionDoesNotSendTareOrBlockNextLoad()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(
+            records,
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "ZERO rejected"));
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+
+        await FeedAsync(fsm, 7.68m, 7.68m, 7.68m);
+
+        Assert.Equal(new[] { 7.68m }, records);
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
+        Assert.DoesNotContain(commands, request =>
+            request.Command is ResidualCorrectionCommand.SetTare or
+                ResidualCorrectionCommand.TareCurrentWeight);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task AugustNegativeResidualTraceRecordsEveryLoadWithoutRepeatedCommands()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(
+            records,
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "Установка >0< невозможна"));
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 7.68m, 7.68m, 7.68m);
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+        await FeedAsync(fsm, 7.22m, 7.22m, 7.22m);
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+        await FeedAsync(fsm, 8.10m, 8.10m, 8.10m);
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+
+        Assert.Equal(new[] { 7.68m, 7.22m, 8.10m }, records);
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task PositiveTareRejectionKeepsRecordingAndDoesNotRetrySameResidual()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(
+            records,
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"));
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+        await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Equal(ResidualCorrectionCommand.SetTare, Assert.Single(commands).Command);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task ProductArrivingBeforeZeroConfirmationIsRecorded()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(records, commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+        await FeedAsync(fsm, 7.68m, 7.68m, 7.68m);
+
+        Assert.Equal(new[] { 7.68m }, records);
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task LargeResidualWarnsButDoesNotBlockNextLoad()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(records, commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.31m, 0.31m, 0.31m);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Empty(commands);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task TransportFailureAllowsRecordingAfterConnectionRecovery()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(
+            records,
+            commands,
+            _ => ScaleCommandResult.TransportFailure("timeout"));
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+        Assert.Equal(FsmState.Disconnected, fsm.CurrentState);
+
+        fsm.SetConnection(true);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
+        Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task MaterialResidualChangeAllowsOneNewCorrectionAttempt()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(
+            new(),
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "rejected"));
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+        await FeedAsync(fsm, -0.06m, -0.06m, -0.06m);
+
+        Assert.Equal(2, commands.Count);
+        Assert.All(commands, request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
+    }
+
+    [Fact]
+    public async Task DisabledFeatureFlagPreservesLegacyNegativeCorrectionSequence()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.EnableNonBlockingCorrection = false;
+        var fsm = CreateFsm(new(), commands, settings: settings);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, -0.05m, -0.05m, -0.05m);
+
+        Assert.Collection(
+            commands,
+            request => Assert.Equal(ResidualCorrectionCommand.TareCurrentWeight, request.Command),
+            request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
     }
 
     [Fact]
@@ -212,11 +436,12 @@ public class PlateauZeroStateMachineTests
     private static PlateauZeroStateMachine CreateFsm(
         List<decimal> records,
         List<ResidualCorrectionRequest> commands,
-        Func<ResidualCorrectionRequest, ScaleCommandResult>? commandResult = null)
+        Func<ResidualCorrectionRequest, ScaleCommandResult>? commandResult = null,
+        SystemSettings? settings = null)
     {
         commandResult ??= _ => ScaleCommandResult.Success(0, "OK");
         return new PlateauZeroStateMachine(
-            CreateSettings(),
+            settings ?? CreateSettings(),
             new Mock<ILogger>().Object,
             weight =>
             {
@@ -253,6 +478,19 @@ public class PlateauZeroStateMachineTests
 
     private static Task FeedAsync(PlateauZeroStateMachine fsm, params decimal[] weights) =>
         FeedAsync(fsm, weights, terminalZero: false);
+
+    private static Task FeedSampleAsync(
+        PlateauZeroStateMachine fsm,
+        decimal weight,
+        bool isStable,
+        bool hasFreshMeasurement = true) =>
+        fsm.OnSampleAsync(new ScaleDataPoint(
+            weight,
+            isStable,
+            isConnected: true,
+            isAlarm: false,
+            hasFreshMeasurement: hasFreshMeasurement,
+            divisionKg: 0.01m));
 
     private static async Task FeedAsync(
         PlateauZeroStateMachine fsm,
