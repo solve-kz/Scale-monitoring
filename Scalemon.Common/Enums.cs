@@ -45,7 +45,16 @@
             /// <summary>
             /// Выключить красную лампу. Используется для сброса состояния ошибки.
             /// </summary>
-            AlarmOff = 0x17
+            AlarmOff = 0x17,
+
+            /// <summary>Включить лампу режима общего забоя.</summary>
+            GeneralModeIndicator = 0x18,
+
+            /// <summary>Включить лампу режима санитарного забоя.</summary>
+            SanitaryModeIndicator = 0x19,
+
+            /// <summary>Запросить у Arduino текущее положение переключателя.</summary>
+            RequestSlaughterMode = 0x1A
         }
 
         /// <summary>

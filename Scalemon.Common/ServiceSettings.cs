@@ -10,6 +10,7 @@
         public ScaleSettings ScaleSettings { get; set; } = new ScaleSettings();
         public SystemSettings SystemSettings { get; set; } = new SystemSettings();
         public PlcSettings PlcSettings { get; set; } = new PlcSettings();
+        public WeightRegisterReviewSettings WeightRegisterReview { get; set; } = new WeightRegisterReviewSettings();
     }
 
     public class ApiSettings
@@ -73,6 +74,11 @@
         public int AlarmSize { get; set; } = 50;
         public string ConnectionString { get; set; } = string.Empty;
         public string TableName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Путь к локальному SQLite-журналу режима «общий/санитарный».
+        /// </summary>
+        public string WeighingModeDatabasePath { get; set; } = @"C:\Scalemon\weighing-modes.db";
     }
 
     public class ScaleSettings
@@ -163,5 +169,32 @@
         public string PortName { get; set; } = "COM1";
         public int BaudRate { get; set; } = 9600;
         public int ReconnectIntervalMs { get; set; } = 1000;
+    }
+
+    public class WeightRegisterReviewSettings
+    {
+        public string StoragePath { get; set; } = @"C:\Scalemon\WeightRegisterReview";
+        public long MaxUploadBytes { get; set; } = 50L * 1024 * 1024;
+        public decimal ComparisonToleranceKg { get; set; } = 0.04m;
+        public WeightRegisterRecognitionSettings Recognition { get; set; } = new WeightRegisterRecognitionSettings();
+        public VideoArchiveSettings VideoArchive { get; set; } = new VideoArchiveSettings();
+    }
+
+    public class WeightRegisterRecognitionSettings
+    {
+        public bool Enabled { get; set; }
+        public string Endpoint { get; set; } = "https://api.openai.com/v1/responses";
+        public string Model { get; set; } = "gpt-5.6";
+        public string ApiKeyEnvironmentVariable { get; set; } = "OPENAI_API_KEY";
+        public int RequestTimeoutSeconds { get; set; } = 300;
+        public int PollIntervalSeconds { get; set; } = 5;
+        public int MaxOutputTokens { get; set; } = 30000;
+    }
+
+    public class VideoArchiveSettings
+    {
+        public bool Enabled { get; set; }
+        public int PreRollSeconds { get; set; } = 1;
+        public string? UrlTemplate { get; set; }
     }
 }

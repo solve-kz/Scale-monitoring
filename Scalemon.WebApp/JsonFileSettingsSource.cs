@@ -70,7 +70,8 @@ namespace Scalemon.WebApp
             DatabaseSettings = s.DatabaseSettings ?? new DatabaseSettings(),
             ScaleSettings = s.ScaleSettings ?? new ScaleSettings(),
             SystemSettings = s.SystemSettings ?? new SystemSettings(),
-            PlcSettings = s.PlcSettings ?? new PlcSettings()
+            PlcSettings = s.PlcSettings ?? new PlcSettings(),
+            WeightRegisterReviewSettings = MapWeightRegisterReview(s.WeightRegisterReview)
         };
 
         private static ServiceSettings MapFromDto(SettingsDto d) => new ServiceSettings
@@ -81,8 +82,63 @@ namespace Scalemon.WebApp
             DatabaseSettings = d.DatabaseSettings ?? new DatabaseSettings(),
             ScaleSettings = d.ScaleSettings ?? new ScaleSettings(),
             SystemSettings = d.SystemSettings ?? new SystemSettings(),
-            PlcSettings = d.PlcSettings ?? new PlcSettings()
+            PlcSettings = d.PlcSettings ?? new PlcSettings(),
+            WeightRegisterReview = MapWeightRegisterReview(d.WeightRegisterReviewSettings)
         };
+
+        private static WeightRegisterReviewOptions MapWeightRegisterReview(WeightRegisterReviewSettings? settings)
+        {
+            settings ??= new WeightRegisterReviewSettings();
+            return new WeightRegisterReviewOptions
+            {
+                StoragePath = settings.StoragePath,
+                MaxUploadBytes = settings.MaxUploadBytes,
+                ComparisonToleranceKg = settings.ComparisonToleranceKg,
+                Recognition = new WeightRegisterRecognitionOptions
+                {
+                    Enabled = settings.Recognition?.Enabled ?? false,
+                    Endpoint = settings.Recognition?.Endpoint ?? "https://api.openai.com/v1/responses",
+                    Model = settings.Recognition?.Model ?? "gpt-5.6",
+                    ApiKeyEnvironmentVariable = settings.Recognition?.ApiKeyEnvironmentVariable ?? "OPENAI_API_KEY",
+                    RequestTimeoutSeconds = settings.Recognition?.RequestTimeoutSeconds ?? 300,
+                    PollIntervalSeconds = settings.Recognition?.PollIntervalSeconds ?? 5,
+                    MaxOutputTokens = settings.Recognition?.MaxOutputTokens ?? 30000
+                },
+                VideoArchive = new VideoArchiveOptions
+                {
+                    Enabled = settings.VideoArchive?.Enabled ?? false,
+                    PreRollSeconds = settings.VideoArchive?.PreRollSeconds ?? 1,
+                    UrlTemplate = settings.VideoArchive?.UrlTemplate
+                }
+            };
+        }
+
+        private static WeightRegisterReviewSettings MapWeightRegisterReview(WeightRegisterReviewOptions? settings)
+        {
+            settings ??= new WeightRegisterReviewOptions();
+            return new WeightRegisterReviewSettings
+            {
+                StoragePath = settings.StoragePath,
+                MaxUploadBytes = settings.MaxUploadBytes,
+                ComparisonToleranceKg = settings.ComparisonToleranceKg,
+                Recognition = new WeightRegisterRecognitionSettings
+                {
+                    Enabled = settings.Recognition?.Enabled ?? false,
+                    Endpoint = settings.Recognition?.Endpoint ?? "https://api.openai.com/v1/responses",
+                    Model = settings.Recognition?.Model ?? "gpt-5.6",
+                    ApiKeyEnvironmentVariable = settings.Recognition?.ApiKeyEnvironmentVariable ?? "OPENAI_API_KEY",
+                    RequestTimeoutSeconds = settings.Recognition?.RequestTimeoutSeconds ?? 300,
+                    PollIntervalSeconds = settings.Recognition?.PollIntervalSeconds ?? 5,
+                    MaxOutputTokens = settings.Recognition?.MaxOutputTokens ?? 30000
+                },
+                VideoArchive = new VideoArchiveSettings
+                {
+                    Enabled = settings.VideoArchive?.Enabled ?? false,
+                    PreRollSeconds = settings.VideoArchive?.PreRollSeconds ?? 1,
+                    UrlTemplate = settings.VideoArchive?.UrlTemplate
+                }
+            };
+        }
 
     }
 

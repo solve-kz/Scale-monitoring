@@ -1,0 +1,959 @@
+@page "/weight-register-review"
+@attribute [Authorize]
+@implements IAsyncDisposable
+@using System.Globalization
+@using Microsoft.AspNetCore.WebUtilities
+@using Scalemon.WebApp.Components.Dialogs
+@using Scalemon.WebApp.Models
+@inject IWeightRegisterReviewService ReviewService
+@inject IWeighingDataService WeighingData
+@inject WeightRegisterComparisonEngine ComparisonEngine
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+@inject DialogService DialogService
+@inject IJSRuntime JS
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Vertical" Gap="0.75rem">
+            <RadzenText TextStyle="TextStyle.H5">Сверка ручного реестра</RadzenText>
+            <RadzenRow AlignItems="AlignItems.End" Gap="1rem">
+                @if (CanSee(2))
+                {
+                    <RadzenColumn Size="12" SizeMD="3">
+                        <RadzenLabel Text="Дата разделки" />
+                        <RadzenDatePicker TValue="DateTime"
+                                          @bind-Value="_uploadDate"
+                                          DateFormat="dd.MM.yyyy"
+                                          Style="width:100%" />
+                    </RadzenColumn>
+                    <RadzenColumn Size="12" SizeMD="3">
+                        <RadzenUpload Url="@UploadUrl"
+                                      ParameterName="files"
+                                      Multiple="true"
+                                      Auto="true"
+                                      Accept=".jpg,.jpeg,.png"
+                                      ChooseText="Загрузить"
+                                      Complete="OnUploadComplete"
+                                      Error="OnUploadError"
+                                      Style="width:100%" />
+                    </RadzenColumn>
+                }
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenLabel Text="Сохранённый проект" />
+                    <RadzenDropDown TValue="string"
+                                    Data="_projects"
+                                    TextProperty="DisplayName"
+                                    ValueProperty="Id"
+                                    Value="_selectedProjectId"
+                                    Change="OnProjectChanged"
+                                    AllowClear="true"
+                                    Placeholder="Выберите дату и проект"
+                                    Style="width:100%" />
+                </RadzenColumn>
+            </RadzenRow>
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_project is null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">
+            Загрузите JPG/PNG-сканы одной даты или выберите сохранённый проект.
+        </RadzenAlert>
+    }
+    else
+    {
+        <RadzenCard>
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         JustifyContent="JustifyContent.SpaceBetween"
+                         Gap="1rem"
+                         Wrap="FlexWrap.Wrap">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6">@_project.ProjectName</RadzenText>
+                    <RadzenBadge Text="@RecognitionStatusText" BadgeStyle="@RecognitionBadgeStyle" />
+                </RadzenStack>
+                @if (CanSee(2))
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        <RadzenButton Text="Запустить распознавание"
+                                      Icon="document_scanner"
+                                      ButtonStyle="ButtonStyle.Primary"
+                                      Disabled="@(_project.RecognitionStatus is RegisterRecognitionStatus.CalibrationRequired or RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)"
+                                      Click="QueueRecognitionAsync" />
+                        @if (_project.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing or RegisterRecognitionStatus.Failed)
+                        {
+                            <RadzenButton Text="Скачать задание и сканы"
+                                          Icon="file_download"
+                                          ButtonStyle="ButtonStyle.Light"
+                                          Click="DownloadRecognitionRequestAsync" />
+                        }
+                        <RadzenUpload Url="@RecognitionImportUrl"
+                                      ParameterName="file"
+                                      Auto="true"
+                                      Disabled="@(_project.RecognitionStatus == RegisterRecognitionStatus.Processing)"
+                                      Accept=".json,application/json"
+                                      ChooseText="Импортировать результат"
+                                      Complete="OnRecognitionImported"
+                                      Error="OnUploadError" />
+                    </RadzenStack>
+                }
+            </RadzenStack>
+            @if (!string.IsNullOrWhiteSpace(_project.StatusMessage))
+            {
+                <RadzenText TextStyle="TextStyle.Caption">@_project.StatusMessage</RadzenText>
+            }
+        </RadzenCard>
+
+        <RadzenRow Gap="1rem">
+            <RadzenColumn Order="1" Size="12" SizeLG="8" SizeXL="9" Style="min-width:0;">
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+                        <RadzenStack Orientation="Orientation.Horizontal"
+                                     AlignItems="AlignItems.End"
+                                     JustifyContent="JustifyContent.SpaceBetween"
+                                     Wrap="FlexWrap.Wrap"
+                                     Gap="1rem">
+                            <div style="min-width:260px;">
+                                <RadzenLabel Text="Лист" />
+                                <RadzenDropDown TValue="string"
+                                                Data="_project.Sheets"
+                                                TextProperty="Name"
+                                                ValueProperty="Id"
+                                                Value="_selectedSheetId"
+                                                Change="OnSheetChanged"
+                                                Style="width:100%" />
+                            </div>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                @LegendItem("#f4cccc", "нет в автоматической записи")
+                                @LegendItem("#d9ead3", "разница ≤ 0,04 кг")
+                                @LegendItem("#f8d7da", "разница > 0,04 кг")
+                                @LegendItem("#fce5cd", "пропуск в ручной записи")
+                            </RadzenStack>
+                        </RadzenStack>
+
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2">
+                                @(_includeSanitary ? "Санитарный включён в сравнение" : "Санитарный исключён из сравнения")
+                            </RadzenText>
+                            <RadzenSwitch @bind-Value="_includeSanitary" @bind-Value:after="OnSanitaryToggleChangedAsync" />
+                            @if (_project.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption">Автоматические записи: @AutomaticDatesText</RadzenText>
+                            }
+                        </RadzenStack>
+
+                        @if (_project.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                        {
+                            @if (!string.IsNullOrWhiteSpace(_comparisonError))
+                            {
+                                <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat">@_comparisonError</RadzenAlert>
+                            }
+                            else
+                            {
+                                <RegisterComparisonGrid Rows="_rows"
+                                                        Totals="_totals"
+                                                        RecognizedTotals="_recognizedTotals"
+                                                        SelectedKey="_selectedComparison?.Key"
+                                                        CellSelected="OnCellSelected"
+                                                        CellDoubleClicked="OnCellDoubleClicked" />
+                                <RadzenText TextStyle="TextStyle.Caption">
+                                    Ручных записей без пары: @_comparison.ManualOnlyCount; автоматических записей без ручной пары: @_comparison.AutomaticOnlyCount.
+                                    Янтарная внутренняя рамка означает статус Suspect.
+                                </RadzenText>
+                            }
+                        }
+                        else
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">
+                                После калибровки запустите распознавание. При выключенном AI-исполнителе скачайте задание и импортируйте JSON результата вручную.
+                            </RadzenAlert>
+                        }
+                    </RadzenStack>
+                </RadzenCard>
+            </RadzenColumn>
+
+            <RadzenColumn Order="2" Size="12" SizeLG="4" SizeXL="3" Style="min-width:0;">
+                <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" Style="height:100%;">
+                    @if (_selectedComparison is not null && _selectedSheet is not null)
+                    {
+                        <RadzenCard class="weight-register-cell-inspector">
+                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.H6">
+                                    Ячейка @_selectedComparison.Key.Row:@_selectedComparison.Key.Column
+                                </RadzenText>
+                                @if (_cellBounds is not null && _selectedSheet.Calibration is not null)
+                                {
+                                    <svg viewBox="@CellCropViewBox"
+                                         preserveAspectRatio="xMidYMid meet"
+                                         style="width:100%;height:190px;background:#fff;border:1px solid var(--rz-border-color);">
+                                        <image href="@ImageUrl"
+                                               width="@_selectedSheet.Calibration.ImageWidth"
+                                               height="@_selectedSheet.Calibration.ImageHeight"
+                                               transform="@ImageRotationTransform" />
+                                        <rect x="@F(_cellBounds.Left)"
+                                              y="@F(_cellBounds.Top)"
+                                              width="@F(_cellBounds.Width)"
+                                              height="@F(_cellBounds.Height)"
+                                              fill="none"
+                                              stroke="#2563eb"
+                                              stroke-width="1" />
+                                    </svg>
+                                }
+                                <RadzenText TextStyle="TextStyle.Body2">
+                                    Автоматическая запись:
+                                    @if (_selectedComparison.Automatic is not null)
+                                    {
+                                        <b>@_selectedComparison.Automatic.Weight.ToString("0.00") кг, @_selectedComparison.Automatic.Timestamp.ToString("HH:mm:ss")</b>
+                                    }
+                                    else
+                                    {
+                                        <b>отсутствует</b>
+                                    }
+                                </RadzenText>
+                                @if (_selectedComparison.AutomaticGaps.Count > 0)
+                                {
+                                    <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">
+                                        Между соседними ручными ячейками есть автоматическая запись:
+                                        @string.Join(", ", _selectedComparison.AutomaticGaps.Select(item => $"{item.Weight:0.00} кг {item.Timestamp:HH:mm:ss}"))
+                                    </RadzenAlert>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(_selectedComparison.Manual.Comment))
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption">@_selectedComparison.Manual.Comment</RadzenText>
+                                }
+                                @if (CanSee(2))
+                                {
+                                    <RadzenLabel Text="Распознанное значение, кг" />
+                                    <RadzenNumeric TValue="decimal?"
+                                                   @bind-Value="_editedValue"
+                                                   Min="@(0.02m)"
+                                                   Max="@(100m)"
+                                                   Step="0.02"
+                                                   Format="0.00"
+                                                   Style="width:100%" />
+                                    <RadzenButton Text="Записать"
+                                                  Icon="save"
+                                                  ButtonStyle="ButtonStyle.Primary"
+                                                  Click="SaveCorrectionAsync" />
+                                }
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+
+                    @if (_selectedSheet is not null && _calibration is not null)
+                    {
+                        <RadzenCard>
+                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.75rem">
+                                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <RadzenText TextStyle="TextStyle.H6">Калибровка листа</RadzenText>
+                                    <RadzenBadge Text="@(_selectedSheet.IsCalibrationConfirmed ? "сохранена" : "не подтверждена")"
+                                                 BadgeStyle="@(_selectedSheet.IsCalibrationConfirmed ? BadgeStyle.Success : BadgeStyle.Warning)" />
+                                </RadzenStack>
+                                @if (CanSee(2))
+                                {
+                                    <div style="display:grid;grid-template-columns:48px minmax(0,1fr) 48px;grid-template-rows:auto minmax(320px,520px) auto;gap:0.5rem;align-items:center;">
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
+                                                     Style="grid-column:2;grid-row:1;">
+                                            <RadzenButton Text="−" Title="Верхняя граница вверх" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Top, -1d))" />
+                                            <RadzenSlider TValue="double" Value="_topCalibrationSlider" Min="-60" Max="60" Step="1"
+                                                          Change="@((double value) => OnCalibrationSliderChanged(CalibrationEdge.Top, value))"
+                                                          Style="width:100%;" />
+                                            <RadzenButton Text="+" Title="Верхняя граница вниз" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Top, 1d))" />
+                                        </RadzenStack>
+
+                                        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.5rem"
+                                                     Style="grid-column:1;grid-row:2;">
+                                            <RadzenButton Text="+" Title="Левая граница вправо" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Left, 1d))" />
+                                            <RadzenSlider TValue="double" Value="_leftCalibrationSlider" Min="-60" Max="60" Step="1"
+                                                          Orientation="Orientation.Vertical"
+                                                          Change="@((double value) => OnCalibrationSliderChanged(CalibrationEdge.Left, value))"
+                                                          Style="height:220px;" />
+                                            <RadzenButton Text="−" Title="Левая граница влево" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Left, -1d))" />
+                                        </RadzenStack>
+
+                                        <svg viewBox="@CalibrationViewBox"
+                                             preserveAspectRatio="xMidYMid meet"
+                                             style="grid-column:2;grid-row:2;width:100%;height:100%;max-height:520px;background:#fff;border:1px solid var(--rz-border-color);">
+                                            <image href="@ImageUrl"
+                                                   width="@_calibration.ImageWidth"
+                                                   height="@_calibration.ImageHeight"
+                                                   transform="@CalibrationRotationTransform" />
+                                            <rect x="@F(_calibration.TableLeft)"
+                                                  y="@F(_calibration.TableTop)"
+                                                  width="@F(_calibration.TableRight - _calibration.TableLeft)"
+                                                  height="@F(_calibration.TableBottom - _calibration.TableTop)"
+                                                  fill="none"
+                                                  stroke="#2563eb"
+                                                  stroke-width="3" />
+                                            @foreach (var line in CalibrationHorizontalLines)
+                                            {
+                                                <line x1="@F(_calibration.TableLeft)" y1="@F(line)"
+                                                      x2="@F(_calibration.TableRight)" y2="@F(line)"
+                                                      stroke="#2563eb" stroke-opacity="0.35" stroke-width="1" />
+                                            }
+                                            @foreach (var line in CalibrationVerticalLines)
+                                            {
+                                                <line x1="@F(line)" y1="@F(_calibration.TableTop)"
+                                                      x2="@F(line)" y2="@F(_calibration.TableBottom)"
+                                                      stroke="#2563eb" stroke-opacity="0.35" stroke-width="1" />
+                                            }
+                                        </svg>
+
+                                        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.5rem"
+                                                     Style="grid-column:3;grid-row:2;">
+                                            <RadzenButton Text="+" Title="Правая граница вправо" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Right, 1d))" />
+                                            <RadzenSlider TValue="double" Value="_rightCalibrationSlider" Min="-60" Max="60" Step="1"
+                                                          Orientation="Orientation.Vertical"
+                                                          Change="@((double value) => OnCalibrationSliderChanged(CalibrationEdge.Right, value))"
+                                                          Style="height:220px;" />
+                                            <RadzenButton Text="−" Title="Правая граница влево" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Right, -1d))" />
+                                        </RadzenStack>
+
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem"
+                                                     Style="grid-column:2;grid-row:3;">
+                                            <RadzenButton Text="−" Title="Нижняя граница вверх" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Bottom, -1d))" />
+                                            <RadzenSlider TValue="double" Value="_bottomCalibrationSlider" Min="-60" Max="60" Step="1"
+                                                          Change="@((double value) => OnCalibrationSliderChanged(CalibrationEdge.Bottom, value))"
+                                                          Style="width:100%;" />
+                                            <RadzenButton Text="+" Title="Нижняя граница вниз" ButtonStyle="ButtonStyle.Light"
+                                                          Click="@(() => NudgeCalibration(CalibrationEdge.Bottom, 1d))" />
+                                        </RadzenStack>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <svg viewBox="@CalibrationViewBox"
+                                         preserveAspectRatio="xMidYMid meet"
+                                         style="width:100%;max-height:520px;background:#fff;border:1px solid var(--rz-border-color);">
+                                        <image href="@ImageUrl"
+                                               width="@_calibration.ImageWidth"
+                                               height="@_calibration.ImageHeight"
+                                               transform="@CalibrationRotationTransform" />
+                                        <rect x="@F(_calibration.TableLeft)"
+                                              y="@F(_calibration.TableTop)"
+                                              width="@F(_calibration.TableRight - _calibration.TableLeft)"
+                                              height="@F(_calibration.TableBottom - _calibration.TableTop)"
+                                              fill="none"
+                                              stroke="#2563eb"
+                                              stroke-width="3" />
+                                        @foreach (var line in CalibrationHorizontalLines)
+                                        {
+                                            <line x1="@F(_calibration.TableLeft)" y1="@F(line)"
+                                                  x2="@F(_calibration.TableRight)" y2="@F(line)"
+                                                  stroke="#2563eb" stroke-opacity="0.35" stroke-width="1" />
+                                        }
+                                        @foreach (var line in CalibrationVerticalLines)
+                                        {
+                                            <line x1="@F(line)" y1="@F(_calibration.TableTop)"
+                                                  x2="@F(line)" y2="@F(_calibration.TableBottom)"
+                                                  stroke="#2563eb" stroke-opacity="0.35" stroke-width="1" />
+                                        }
+                                    </svg>
+                                }
+                                @if (CanSee(2))
+                                {
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenButton Text="−" Title="Повернуть против часовой стрелки" ButtonStyle="ButtonStyle.Light"
+                                                      Click="@(() => NudgeRotation(-0.1d))" />
+                                        <RadzenSlider TValue="double" Value="_rotationCalibrationSlider" Min="-5" Max="5" Step="0.1"
+                                                      Change="OnRotationSliderChanged"
+                                                      Style="width:100%;" />
+                                        <RadzenButton Text="+" Title="Повернуть по часовой стрелке" ButtonStyle="ButtonStyle.Light"
+                                                      Click="@(() => NudgeRotation(0.1d))" />
+                                    </RadzenStack>
+                                    <RadzenText TextStyle="TextStyle.Caption" TextAlign="TextAlign.Center">
+                                        Поворот: @_calibration.RotationDegrees.ToString("0.0", CultureInfo.InvariantCulture)°; шаг границ: 2 px
+                                    </RadzenText>
+                                    <RadzenRow Gap="0.5rem">
+                                        <RadzenColumn Size="6"><RadzenLabel Text="Слева" /><RadzenNumeric TValue="double" @bind-Value="_calibration.TableLeft" Step="1" Style="width:100%" /></RadzenColumn>
+                                        <RadzenColumn Size="6"><RadzenLabel Text="Справа" /><RadzenNumeric TValue="double" @bind-Value="_calibration.TableRight" Step="1" Style="width:100%" /></RadzenColumn>
+                                        <RadzenColumn Size="6"><RadzenLabel Text="Сверху" /><RadzenNumeric TValue="double" @bind-Value="_calibration.TableTop" Step="1" Style="width:100%" /></RadzenColumn>
+                                        <RadzenColumn Size="6"><RadzenLabel Text="Снизу" /><RadzenNumeric TValue="double" @bind-Value="_calibration.TableBottom" Step="1" Style="width:100%" /></RadzenColumn>
+                                        <RadzenColumn Size="12"><RadzenLabel Text="Поворот, °" /><RadzenNumeric TValue="double" @bind-Value="_calibration.RotationDegrees" Min="-5" Max="5" Step="0.1" Style="width:100%" /></RadzenColumn>
+                                    </RadzenRow>
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        <RadzenButton Text="Сбросить"
+                                                      Icon="restart_alt"
+                                                      ButtonStyle="ButtonStyle.Light"
+                                                      Click="ResetCalibration" />
+                                        <RadzenButton Text="Сохранить калибровку"
+                                                      Icon="crop"
+                                                      ButtonStyle="ButtonStyle.Secondary"
+                                                      Click="SaveCalibrationAsync" />
+                                    </RadzenStack>
+                                }
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+                </RadzenStack>
+            </RadzenColumn>
+        </RadzenRow>
+    }
+</RadzenStack>
+
+<style>
+    .weight-register-cell-inspector {
+        position: sticky;
+        top: 1rem;
+        z-index: 5;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+        align-self: stretch;
+    }
+
+    @@media (max-width: 991.98px) {
+        .weight-register-cell-inspector {
+            position: static;
+            max-height: none;
+            overflow-y: visible;
+        }
+    }
+</style>
+
+@code {
+    private readonly CultureInfo _invariant = CultureInfo.InvariantCulture;
+    private readonly CancellationTokenSource _refreshCts = new();
+    private Task? _refreshTask;
+    private DateTime _uploadDate = DateTime.Today;
+    private IReadOnlyList<WeightRegisterProjectSummary> _projects = Array.Empty<WeightRegisterProjectSummary>();
+    private string? _selectedProjectId;
+    private WeightRegisterProject? _project;
+    private string? _selectedSheetId;
+    private WeightRegisterSheet? _selectedSheet;
+    private RegisterTableCalibration? _calibration;
+    private RegisterComparisonResult _comparison = new();
+    private IReadOnlyList<RegisterGridRowVm> _rows = Array.Empty<RegisterGridRowVm>();
+    private IReadOnlyDictionary<int, decimal> _totals = new Dictionary<int, decimal>();
+    private IReadOnlyDictionary<int, RegisterReviewTotal> _recognizedTotals = new Dictionary<int, RegisterReviewTotal>();
+    private RegisterCellComparison? _selectedComparison;
+    private RegisterCellBounds? _cellBounds;
+    private decimal? _editedValue;
+    private bool _includeSanitary = true;
+    private string? _comparisonError;
+    private double _leftCalibrationSlider;
+    private double _topCalibrationSlider;
+    private double _rightCalibrationSlider;
+    private double _bottomCalibrationSlider;
+    private double _rotationCalibrationSlider;
+
+    private const double CalibrationBoundaryStep = 2d;
+
+    private string UploadUrl
+        => Navigation.ToAbsoluteUri($"api/weight-register/uploads?cuttingDate={_uploadDate:yyyy-MM-dd}").ToString();
+
+    private string RecognitionImportUrl
+        => _project is null
+            ? Navigation.ToAbsoluteUri("api/weight-register/invalid/recognition-result").ToString()
+            : Navigation.ToAbsoluteUri($"api/weight-register/projects/{_project.Id}/recognition-result").ToString();
+
+    private string ImageUrl
+        => _project is null || _selectedSheet is null
+            ? string.Empty
+            : Navigation.ToAbsoluteUri($"api/weight-register/projects/{_project.Id}/sheets/{_selectedSheet.Id}/image").ToString();
+
+    private string RecognitionStatusText => _project?.RecognitionStatus switch
+    {
+        RegisterRecognitionStatus.CalibrationRequired => "Нужна калибровка",
+        RegisterRecognitionStatus.Ready => "Готов к распознаванию",
+        RegisterRecognitionStatus.Pending => "Ожидает распознавания",
+        RegisterRecognitionStatus.Processing => "Распознаётся",
+        RegisterRecognitionStatus.Completed => "Распознано",
+        RegisterRecognitionStatus.Failed => "Ошибка",
+        _ => "Не выбран"
+    };
+
+    private BadgeStyle RecognitionBadgeStyle => _project?.RecognitionStatus switch
+    {
+        RegisterRecognitionStatus.Completed => BadgeStyle.Success,
+        RegisterRecognitionStatus.Failed => BadgeStyle.Danger,
+        RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing => BadgeStyle.Info,
+        _ => BadgeStyle.Warning
+    };
+
+    private string CalibrationViewBox => _calibration is null
+        ? "0 0 1 1"
+        : $"0 0 {_calibration.ImageWidth} {_calibration.ImageHeight}";
+
+    private string CellCropViewBox => _cellBounds is null
+        ? "0 0 1 1"
+        : $"{F(_cellBounds.Left)} {F(_cellBounds.Top)} {F(_cellBounds.Width)} {F(_cellBounds.Height)}";
+
+    private string CalibrationRotationTransform => _calibration is null
+        ? string.Empty
+        : RotationTransform(_calibration);
+
+    private string ImageRotationTransform => _selectedSheet?.Calibration is null
+        ? string.Empty
+        : RotationTransform(_selectedSheet.Calibration);
+
+    private IEnumerable<double> CalibrationHorizontalLines
+    {
+        get
+        {
+            if (_calibration is null || _selectedSheet is null) yield break;
+            var count = _selectedSheet.Table.HeaderRows + _selectedSheet.Table.DataRows + _selectedSheet.Table.TotalRows;
+            for (var index = 1; index < count; index++)
+            {
+                yield return _calibration.TableTop + (_calibration.TableBottom - _calibration.TableTop) * index / count;
+            }
+        }
+    }
+
+    private IEnumerable<double> CalibrationVerticalLines
+    {
+        get
+        {
+            if (_calibration is null || _selectedSheet is null) yield break;
+            var count = _selectedSheet.Table.Columns + 1;
+            for (var index = 1; index < count; index++)
+            {
+                yield return _calibration.TableLeft + (_calibration.TableRight - _calibration.TableLeft) * index / count;
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjectsAsync(selectNewest: true);
+        _refreshTask = RefreshRecognitionStatusAsync(_refreshCts.Token);
+    }
+
+    private async Task LoadProjectsAsync(bool selectNewest)
+    {
+        _projects = await ReviewService.ListProjectsAsync();
+        if (selectNewest && _projects.Count > 0)
+        {
+            _selectedProjectId = _projects[0].Id;
+        }
+        if (!string.IsNullOrWhiteSpace(_selectedProjectId))
+        {
+            await LoadProjectAsync(_selectedProjectId);
+        }
+    }
+
+    private async Task LoadProjectAsync(string projectId)
+    {
+        _project = await ReviewService.GetProjectAsync(projectId);
+        if (_project is null)
+        {
+            return;
+        }
+        _selectedProjectId = _project.Id;
+        _selectedSheetId = _project.Sheets.Any(sheet => sheet.Id == _selectedSheetId)
+            ? _selectedSheetId
+            : _project.Sheets.FirstOrDefault()?.Id;
+        await RebuildComparisonAsync();
+        SelectSheet();
+    }
+
+    private async Task RebuildComparisonAsync()
+    {
+        if (_project is null || _project.RecognitionStatus != RegisterRecognitionStatus.Completed)
+        {
+            _comparison = new RegisterComparisonResult();
+            return;
+        }
+
+        var automatic = await WeighingData.GetDayAllAsync(
+            _project.CuttingDate,
+            _includeSanitary);
+        _comparison = ComparisonEngine.Compare(_project, automatic);
+        _comparisonError = null;
+    }
+
+    private string AutomaticDatesText
+        => _project is null
+            ? string.Empty
+            : _project.CuttingDate.ToString("dd.MM.yyyy");
+
+    private void SelectSheet()
+    {
+        _selectedSheet = _project?.Sheets.FirstOrDefault(sheet => sheet.Id == _selectedSheetId);
+        _calibration = _selectedSheet?.Calibration?.Copy();
+        _selectedComparison = null;
+        _cellBounds = null;
+        _editedValue = null;
+        ResetCalibrationSliders();
+        BuildGridRows();
+    }
+
+    private void BuildGridRows()
+    {
+        if (_selectedSheet is null)
+        {
+            _rows = Array.Empty<RegisterGridRowVm>();
+            _totals = new Dictionary<int, decimal>();
+            _recognizedTotals = new Dictionary<int, RegisterReviewTotal>();
+            return;
+        }
+
+        var rows = new List<RegisterGridRowVm>(_selectedSheet.Table.DataRows);
+        for (var row = 1; row <= _selectedSheet.Table.DataRows; row++)
+        {
+            var cells = new Dictionary<int, RegisterCellComparison?>();
+            for (var column = 1; column <= _selectedSheet.Table.Columns; column++)
+            {
+                _comparison.Cells.TryGetValue(new RegisterCellKey(_selectedSheet.Id, row, column), out var comparison);
+                cells[column] = comparison;
+            }
+            rows.Add(new RegisterGridRowVm(row, cells));
+        }
+        _rows = rows;
+        _totals = _selectedSheet.Cells
+            .Where(cell => cell.EffectiveValue.HasValue)
+            .GroupBy(cell => cell.Column)
+            .ToDictionary(group => group.Key, group => group.Sum(cell => cell.EffectiveValue!.Value));
+        _recognizedTotals = _selectedSheet.Totals
+            .Where(total => total.Column >= 1 && total.Column <= _selectedSheet.Table.Columns)
+            .Where(total => total.EffectiveValue.HasValue)
+            .GroupBy(total => total.Column)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(total => total.Row).First());
+    }
+
+    private async Task OnProjectChanged(object value)
+    {
+        var projectId = value?.ToString();
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            await LoadProjectAsync(projectId);
+        }
+    }
+
+    private void OnSheetChanged(object value)
+    {
+        _selectedSheetId = value?.ToString();
+        SelectSheet();
+    }
+
+    private async Task OnUploadComplete(UploadCompleteEventArgs _)
+    {
+        NotificationService.Notify(NotificationSeverity.Success, "Сканы загружены", "Проверьте калибровку каждого листа.");
+        await LoadProjectsAsync(selectNewest: true);
+    }
+
+    private void OnUploadError(UploadErrorEventArgs _)
+        => NotificationService.Notify(NotificationSeverity.Error, "Ошибка загрузки", "Сервер отклонил файл. Проверьте формат и размер.");
+
+    private async Task SaveCalibrationAsync()
+    {
+        if (_project is null || _selectedSheet is null || _calibration is null)
+        {
+            return;
+        }
+        try
+        {
+            await ReviewService.SaveCalibrationAsync(_project.Id, _selectedSheet.Id, _calibration);
+            await LoadProjectAsync(_project.Id);
+            NotificationService.Notify(NotificationSeverity.Success, "Калибровка", "Границы листа сохранены.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Калибровка", ex.Message);
+        }
+    }
+
+    private async Task QueueRecognitionAsync()
+    {
+        if (_project is null) return;
+        try
+        {
+            await ReviewService.QueueRecognitionAsync(_project.Id);
+            await LoadProjectAsync(_project.Id);
+            NotificationService.Notify(NotificationSeverity.Info, "Распознавание", "Задание поставлено в очередь.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Распознавание", ex.Message);
+        }
+    }
+
+    private async Task DownloadRecognitionRequestAsync()
+    {
+        if (_project is null) return;
+        var url = Navigation.ToAbsoluteUri($"api/weight-register/projects/{_project.Id}/recognition-request").ToString();
+        await JS.InvokeVoidAsync("open", url, "_blank");
+    }
+
+    private async Task OnRecognitionImported(UploadCompleteEventArgs _)
+    {
+        if (_project is null) return;
+        await LoadProjectAsync(_project.Id);
+        await LoadProjectsAsync(selectNewest: false);
+        NotificationService.Notify(NotificationSeverity.Success, "Распознавание", "Результат импортирован и сопоставлен.");
+    }
+
+    private void OnCellSelected(RegisterCellComparison comparison)
+    {
+        _selectedComparison = comparison;
+        _editedValue = comparison.Manual.EffectiveValue;
+        _cellBounds = _selectedSheet is null
+            ? null
+            : WeightRegisterGeometry.GetCellBounds(_selectedSheet, comparison.Key.Row, comparison.Key.Column);
+    }
+
+    private async Task OnCellDoubleClicked(RegisterCellComparison comparison)
+    {
+        var weighing = comparison.Automatic ?? comparison.AutomaticGaps.FirstOrDefault();
+        if (weighing is null)
+        {
+            NotificationService.Notify(NotificationSeverity.Info, "Видеоархив", "Для этой ручной ячейки нет автоматической записи со временем.");
+            return;
+        }
+
+        await DialogService.OpenAsync<VideoArchiveDialog>(
+            "Видео взвешивания",
+            new Dictionary<string, object> { [nameof(VideoArchiveDialog.Weighing)] = weighing },
+            new DialogOptions { Width = "900px", Height = "720px", Resizable = true, Draggable = true });
+    }
+
+    private async Task OnSanitaryToggleChangedAsync()
+    {
+        try
+        {
+            await RebuildComparisonAsync();
+        }
+        catch (Exception ex)
+        {
+            _comparison = new RegisterComparisonResult();
+            _comparisonError = $"Нельзя достоверно применить фильтр санитарного забоя: {ex.Message}";
+            NotificationService.Notify(NotificationSeverity.Error, "Фильтр санитарного забоя", _comparisonError);
+        }
+        _selectedComparison = null;
+        _cellBounds = null;
+        _editedValue = null;
+        BuildGridRows();
+    }
+
+    private async Task SaveCorrectionAsync()
+    {
+        if (_project is null || _selectedComparison is null) return;
+        var projectId = _project.Id;
+        var key = _selectedComparison.Key;
+        try
+        {
+            await ReviewService.CorrectCellAsync(
+                projectId,
+                key.SheetId,
+                key.Row,
+                key.Column,
+                _editedValue,
+                CurrentUser?.Identity?.Name);
+            await LoadProjectAsync(projectId);
+            if (_comparison.Cells.TryGetValue(key, out var refreshed))
+            {
+                OnCellSelected(refreshed);
+            }
+            NotificationService.Notify(NotificationSeverity.Success, "Коррекция", "Значение записано.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Коррекция", ex.Message);
+        }
+    }
+
+    private RenderFragment LegendItem(string color, string text) => builder =>
+    {
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "style", "display:inline-flex;align-items:center;gap:0.35rem;font-size:0.8rem;");
+        builder.OpenElement(2, "span");
+        builder.AddAttribute(3, "style", $"display:inline-block;width:1rem;height:1rem;background:{color};border:1px solid #999;");
+        builder.CloseElement();
+        builder.AddContent(4, text);
+        builder.CloseElement();
+    };
+
+    private string RotationTransform(RegisterTableCalibration calibration)
+        => $"rotate({F(calibration.RotationDegrees)} {F(calibration.ImageWidth / 2d)} {F(calibration.ImageHeight / 2d)})";
+
+    private void OnCalibrationSliderChanged(CalibrationEdge edge, double value)
+    {
+        var previous = edge switch
+        {
+            CalibrationEdge.Left => _leftCalibrationSlider,
+            CalibrationEdge.Top => _topCalibrationSlider,
+            CalibrationEdge.Right => _rightCalibrationSlider,
+            CalibrationEdge.Bottom => _bottomCalibrationSlider,
+            _ => 0d
+        };
+        switch (edge)
+        {
+            case CalibrationEdge.Left:
+                _leftCalibrationSlider = value;
+                break;
+            case CalibrationEdge.Top:
+                _topCalibrationSlider = value;
+                break;
+            case CalibrationEdge.Right:
+                _rightCalibrationSlider = value;
+                break;
+            case CalibrationEdge.Bottom:
+                _bottomCalibrationSlider = value;
+                break;
+        }
+        NudgeCalibration(edge, value - previous);
+    }
+
+    private void NudgeCalibration(CalibrationEdge edge, double direction)
+    {
+        if (_calibration is null || Math.Abs(direction) < 0.001d)
+        {
+            return;
+        }
+
+        var delta = direction * CalibrationBoundaryStep;
+        var minimumWidth = Math.Min(20d, _calibration.ImageWidth);
+        var minimumHeight = Math.Min(20d, _calibration.ImageHeight);
+        switch (edge)
+        {
+            case CalibrationEdge.Left:
+                _calibration.TableLeft = Math.Clamp(
+                    _calibration.TableLeft + delta,
+                    0d,
+                    Math.Max(0d, _calibration.TableRight - minimumWidth));
+                break;
+            case CalibrationEdge.Top:
+                _calibration.TableTop = Math.Clamp(
+                    _calibration.TableTop + delta,
+                    0d,
+                    Math.Max(0d, _calibration.TableBottom - minimumHeight));
+                break;
+            case CalibrationEdge.Right:
+                _calibration.TableRight = Math.Clamp(
+                    _calibration.TableRight + delta,
+                    Math.Min(_calibration.ImageWidth, _calibration.TableLeft + minimumWidth),
+                    _calibration.ImageWidth);
+                break;
+            case CalibrationEdge.Bottom:
+                _calibration.TableBottom = Math.Clamp(
+                    _calibration.TableBottom + delta,
+                    Math.Min(_calibration.ImageHeight, _calibration.TableTop + minimumHeight),
+                    _calibration.ImageHeight);
+                break;
+        }
+    }
+
+    private void OnRotationSliderChanged(double value)
+    {
+        var delta = value - _rotationCalibrationSlider;
+        _rotationCalibrationSlider = value;
+        NudgeRotation(delta);
+    }
+
+    private void NudgeRotation(double delta)
+    {
+        if (_calibration is null || Math.Abs(delta) < 0.001d)
+        {
+            return;
+        }
+
+        _calibration.RotationDegrees = Math.Clamp(_calibration.RotationDegrees + delta, -5d, 5d);
+    }
+
+    private void ResetCalibrationSliders()
+    {
+        _leftCalibrationSlider = 0d;
+        _topCalibrationSlider = 0d;
+        _rightCalibrationSlider = 0d;
+        _bottomCalibrationSlider = 0d;
+        _rotationCalibrationSlider = 0d;
+    }
+
+    private void ResetCalibration()
+    {
+        if (_selectedSheet?.Calibration is null)
+        {
+            return;
+        }
+
+        _calibration = WeightRegisterGeometry.CreateDefaultCalibration(
+            _selectedSheet.Calibration.ImageWidth,
+            _selectedSheet.Calibration.ImageHeight);
+        ResetCalibrationSliders();
+    }
+
+    private string F(double value) => value.ToString("0.###", _invariant);
+
+    private async Task RefreshRecognitionStatusAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                var projectId = _project?.Id;
+                var previousStatus = _project?.RecognitionStatus;
+                if (string.IsNullOrWhiteSpace(projectId)
+                    || previousStatus is not (RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing))
+                {
+                    continue;
+                }
+
+                var latest = await ReviewService.GetProjectAsync(projectId, cancellationToken);
+                if (latest is null || latest.RecognitionStatus == previousStatus)
+                {
+                    continue;
+                }
+
+                await InvokeAsync(async () =>
+                {
+                    await LoadProjectAsync(projectId);
+                    _projects = await ReviewService.ListProjectsAsync(cancellationToken);
+                    if (latest.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                    {
+                        NotificationService.Notify(
+                            NotificationSeverity.Success,
+                            "Распознавание",
+                            "Сканы распознаны и сопоставлены с автоматическим реестром.");
+                    }
+                    else if (latest.RecognitionStatus == RegisterRecognitionStatus.Failed)
+                    {
+                        NotificationService.Notify(
+                            NotificationSeverity.Error,
+                            "Распознавание",
+                            latest.StatusMessage ?? "Распознавание завершилось с ошибкой.");
+                    }
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            await InvokeAsync(() => NotificationService.Notify(
+                NotificationSeverity.Warning,
+                "Распознавание",
+                $"Не удалось обновить статус автоматически: {ex.Message}"));
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        _refreshCts.Cancel();
+        if (_refreshTask is not null)
+        {
+            await _refreshTask;
+        }
+        _refreshCts.Dispose();
+    }
+
+    private enum CalibrationEdge
+    {
+        Left,
+        Top,
+        Right,
+        Bottom
+    }
+}

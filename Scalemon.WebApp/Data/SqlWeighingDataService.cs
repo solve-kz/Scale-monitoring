@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
+using Scalemon.Common;
 using Scalemon.WebApp.Models;
 using static Scalemon.WebApp.Models.WeighingModels;
 
@@ -14,12 +15,19 @@ public sealed class SqlWeighingDataService : IWeighingDataService
     private const string AuditTable = "[dbo].[WeighingEdits]";
 
     private readonly ISettingsSource _settings;
+    private readonly IWeighingModeStore _weighingModeStore;
+    private readonly ILogger<SqlWeighingDataService> _logger;
     private string? _connString;
     private string _tableName = "Weighings";
 
-    public SqlWeighingDataService(ISettingsSource settings)
+    public SqlWeighingDataService(
+        ISettingsSource settings,
+        IWeighingModeStore weighingModeStore,
+        ILogger<SqlWeighingDataService> logger)
     {
         _settings = settings;
+        _weighingModeStore = weighingModeStore;
+        _logger = logger;
     }
 
     private async Task LoadDbSettingsAsync(CancellationToken ct)
@@ -112,12 +120,44 @@ VALUES (@id,@editedAt,@editedBy,@action,@oldWeight,@newWeight,@recordedAt,@comme
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public async Task<Dictionary<DateOnly, int>> GetMonthStatsAsync(int year, int month, CancellationToken ct = default)
+    public Task<Dictionary<DateOnly, int>> GetMonthStatsAsync(int year, int month, CancellationToken ct = default)
+        => GetMonthStatsAsync(year, month, includeSanitary: true, ct: ct);
+
+    public async Task<Dictionary<DateOnly, int>> GetMonthStatsAsync(
+        int year,
+        int month,
+        bool includeSanitary,
+        CancellationToken ct = default)
     {
         await EnsureConfiguredAsync(ct);
 
         var s = new DateTime(year, month, 1);
         var e = s.AddMonths(1);
+
+        if (!includeSanitary)
+        {
+            var sqlItems = $@"
+SELECT [Id],[RecordedAt]
+FROM {QTable()}
+WHERE [RecordedAt] >= @s AND [RecordedAt] < @e;";
+            var items = new List<Weighing>();
+            await using var filteredConnection = NewConn();
+            await filteredConnection.OpenAsync(ct);
+            await using var filteredCommand = new SqlCommand(sqlItems, filteredConnection);
+            filteredCommand.Parameters.Add(new SqlParameter("@s", SqlDbType.DateTime2) { Value = s });
+            filteredCommand.Parameters.Add(new SqlParameter("@e", SqlDbType.DateTime2) { Value = e });
+            await using var filteredReader = await filteredCommand.ExecuteReaderAsync(ct);
+            while (await filteredReader.ReadAsync(ct))
+            {
+                items.Add(new Weighing(filteredReader.GetInt32(0), 0m, filteredReader.GetDateTime(1)));
+            }
+
+            var withModes = await AttachModesAsync(items, ct, requireModeStore: true);
+            return withModes
+                .Where(item => item.Mode != SlaughterMode.Sanitary)
+                .GroupBy(item => DateOnly.FromDateTime(item.Timestamp))
+                .ToDictionary(group => group.Key, group => group.Count());
+        }
 
         var sql = $@"
 SELECT CAST([RecordedAt] AS date) AS [Day], COUNT(*) AS [C]
@@ -140,12 +180,27 @@ GROUP BY CAST([RecordedAt] AS date);";
         return dict;
     }
 
-    public async Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
+    public Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
         DateOnly day,
         int pageIndex,
         int pageSize = 400,
         CancellationToken ct = default)
+        => GetDayPageAsync(day, pageIndex, pageSize, includeSanitary: true, ct: ct);
+
+    public async Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
+        DateOnly day,
+        int pageIndex,
+        int pageSize,
+        bool includeSanitary,
+        CancellationToken ct = default)
     {
+        if (!includeSanitary)
+        {
+            var filtered = await GetDayAllAsync(day, includeSanitary: false, ct: ct);
+            var page = filtered.Skip(pageIndex * pageSize).Take(pageSize).ToArray();
+            return (page, filtered.Count);
+        }
+
         await EnsureConfiguredAsync(ct);
 
         var s = day.ToDateTime(TimeOnly.MinValue);
@@ -159,7 +214,7 @@ GROUP BY CAST([RecordedAt] AS date);";
 SELECT [Id],[RecordedAt],[Weight]
 FROM {QTable()}
 WHERE [RecordedAt] >= @s AND [RecordedAt] < @e
-ORDER BY [RecordedAt] ASC
+ORDER BY [RecordedAt] ASC, [Id] ASC
 OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
 
         var items = new List<Weighing>();
@@ -192,7 +247,8 @@ OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
             }
         }
 
-        return (items, total);
+        var withModes = await AttachModesAsync(items, ct);
+        return (withModes, total);
     }
 
     public Task AdjustAsync(int id, decimal delta, CancellationToken ct = default)
@@ -318,6 +374,11 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             if (newId > 0)
             {
                 await LogEditAsync(conn, tx, newId, ts, WeighingEditAction.Insert, null, roundedWeight, userName, null, ct);
+                var referenceModes = await _weighingModeStore.GetModesAsync(new[] { refId }, ct);
+                var inheritedMode = referenceModes.TryGetValue(refId, out var mode)
+                    ? mode
+                    : SlaughterMode.General;
+                await _weighingModeStore.UpsertAsync(newId, ts, roundedWeight, inheritedMode, ct);
             }
 
             await tx.CommitAsync(ct);
@@ -382,7 +443,13 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
         }
     }
 
-    public async Task<IReadOnlyList<Weighing>> GetDayAllAsync(DateOnly date, CancellationToken ct = default)
+    public Task<IReadOnlyList<Weighing>> GetDayAllAsync(DateOnly date, CancellationToken ct = default)
+        => GetDayAllAsync(date, includeSanitary: true, ct: ct);
+
+    public async Task<IReadOnlyList<Weighing>> GetDayAllAsync(
+        DateOnly date,
+        bool includeSanitary,
+        CancellationToken ct = default)
     {
         await EnsureConfiguredAsync(ct);
 
@@ -393,7 +460,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
 SELECT [Id], [Weight], [RecordedAt]
 FROM {QTable()}
 WHERE [RecordedAt] >= @s AND [RecordedAt] < @e
-ORDER BY [RecordedAt];";
+ORDER BY [RecordedAt], [Id];";
 
         var list = new List<Weighing>();
 
@@ -412,7 +479,77 @@ ORDER BY [RecordedAt];";
                 reader.GetDateTime(2)));
         }
 
-        return list;
+        var withModes = await AttachModesAsync(list, ct, requireModeStore: !includeSanitary);
+        return includeSanitary
+            ? withModes
+            : withModes.Where(item => item.Mode != SlaughterMode.Sanitary).ToArray();
+    }
+
+    public async Task<DayLiveSnapshot> GetDaySnapshotAsync(
+        DateOnly date,
+        bool includeSanitary = true,
+        CancellationToken ct = default)
+    {
+        if (includeSanitary)
+        {
+            await EnsureConfiguredAsync(ct);
+            var start = date.ToDateTime(TimeOnly.MinValue);
+            var end = date.AddDays(1).ToDateTime(TimeOnly.MinValue);
+            await using var connection = NewConn();
+            await connection.OpenAsync(ct);
+
+            var countSql = $"SELECT COUNT(*) FROM {QTable()} WHERE [RecordedAt] >= @s AND [RecordedAt] < @e;";
+            int count;
+            await using (var countCommand = new SqlCommand(countSql, connection))
+            {
+                countCommand.Parameters.Add(new SqlParameter("@s", SqlDbType.DateTime2) { Value = start });
+                countCommand.Parameters.Add(new SqlParameter("@e", SqlDbType.DateTime2) { Value = end });
+                count = Convert.ToInt32(await countCommand.ExecuteScalarAsync(ct) ?? 0);
+            }
+
+            var lastSql = $"""
+                SELECT TOP (1) [Weight], [RecordedAt]
+                FROM {QTable()}
+                WHERE [RecordedAt] >= @s AND [RecordedAt] < @e
+                ORDER BY [RecordedAt] DESC, [Id] DESC;
+                """;
+            await using var lastCommand = new SqlCommand(lastSql, connection);
+            lastCommand.Parameters.Add(new SqlParameter("@s", SqlDbType.DateTime2) { Value = start });
+            lastCommand.Parameters.Add(new SqlParameter("@e", SqlDbType.DateTime2) { Value = end });
+            await using var reader = await lastCommand.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
+            return await reader.ReadAsync(ct)
+                ? new DayLiveSnapshot(count, reader.GetDecimal(0), reader.GetDateTime(1))
+                : new DayLiveSnapshot(0, null, null);
+        }
+
+        var items = await GetDayAllAsync(date, includeSanitary, ct);
+        var last = items.LastOrDefault();
+        return new DayLiveSnapshot(items.Count, last?.Weight, last?.Timestamp);
+    }
+
+    private async Task<IReadOnlyList<Weighing>> AttachModesAsync(
+        IReadOnlyList<Weighing> items,
+        CancellationToken ct,
+        bool requireModeStore = false)
+    {
+        if (items.Count == 0)
+        {
+            return items;
+        }
+
+        IReadOnlyDictionary<int, SlaughterMode> modes;
+        try
+        {
+            modes = await _weighingModeStore.GetModesAsync(items.Select(item => item.Id), ct);
+        }
+        catch (Exception ex) when (!requireModeStore)
+        {
+            _logger.LogError(ex, "Не удалось прочитать локальный журнал режимов; записи показаны как общий забой");
+            return items;
+        }
+        return items
+            .Select(item => modes.TryGetValue(item.Id, out var mode) ? item with { Mode = mode } : item)
+            .ToArray();
     }
 
     public Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, CancellationToken ct = default)

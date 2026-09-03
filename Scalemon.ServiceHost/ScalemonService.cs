@@ -16,6 +16,7 @@ public class ScalemonService : BackgroundService
     private readonly IScaleStateMachine _fsm;
     private readonly IDataAccess _db;
     private readonly ISignalBus _arduino;
+    private readonly ISlaughterModeState _slaughterModeState;
 
     private readonly SemaphoreSlim _fsmGate = new(1, 1);
 
@@ -27,13 +28,40 @@ public class ScalemonService : BackgroundService
             IScaleProcessor scale,
             IScaleStateMachine fsm,
             IDataAccess db,
-            ISignalBus arduino)
+            ISignalBus arduino,
+            ISlaughterModeState slaughterModeState)
     {
         _logger = logger;
         _scale = scale;
         _fsm = fsm;
         _db = db;
         _arduino = arduino;
+        _slaughterModeState = slaughterModeState;
+    }
+
+    private void HandleSlaughterModeChanged(SlaughterMode mode)
+    {
+        var wasKnown = _slaughterModeState.IsKnown;
+        var previous = wasKnown ? _slaughterModeState.Current : mode;
+        _slaughterModeState.Set(mode);
+        if (!wasKnown || previous != mode)
+        {
+            _logger.LogInformation("Режим забоя подтверждён: {mode}", mode);
+        }
+
+        var indicator = mode == SlaughterMode.Sanitary
+            ? ArduinoSignalCode.SanitaryModeIndicator
+            : ArduinoSignalCode.GeneralModeIndicator;
+        _ = _arduino.SendAsync(indicator);
+    }
+
+    private void HandleArduinoConnected()
+        => _ = _arduino.SendAsync(ArduinoSignalCode.RequestSlaughterMode);
+
+    private void HandleArduinoDisconnected()
+    {
+        _slaughterModeState.Reset();
+        _logger.LogWarning("Режим забоя неизвестен до восстановления связи с Arduino");
     }
 
     // --- НАЧАЛО ИЗМЕНЕНИЙ ---
@@ -121,11 +149,14 @@ public class ScalemonService : BackgroundService
     {
         _scale.DataReceived += HandleDataAsync;
         _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+        _arduino.SlaughterModeChanged += HandleSlaughterModeChanged;
+        _arduino.ConnectionEstablished += HandleArduinoConnected;
+        _arduino.ConnectionLost += HandleArduinoDisconnected;
         _db.DatabaseFailed += async ex => await _fsm.OnDatabaseFailedAsync(ex);
         _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
 
-        _scale.Start();
         _arduino.Start();
+        _scale.Start();
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
@@ -134,6 +165,10 @@ public class ScalemonService : BackgroundService
     {
         _logger.LogInformation("ScalemonService: остановка службы.");
         _scale.DataReceived -= HandleDataAsync;
+        _arduino.UnsubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+        _arduino.SlaughterModeChanged -= HandleSlaughterModeChanged;
+        _arduino.ConnectionEstablished -= HandleArduinoConnected;
+        _arduino.ConnectionLost -= HandleArduinoDisconnected;
         _scale.Stop();
         _arduino.Stop();
         return base.StopAsync(cancellationToken);

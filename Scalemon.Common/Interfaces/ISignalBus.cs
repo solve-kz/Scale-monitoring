@@ -19,6 +19,9 @@ namespace Scalemon.Common
         /// <summary>Событие потери подключения к Arduino.</summary>
         event Action ConnectionLost;
 
+        /// <summary>Событие изменения положения переключателя режима забоя.</summary>
+        event Action<SlaughterMode> SlaughterModeChanged;
+
         /// <summary>Подписаться на нажатие кнопки.</summary>
         void SubscribeButtonPressed(Func<Task> handler);
 

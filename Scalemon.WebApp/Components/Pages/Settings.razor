@@ -119,6 +119,73 @@
           </RadzenStack>
         </RadzenFieldset>
 
+        <RadzenFieldset Text="Видеоархив регистратора" Visible="@CanSee(3)">
+          <p>Изменения применяются после перезапуска службы.</p>
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Включить видеоархив" HelpText="Включать только после настройки конкретной модели регистратора">
+                <RadzenCheckBox @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.Enabled" TriState="false" />
+              </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Начинать раньше, сек" HelpText="Сколько секунд добавить перед временем выбранного взвешивания">
+                <RadzenNumeric TValue="int"
+                               @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.PreRollSeconds"
+                               Name="VideoPreRoll"
+                               Min="0"
+                               Max="60"
+                               Step="1"
+                               Style="width:100%" />
+                <RadzenNumericRangeValidator Component="VideoPreRoll" Min="0" Max="60" Text="Допустимо 0..60 секунд" />
+              </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="6" SizeSm="12">
+              <RadzenFormField Text="Шаблон URL архива" HelpText="Поддерживаются {weighingId}, {start}, {timestamp}">
+                <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.UrlTemplate"
+                               Name="VideoUrlTemplate"
+                               Style="width:100%" />
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+        </RadzenFieldset>
+
+        <RadzenFieldset Text="Распознавание ручных реестров" Visible="@CanSee(3)">
+          <p>Ключ хранится только в переменной окружения Windows. Изменения применяются после перезапуска службы.</p>
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Включить AI-распознавание" HelpText="При выключении остаются скачивание задания и ручной импорт JSON">
+                <RadzenCheckBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.Enabled" TriState="false" />
+              </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Модель" HelpText="Модель Responses API с поддержкой изображений и Structured Outputs">
+                <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.Model"
+                               Name="RecognitionModel"
+                               Style="width:100%" />
+              </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Переменная API-ключа" HelpText="Например OPENAI_API_KEY; само значение в JSON не записывается">
+                <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.ApiKeyEnvironmentVariable"
+                               Name="RecognitionApiKeyVariable"
+                               Style="width:100%" />
+              </RadzenFormField>
+            </RadzenColumn>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Тайм-аут листа, сек" HelpText="Предельное время одного запроса распознавания">
+                <RadzenNumeric TValue="int"
+                               @bind-Value="Model.WeightRegisterReviewSettings.Recognition.RequestTimeoutSeconds"
+                               Name="RecognitionTimeout"
+                               Min="30"
+                               Max="900"
+                               Step="10"
+                               Style="width:100%" />
+                <RadzenNumericRangeValidator Component="RecognitionTimeout" Min="30" Max="900" Text="Допустимо 30..900 секунд" />
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+        </RadzenFieldset>
+
         <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:8px">
                     <RadzenButton Text="Сохранить"
                                   ButtonStyle="ButtonStyle.Primary"
@@ -806,6 +873,9 @@
         m.ScaleSettings ??= new Scalemon.Common.ScaleSettings();
         m.SystemSettings ??= new Scalemon.Common.SystemSettings();
         m.PlcSettings ??= new Scalemon.Common.PlcSettings();
+        m.WeightRegisterReviewSettings ??= new WeightRegisterReviewOptions();
+        m.WeightRegisterReviewSettings.Recognition ??= new WeightRegisterRecognitionOptions();
+        m.WeightRegisterReviewSettings.VideoArchive ??= new VideoArchiveOptions();
 
         // Новые настройки UI
         m.WebUiSettings ??= new WebUiSettings

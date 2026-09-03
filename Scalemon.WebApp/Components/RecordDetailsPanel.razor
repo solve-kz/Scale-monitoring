@@ -13,10 +13,12 @@
 				<RadzenStack Orientation="Orientation.Vertical">
 					<RadzenText TextStyle="TextStyle.Subtitle2">Вес туши:</RadzenText>
 					<RadzenText TextStyle="TextStyle.Subtitle2">Время:</RadzenText>
+					<RadzenText TextStyle="TextStyle.Subtitle2">Режим:</RadzenText>
 				</RadzenStack>
 				<RadzenStack Orientation="Orientation.Vertical">
 					<RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right"><b>@Cell!.Weight?.ToString("0.00")</b> кг</RadzenText>
                     <RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right"><b> @Cell!.Timestamp?.ToString("HH:mm:ss")</b> </RadzenText>
+					<RadzenText TextStyle="TextStyle.Body2" TextAlign="TextAlign.Right"><b>@(Cell!.Mode == SlaughterMode.Sanitary ? "санитарный" : "общий")</b></RadzenText>
 				</RadzenStack>
             </RadzenStack>
             <!-- Горизонтальный ряд кнопок действий -->

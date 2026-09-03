@@ -34,20 +34,44 @@ namespace Scalemon.WebApp.Data
         private const int MaxPerDay = 1200;  // максимум
 
         public Task<Dictionary<DateOnly, int>> GetMonthStatsAsync(int year, int month, CancellationToken ct = default)
+            => GetMonthStatsAsync(year, month, includeSanitary: true, ct: ct);
+
+        public Task<Dictionary<DateOnly, int>> GetMonthStatsAsync(
+            int year,
+            int month,
+            bool includeSanitary,
+            CancellationToken ct = default)
         {
             InitializeMonthIfNeeded(year, month);
 
             var result = _data
                 .Where(kv => kv.Key.Year == year && kv.Key.Month == month)
-                .ToDictionary(kv => kv.Key, kv => kv.Value.Count);
+                .ToDictionary(
+                    kv => kv.Key,
+                    kv => includeSanitary
+                        ? kv.Value.Count
+                        : kv.Value.Count(item => item.Mode != Scalemon.Common.SlaughterMode.Sanitary));
 
             return Task.FromResult(result);
         }
 
         public Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
             DateOnly date, int pageIndex, int pageSize = 400, CancellationToken ct = default)
+            => GetDayPageAsync(date, pageIndex, pageSize, includeSanitary: true, ct: ct);
+
+        public Task<(IReadOnlyList<Weighing> Items, int TotalCount)> GetDayPageAsync(
+            DateOnly date,
+            int pageIndex,
+            int pageSize,
+            bool includeSanitary,
+            CancellationToken ct = default)
         {
-            var list = EnsureDay(date);
+            IEnumerable<Weighing> query = EnsureDay(date);
+            if (!includeSanitary)
+            {
+                query = query.Where(item => item.Mode != Scalemon.Common.SlaughterMode.Sanitary);
+            }
+            var list = query.ToList();
             var total = list.Count;
 
             var skip = Math.Max(pageIndex, 0) * Math.Max(pageSize, 1);
@@ -298,15 +322,34 @@ namespace Scalemon.WebApp.Data
         }
 
         public Task<IReadOnlyList<Weighing>> GetDayAllAsync(DateOnly date, CancellationToken ct = default)
+            => GetDayAllAsync(date, includeSanitary: true, ct: ct);
+
+        public Task<IReadOnlyList<Weighing>> GetDayAllAsync(
+            DateOnly date,
+            bool includeSanitary,
+            CancellationToken ct = default)
         {
             if (_data.TryGetValue(date, out var list))
             {
-                return Task.FromResult<IReadOnlyList<Weighing>>(list);
+                var result = includeSanitary
+                    ? list.ToArray()
+                    : list.Where(item => item.Mode != Scalemon.Common.SlaughterMode.Sanitary).ToArray();
+                return Task.FromResult<IReadOnlyList<Weighing>>(result);
             }
             else
             {
                 return Task.FromResult<IReadOnlyList<Weighing>>(Array.Empty<Weighing>());
             }
+        }
+
+        public async Task<DayLiveSnapshot> GetDaySnapshotAsync(
+            DateOnly date,
+            bool includeSanitary = true,
+            CancellationToken ct = default)
+        {
+            var items = await GetDayAllAsync(date, includeSanitary, ct);
+            var last = items.OrderBy(item => item.Timestamp).LastOrDefault();
+            return new DayLiveSnapshot(items.Count, last?.Weight, last?.Timestamp);
         }
 
         public Task<IReadOnlyList<WeighingEditEntry>> GetAsync(

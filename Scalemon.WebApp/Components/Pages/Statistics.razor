@@ -15,7 +15,13 @@
 
 <RadzenCard class="rz-p-4 rz-w-100" Style="width:100%;">
     <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" class="rz-w-100">
-        <RadzenText Text="Скорость взвешиваний" TextStyle="TextStyle.H6" />
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+            <RadzenText Text="Скорость взвешиваний" TextStyle="TextStyle.H6" />
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                <RadzenText TextStyle="TextStyle.Subtitle2">@(_includeSanitary ? "Санитарный включён" : "Санитарный исключён")</RadzenText>
+                <RadzenSwitch @bind-Value="_includeSanitary" @bind-Value:after="OnSanitaryToggleChangedAsync" />
+            </RadzenStack>
+        </RadzenStack>
 
         <RadzenRow class="rz-w-100" Style="align-items:stretch;">
             <RadzenColumn Size="12" SizeLG="8" Style="display:flex; flex-direction:column;">
@@ -102,6 +108,9 @@
     private string? _chartError;
     private string? _calendarError;
     private int _totalWeighings;
+    private bool _includeSanitary = true;
+    private int _calendarYear = DateTime.Today.Year;
+    private int _calendarMonth = DateTime.Today.Month;
 
     private sealed record WeighingRatePoint(string Interval, int Count);
 
@@ -113,6 +122,8 @@
 
     private async Task OnMonthChangedAsync((int Year, int Month) arg)
     {
+        _calendarYear = arg.Year;
+        _calendarMonth = arg.Month;
         await LoadMonthMarksAsync(arg.Year, arg.Month);
     }
 
@@ -140,7 +151,7 @@
 
         try
         {
-            var stats = await WeighingDataService.GetMonthStatsAsync(year, month, _cts.Token);
+            var stats = await WeighingDataService.GetMonthStatsAsync(year, month, _includeSanitary, _cts.Token);
             _markedDays = stats.Keys.ToHashSet();
         }
         catch (OperationCanceledException)
@@ -171,7 +182,10 @@
 
         try
         {
-            var weighings = await WeighingDataService.GetDayAllAsync(DateOnly.FromDateTime(date), _cts.Token);
+            var weighings = await WeighingDataService.GetDayAllAsync(
+                DateOnly.FromDateTime(date),
+                _includeSanitary,
+                _cts.Token);
             _chartData = BuildChartData(weighings);
             _totalWeighings = _chartData.Sum(p => p.Count);
         }
@@ -193,6 +207,15 @@
             {
                 await InvokeAsync(StateHasChanged);
             }
+        }
+    }
+
+    private async Task OnSanitaryToggleChangedAsync()
+    {
+        await LoadMonthMarksAsync(_calendarYear, _calendarMonth);
+        if (_hasDateSelection)
+        {
+            await LoadChartDataAsync(_selectedDate);
         }
     }
 

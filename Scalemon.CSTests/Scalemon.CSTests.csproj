@@ -29,6 +29,7 @@
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
     <ProjectReference Include="..\Scalemon.SerialLink\Scalemon.SerialLink.csproj" />
     <ProjectReference Include="..\Scalemon.FSM\Scalemon.FSM.csproj" />
+    <ProjectReference Include="..\Scalemon.WebApp\Scalemon.WebApp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

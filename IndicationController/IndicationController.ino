@@ -13,10 +13,20 @@ const byte PIN_RED = 5;  // Красный (ошибки)
 // Пин кнопки
 const byte PIN_BUTTON = 6;
 
+// Двухпозиционный переключатель и отдельные лампы режима.
+// HIGH = общий забой, LOW = санитарный забой (INPUT_PULLUP).
+const byte PIN_MODE_SWITCH = 7;
+const byte PIN_MODE_GENERAL = 8;
+const byte PIN_MODE_SANITARY = 9;
+
 // Последнее состояние кнопки
 bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 20;  // антидребезг 20 мс
+
+bool lastModeReading = HIGH;
+bool stableModeState = HIGH;
+unsigned long lastModeDebounceTime = 0;
 
 void setup() {
     // Настройка выходов
@@ -27,12 +37,19 @@ void setup() {
 
     // Настройка кнопки
     pinMode(PIN_BUTTON, INPUT_PULLUP);
+    pinMode(PIN_MODE_SWITCH, INPUT_PULLUP);
+    pinMode(PIN_MODE_GENERAL, OUTPUT);
+    pinMode(PIN_MODE_SANITARY, OUTPUT);
 
     // Сброс всех индикаторов
     resetAllLamps();
 
     // Скорость порта
     Serial.begin(9600);
+
+    stableModeState = digitalRead(PIN_MODE_SWITCH);
+    lastModeReading = stableModeState;
+    publishMode();
 }
 
 void loop() {
@@ -54,6 +71,18 @@ void loop() {
         // Простой антизалип: ждём пока отпустят
         while (digitalRead(PIN_BUTTON) == LOW);
     }
+
+    // === 3. Обработка двухпозиционного переключателя режима ===
+    bool modeReading = digitalRead(PIN_MODE_SWITCH);
+    if (modeReading != lastModeReading) {
+        lastModeDebounceTime = millis();
+        lastModeReading = modeReading;
+    }
+
+    if ((millis() - lastModeDebounceTime) > 50 && modeReading != stableModeState) {
+        stableModeState = modeReading;
+        publishMode();
+    }
 }
 
 // === Обработка команд ===
@@ -67,6 +96,9 @@ void handleCommand(byte cmd) {
     case 0x15: digitalWrite(PIN_YELLOW, HIGH); digitalWrite(PIN_RED, HIGH); break; // YellowRedOn
     case 0x16: setOnly(PIN_RED); break;                         // RedOn
     case 0x17: digitalWrite(PIN_RED, LOW); break;               // AlarmOff
+    case 0x18: setModeLamps(false); break;                       // GeneralModeIndicator
+    case 0x19: setModeLamps(true); break;                        // SanitaryModeIndicator
+    case 0x1A: publishMode(); break;                             // RequestSlaughterMode
     default: break;
     }
 }
@@ -85,5 +117,16 @@ void setOnly(byte pin) {
     digitalWrite(PIN_YELLOW, LOW);
     digitalWrite(PIN_RED, LOW);
     digitalWrite(pin, HIGH);
+}
+
+void setModeLamps(bool sanitary) {
+    digitalWrite(PIN_MODE_GENERAL, sanitary ? LOW : HIGH);
+    digitalWrite(PIN_MODE_SANITARY, sanitary ? HIGH : LOW);
+}
+
+void publishMode() {
+    bool sanitary = stableModeState == LOW;
+    setModeLamps(sanitary);
+    Serial.write(sanitary ? 0x22 : 0x21);
 }
 

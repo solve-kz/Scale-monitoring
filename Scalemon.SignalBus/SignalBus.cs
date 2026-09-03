@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using System.IO.Ports;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Timers;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
+using Timer = System.Timers.Timer;
 #nullable enable
 namespace Scalemon.SignalBus
 {
@@ -20,6 +21,8 @@ namespace Scalemon.SignalBus
         private bool _isConnected = false;
         private bool _openPortErrorLogged = false;
         private bool _openPortAttemptLogged = false;
+        private readonly object _connectionGate = new();
+        private readonly SemaphoreSlim _sendGate = new(1, 1);
         private bool disposedValue;
         private readonly ILogger<SignalBus> _logger;
 
@@ -38,6 +41,8 @@ namespace Scalemon.SignalBus
         
         public event Action? ConnectionLost;
 
+        public event Action<SlaughterMode>? SlaughterModeChanged;
+
         public void Start()
         {
             _logger.LogInformation("Запуск SignalBus на порту {port}...", _portName);
@@ -54,7 +59,7 @@ namespace Scalemon.SignalBus
             _serialPort.DataReceived += OnDataReceived;
             TryOpenPort();
             _timer = new Timer(_reconnectIntervalMs);
-            _timer.Elapsed += (sender, e) => { if (!_isConnected) TryOpenPort(); };
+            _timer.Elapsed += (sender, e) => { if (!Volatile.Read(ref _isConnected)) TryOpenPort(); };
             _timer.Start();
         }
 
@@ -85,9 +90,17 @@ namespace Scalemon.SignalBus
                 }
                 _serialPort.Open();
 
-                if (!_isConnected)
+                var notifyConnected = false;
+                lock (_connectionGate)
                 {
-                    _isConnected = true;
+                    if (!_isConnected)
+                    {
+                        _isConnected = true;
+                        notifyConnected = true;
+                    }
+                }
+                if (notifyConnected)
+                {
                     _logger.LogInformation("Соединение с Arduino на порту {port} установлено.", _portName);
 
                     // Сбрасываем флаг ошибки, так как мы успешно подключились
@@ -99,14 +112,7 @@ namespace Scalemon.SignalBus
             }
             catch (Exception ex)
             {
-                if (_isConnected)
-                {
-                    _isConnected = false;
-                    _logger.LogWarning("Потеряно соединение с Arduino на порту {port}.", _portName);
-                    ConnectionLost?.Invoke();
-                    _openPortAttemptLogged = false;
-                }
-                else
+                if (!MarkDisconnected(ex))
                 {
                     // --- НАЧАЛО ИЗМЕНЕНИЙ ---
                     // Пишем в лог только если мы еще не сообщали об этой ошибке
@@ -126,41 +132,96 @@ namespace Scalemon.SignalBus
             try
             {
                 if (_serialPort == null) return;
-                int data = _serialPort.ReadByte();
-                if (data == 0x20) // сигнал кнопки
+                while (_serialPort.BytesToRead > 0)
                 {
-                    _logger.LogInformation("Получен сигнал нажатия кнопки (0x20) от Arduino.");
-                    await RaiseAllAsync(_buttonpressedHandlers);
-                }
-                else
-                {
-                    _logger.LogDebug("Получены неопознанные данные от Arduino: 0x{data:X2}", data);
+                    int data = _serialPort.ReadByte();
+                    if (data == 0x20) // сигнал кнопки
+                    {
+                        _logger.LogInformation("Получен сигнал нажатия кнопки (0x20) от Arduino.");
+                        await RaiseAllAsync(_buttonpressedHandlers);
+                    }
+                    else if (data == 0x21)
+                    {
+                        SlaughterModeChanged?.Invoke(SlaughterMode.General);
+                    }
+                    else if (data == 0x22)
+                    {
+                        SlaughterModeChanged?.Invoke(SlaughterMode.Sanitary);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Получены неопознанные данные от Arduino: 0x{data:X2}", data);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при чтении данных от Arduino");
+                MarkDisconnected(ex);
             }
         }
 
         public async Task SendAsync(Enums.ArduinoSignalCode cmd)
         {
-            if (_serialPort?.IsOpen == true)
+            await _sendGate.WaitAsync();
+            try
             {
-                try
+                if (_serialPort?.IsOpen == true)
                 {
                     _logger.LogInformation("Отправка команды на Arduino: {command} (0x{commandCode:X2})", cmd, (byte)cmd);
                     await Task.Run(() => _serialPort.Write(new byte[] { (byte)cmd }, 0, 1));
                 }
-                catch (Exception ex)
+                else if (!MarkDisconnected())
                 {
-                    _logger.LogError(ex, "Ошибка при отправке команды {command} на Arduino", cmd);
+                    _logger.LogDebug("Команда {command} не отправлена: порт {port} ещё не открыт.", cmd, _portName);
                 }
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogWarning("Не удалось отправить команду {command}: порт {port} не открыт.", cmd, _portName);
+                _logger.LogError(ex, "Ошибка при отправке команды {command} на Arduino", cmd);
+                MarkDisconnected(ex);
             }
+            finally
+            {
+                _sendGate.Release();
+            }
+        }
+
+        private bool MarkDisconnected(Exception? exception = null)
+        {
+            var notifyLost = false;
+            lock (_connectionGate)
+            {
+                if (_isConnected)
+                {
+                    _isConnected = false;
+                    notifyLost = true;
+                }
+            }
+
+            try
+            {
+                if (_serialPort?.IsOpen == true)
+                {
+                    _serialPort.Close();
+                }
+            }
+            catch (Exception closeException)
+            {
+                _logger.LogDebug(closeException, "Не удалось закрыть повреждённый порт {port}.", _portName);
+            }
+
+            if (notifyLost)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Потеряно соединение с Arduino на порту {port}.",
+                    _portName);
+                _openPortAttemptLogged = false;
+                ConnectionLost?.Invoke();
+            }
+
+            return notifyLost;
         }
 
         #region Boilerplate Code (Subscribe/Dispose)

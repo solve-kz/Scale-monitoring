@@ -2,9 +2,18 @@
 {
     public class WeighingModels
     {
-        public sealed record Weighing(int Id, decimal Weight, DateTime Timestamp);
+        public sealed record Weighing(
+            int Id,
+            decimal Weight,
+            DateTime Timestamp,
+            Scalemon.Common.SlaughterMode Mode = Scalemon.Common.SlaughterMode.General);
 
-        public sealed record Cell(int? Id, decimal? Weight, DateTime? Timestamp, WeighingEditAction? LastEditAction = null)
+        public sealed record Cell(
+            int? Id,
+            decimal? Weight,
+            DateTime? Timestamp,
+            WeighingEditAction? LastEditAction = null,
+            Scalemon.Common.SlaughterMode Mode = Scalemon.Common.SlaughterMode.General)
         {
             public bool HasValue => Id.HasValue && Weight.HasValue && Timestamp.HasValue;
         }
@@ -17,6 +26,8 @@
         public sealed record GridRowVm(int No, GridRow Row);
 
         public sealed record DaySummary(int Count, decimal Sum, decimal? Min, decimal? Max, decimal? Avg);
+
+        public sealed record DayLiveSnapshot(int Count, decimal? LastWeight, DateTime? LastRecordedAt);
 
         public sealed record WeighingInsertRequest(decimal Weight, DateTime Timestamp);
     }

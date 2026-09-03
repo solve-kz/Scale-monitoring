@@ -1,0 +1,36 @@
+@using Scalemon.WebApp.Models
+@inject IVideoArchiveService VideoArchive
+
+@if (_clip is null)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+}
+else
+{
+    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+        <RadzenText TextStyle="TextStyle.Subtitle1">
+            Взвешивание @Weighing?.Timestamp.ToString("dd.MM.yyyy HH:mm:ss"), начало архива @_clip.StartAt.ToString("HH:mm:ss")
+        </RadzenText>
+        @if (_clip.IsConfigured && !string.IsNullOrWhiteSpace(_clip.Url))
+        {
+            <video controls autoplay preload="metadata" style="width:100%;max-height:70vh;background:#000;" src="@_clip.Url">
+                Браузер не поддерживает воспроизведение видео.
+            </video>
+        }
+        else
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">@_clip.Message</RadzenAlert>
+        }
+        <RadzenText TextStyle="TextStyle.Caption">Предзапись: @_clip.PreRollSeconds сек.</RadzenText>
+    </RadzenStack>
+}
+
+@code {
+    [Parameter, EditorRequired] public Weighing? Weighing { get; set; }
+    private VideoArchiveClip? _clip;
+
+    protected override void OnParametersSet()
+    {
+        _clip = Weighing is null ? null : VideoArchive.GetClip(Weighing);
+    }
+}

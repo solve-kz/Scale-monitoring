@@ -10,6 +10,7 @@ public class SettingsDto
     public ScaleSettings ScaleSettings { get; set; } = new();
     public SystemSettings SystemSettings { get; set; } = new();
     public PlcSettings PlcSettings { get; set; } = new();
+    public WeightRegisterReviewOptions WeightRegisterReviewSettings { get; set; } = new();
     // НОВОЕ:
     public WebUiSettings WebUiSettings { get; set; } = default!;
 }

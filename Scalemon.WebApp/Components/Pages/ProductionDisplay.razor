@@ -1,0 +1,181 @@
+@page "/production-display"
+@layout DisplayLayout
+@attribute [Authorize]
+@implements IAsyncDisposable
+@using System.Globalization
+@inject IWeighingDataService Data
+@inject ISlaughterModeState SlaughterModeState
+
+<RadzenStack Orientation="Orientation.Vertical"
+             AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.Center"
+             Gap="3rem"
+             Style="min-height:100vh;padding:3rem;text-align:center;">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center"
+                 JustifyContent="JustifyContent.SpaceBetween"
+                 Wrap="FlexWrap.Wrap"
+                 Gap="1rem"
+                 Style="width:min(92vw,1100px);">
+        <RadzenText TextStyle="TextStyle.H3">Взвешивания за @DateTime.Today.ToString("dd.MM.yyyy")</RadzenText>
+        <RadzenBadge Text="@SlaughterModeText"
+                     BadgeStyle="@SlaughterModeBadgeStyle"
+                     Style="font-size:1.15rem;padding:0.65rem 1rem;" />
+    </RadzenStack>
+
+    <RadzenCard Style="@NumericCardStyle">
+        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenText TextStyle="TextStyle.H5">Количество</RadzenText>
+            <div style="font-size:clamp(7rem,22vw,18rem);font-weight:800;line-height:0.95;">
+                @_snapshot.Count.ToString("N0", CultureInfo.GetCultureInfo("ru-RU"))
+            </div>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenCard Style="@NumericCardStyle">
+        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
+            <RadzenText TextStyle="TextStyle.H5">Последнее взвешивание</RadzenText>
+            <div style="font-size:clamp(5rem,15vw,12rem);font-weight:800;line-height:1;">
+                @(_snapshot.LastWeight?.ToString("0.00", CultureInfo.GetCultureInfo("ru-RU")) ?? "—")
+                <span style="font-size:0.28em;font-weight:500;">кг</span>
+            </div>
+            <RadzenText TextStyle="TextStyle.H4">
+                @(_snapshot.LastRecordedAt?.ToString("HH:mm:ss") ?? "Нет записей")
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">@_error</RadzenAlert>
+    }
+</RadzenStack>
+
+@if (IsSanitaryMode)
+{
+    <div class="sanitary-mode-mark" aria-label="Санитарный забой">×</div>
+}
+
+<style>
+    .sanitary-mode-mark {
+        position: fixed;
+        top: 1.5rem;
+        right: 1.5rem;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        width: clamp(6rem, 11vw, 10rem);
+        height: clamp(6rem, 11vw, 10rem);
+        border: 10px solid #c62828;
+        border-radius: 50%;
+        background: #fff;
+        color: #c62828;
+        font-family: Arial, sans-serif;
+        font-size: clamp(6rem, 12vw, 11rem);
+        font-weight: 900;
+        line-height: 0.7;
+        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.85);
+        pointer-events: none;
+    }
+</style>
+
+@code {
+    private readonly CancellationTokenSource _disposeToken = new();
+    private Task? _refreshTask;
+    private DayLiveSnapshot _snapshot = new(0, null, null);
+    private string? _error;
+
+    private SlaughterMode? CurrentSlaughterMode
+    {
+        get
+        {
+            if (!SlaughterModeState.IsKnown)
+            {
+                return null;
+            }
+
+            try
+            {
+                return SlaughterModeState.Current;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private bool IsSanitaryMode => CurrentSlaughterMode == SlaughterMode.Sanitary;
+
+    private string SlaughterModeText
+        => CurrentSlaughterMode is not { } current
+            ? "Режим шкафа не определён"
+            : current == SlaughterMode.Sanitary
+                ? "САНИТАРНЫЙ ЗАБОЙ"
+                : "ОБЩИЙ ЗАБОЙ";
+
+    private BadgeStyle SlaughterModeBadgeStyle
+        => CurrentSlaughterMode is not { } current
+            ? BadgeStyle.Warning
+            : current == SlaughterMode.Sanitary
+                ? BadgeStyle.Danger
+                : BadgeStyle.Success;
+
+    private string NumericCardStyle
+        => $"width:min(92vw,1100px);padding:2.5rem;border:{(IsSanitaryMode ? "10px solid #c62828" : "1px solid var(--rz-border-color)")};";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _refreshTask = RefreshLoopAsync();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_disposeToken.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (_disposeToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _snapshot = await Data.GetDaySnapshotAsync(
+                DateOnly.FromDateTime(DateTime.Today),
+                includeSanitary: true,
+                ct: _disposeToken.Token);
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_disposeToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _snapshot = new DayLiveSnapshot(0, null, null);
+            _error = $"Не удалось обновить данные: {ex.Message}";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposeToken.Cancel();
+        if (_refreshTask is not null)
+        {
+            await _refreshTask;
+        }
+        _disposeToken.Dispose();
+    }
+}

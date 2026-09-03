@@ -69,16 +69,28 @@
                         <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
                         <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
                     </RadzenStack>
-				@if (_isDetailed)
-				{
+                @if (_isDetailed)
+                {
 					<RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
 						<RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
 						<RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
 					</RadzenStack>
-				}
+                }
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">@(_includeSanitary ? "Санитарный включён" : "Санитарный исключён")</RadzenText>
+                    <RadzenSwitch @bind-Value="_includeSanitary" @bind-Value:after="OnSanitaryToggleChanged" />
+                </RadzenStack>
             </RadzenStack>
         </RadzenStack>
-        
+
+        @if (!string.IsNullOrWhiteSpace(_pageLoadError))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" class="rz-mb-2">@_pageLoadError</RadzenAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(_monthLoadError))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat" class="rz-mb-2">@_monthLoadError</RadzenAlert>
+        }
 
         <WeightsGrid @ref="_grid"
                      IsDetailed="@_isDetailed"
@@ -133,10 +145,15 @@
     int _pageIndex = 0;
 
     HashSet<DateOnly> _markedDays = new();
+    int _visibleCalendarYear = DateTime.Today.Year;
+    int _visibleCalendarMonth = DateTime.Today.Month;
     DaySummary? _daySummary;
 
     bool _isDetailed = true;
     bool _highlightRepeats;
+    bool _includeSanitary = true;
+    string? _pageLoadError;
+    string? _monthLoadError;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
     IReadOnlyList<GridRowVm> _summaryRows = Array.Empty<GridRowVm>();
@@ -156,6 +173,7 @@
     {
         public bool? IsDetailed { get; set; }
         public bool? HighlightRepeats { get; set; }
+        public bool? IncludeSanitary { get; set; }
     }
 
     sealed class ReturnToMonitoring
@@ -209,8 +227,19 @@
 
     async Task LoadMonthMarks(int year, int month)
     {
-        var dict = await Data.GetMonthStatsAsync(year, month);
-        _markedDays = dict.Keys.ToHashSet();
+        _visibleCalendarYear = year;
+        _visibleCalendarMonth = month;
+        try
+        {
+            var dict = await Data.GetMonthStatsAsync(year, month, _includeSanitary);
+            _markedDays = dict.Keys.ToHashSet();
+            _monthLoadError = null;
+        }
+        catch (Exception ex)
+        {
+            _markedDays = new HashSet<DateOnly>();
+            _monthLoadError = $"Не удалось загрузить календарь с выбранным фильтром: {ex.Message}";
+        }
         StateHasChanged();
     }
 
@@ -309,6 +338,10 @@
             {
                 _highlightRepeats = highlight;
             }
+            if (s?.IncludeSanitary is bool includeSanitary)
+            {
+                _includeSanitary = includeSanitary;
+            }
         }
         catch { /* ok */ }
     }
@@ -319,21 +352,39 @@
         await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2
         {
             IsDetailed = _isDetailed,
-            HighlightRepeats = _highlightRepeats
+            HighlightRepeats = _highlightRepeats,
+            IncludeSanitary = _includeSanitary
         });
     }
 
 
     async Task LoadPage(int pageIndex)
     {
+        try
+        {
+            await LoadPageCore(pageIndex);
+            _pageLoadError = null;
+        }
+        catch (Exception ex)
+        {
+            _totalCount = 0;
+            _daySummary = new DaySummary(0, 0m, null, null, null);
+            _latestEdits = new Dictionary<int, WeighingEditEntry>();
+            BuildMatrix(Array.Empty<Weighing>(), _latestEdits);
+            _pageLoadError = $"Не удалось загрузить данные с выбранным фильтром: {ex.Message}";
+        }
+    }
+
+    async Task LoadPageCore(int pageIndex)
+    {
         var dateOnly = DateOnly.FromDateTime(SelectedDate);
 
         // теперь сюда передаём pageIndex и PageSize
-        var (items, total) = await Data.GetDayPageAsync(dateOnly, pageIndex, 400);
+        var (items, total) = await Data.GetDayPageAsync(dateOnly, pageIndex, 400, _includeSanitary);
         _totalCount = total;
 
         // Получаем ВСЕ записи за день (только для сводки)
-        var allItems = await Data.GetDayAllAsync(dateOnly);
+        var allItems = await Data.GetDayAllAsync(dateOnly, _includeSanitary);
         var weights = allItems.Select(x => x.Weight).ToList();
 
         _daySummary = new DaySummary(
@@ -359,7 +410,7 @@
         try
         {
             var dateOnly = DateOnly.FromDateTime(SelectedDate);
-            var allItems = await Data.GetDayAllAsync(dateOnly);
+            var allItems = await Data.GetDayAllAsync(dateOnly, _includeSanitary);
             if (allItems is null || allItems.Count == 0)
             {
                 NotificationService.Notify(NotificationSeverity.Info, "Экспорт в Excel", "За выбранный день нет данных для экспорта.");
@@ -542,7 +593,7 @@
                 ? edit.Action
                 : (WeighingEditAction?)null;
 
-            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp, highlightAction));
+            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp, highlightAction, ordered[i].Mode));
         }
 
         // дополняем пустыми ячейками до 40 в каждом столбце
@@ -620,6 +671,25 @@
 
     async Task OnUiChanged() => await SaveUiStateAsync();
     async Task OnHighlightToggleChanged() => await SaveUiStateAsync();
+
+    async Task OnSanitaryToggleChanged()
+    {
+        _pageIndex = 0;
+        _selectedCell = null;
+        if (_grid is not null)
+        {
+            await _grid.ClearSelectionAsync();
+        }
+
+        await LoadPage(0);
+        if (_grid is not null)
+        {
+            await _grid.GoFirstPageAsync();
+        }
+
+        await LoadMonthMarks(_visibleCalendarYear, _visibleCalendarMonth);
+        await SaveUiStateAsync();
+    }
 
     
     async Task SaveReturnTicketAsync()

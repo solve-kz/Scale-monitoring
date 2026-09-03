@@ -22,8 +22,10 @@ using Scalemon.SqlDataAccess;
 using Scalemon.WebApp;              // ISettingsSource, JsonFileSettingsSource, ApiClient (если у тебя в этом неймспейсе)
 using Scalemon.WebApp.Components;
 using Scalemon.WebApp.Data;
+using Scalemon.WebApp.Models;
 using Scalemon.ServiceHost.Http;
 using Scalemon.ServiceHost.Logging;
+using Scalemon.ServiceHost.Services;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -79,8 +81,15 @@ builder.Services.AddSingleton(levelSwitch);
 
 // Основные настройки
 builder.Services.AddOptions<ServiceSettings>().Bind(config);
+builder.Services.Configure<WeightRegisterReviewOptions>(config.GetSection("WeightRegisterReview"));
 builder.Services.AddSingleton(logDatabaseProvider);
 builder.Services.AddSingleton<SqliteLogRepository>();
+builder.Services.AddSingleton<ISlaughterModeState, SlaughterModeState>();
+builder.Services.AddSingleton<IWeighingModeStore>(sp =>
+{
+    var path = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.DatabaseSettings.WeighingModeDatabasePath;
+    return new SqliteWeighingModeStore(path);
+});
 
 // Фоновые сервисы (ядро системы)
 builder.Services.AddSingleton<IScaleProcessor>(sp =>
@@ -97,7 +106,8 @@ builder.Services.AddSingleton<IDataAccess>(sp =>
     var settings = sp.GetRequiredService<IOptions<ServiceSettings>>().Value.DatabaseSettings;
     return new SqlDataAccess(
         sp.GetRequiredService<ILogger<SqlDataAccess>>(), settings.ConnectionString, settings.TableName,
-        settings.MaxRetryQueueSize, settings.AlarmSize, sp.GetRequiredService<IHostApplicationLifetime>());
+        settings.MaxRetryQueueSize, settings.AlarmSize, sp.GetRequiredService<IHostApplicationLifetime>(),
+        sp.GetRequiredService<ISlaughterModeState>(), sp.GetRequiredService<IWeighingModeStore>());
 });
 
 builder.Services.AddSingleton<ISignalBus>(sp =>
@@ -250,6 +260,12 @@ builder.Services.Configure<JsonFileSettingsSource.WebAppOptions>(
 // ВОТ ГЛАВНОЕ: регистрация сервиса данных, который требует Monitoring
 builder.Services.AddScoped<IWeighingDataService, SqlWeighingDataService>();
 builder.Services.AddScoped<IWeighingEditLogService, SqlWeighingEditLogService>();
+builder.Services.AddSingleton<IWeightRegisterReviewService, JsonWeightRegisterReviewService>();
+builder.Services.AddSingleton<IRegisterImageUploadPreprocessor, RegisterImageUploadPreprocessor>();
+builder.Services.AddSingleton<WeightRegisterComparisonEngine>();
+builder.Services.AddSingleton<IVideoArchiveService, ConfiguredVideoArchiveService>();
+builder.Services.AddSingleton<IWeightRegisterRecognizer, OpenAiWeightRegisterRecognizer>();
+builder.Services.AddHostedService<WeightRegisterRecognitionWorker>();
 
 // Настройка для запуска в качестве службы Windows
 builder.Host.UseWindowsService();
@@ -259,6 +275,16 @@ builder.Host.UseWindowsService();
 var app = builder.Build();
 
 await app.Services.GetRequiredService<SqliteAuthService>().EnsureInitializedAsync();
+try
+{
+    await app.Services.GetRequiredService<IWeighingModeStore>().EnsureInitializedAsync();
+}
+catch (Exception ex)
+{
+    app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("WeighingModeStore")
+        .LogError(ex, "Журнал режимов недоступен; новые взвешивания будут поставлены в очередь до восстановления журнала");
+}
 
 if (app.Environment.IsDevelopment())
 {
