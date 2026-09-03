@@ -163,6 +163,30 @@ public sealed class WeightRegisterComparisonEngineTests
     }
 
     [Fact]
+    public void TotalBoundsPointToFortyFirstRegisterRow()
+    {
+        var sheet = new WeightRegisterSheet
+        {
+            Calibration = new RegisterTableCalibration
+            {
+                ImageWidth = 1100,
+                ImageHeight = 4400,
+                TableLeft = 0,
+                TableTop = 0,
+                TableRight = 1100,
+                TableBottom = 4400
+            }
+        };
+
+        var bounds = WeightRegisterGeometry.GetTotalBounds(sheet, totalRow: 1, column: 1);
+
+        Assert.Equal(100d, bounds.Left);
+        Assert.Equal(4200d, bounds.Top);
+        Assert.Equal(100d, bounds.Width);
+        Assert.Equal(100d, bounds.Height);
+    }
+
+    [Fact]
     public void DefaultCalibrationMatchesWeightRegisterReviewAppTemplate()
     {
         var calibration = WeightRegisterGeometry.CreateDefaultCalibration(850, 1169);

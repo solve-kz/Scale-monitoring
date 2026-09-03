@@ -155,8 +155,10 @@
                                                         Totals="_totals"
                                                         RecognizedTotals="_recognizedTotals"
                                                         SelectedKey="_selectedComparison?.Key"
+                                                        SelectedTotalColumn="_selectedTotalColumn"
                                                         CellSelected="OnCellSelected"
-                                                        CellDoubleClicked="OnCellDoubleClicked" />
+                                                        CellDoubleClicked="OnCellDoubleClicked"
+                                                        TotalSelected="OnTotalSelected" />
                                 <RadzenText TextStyle="TextStyle.Caption">
                                     Ручных записей без пары: @_comparison.ManualOnlyCount; автоматических записей без ручной пары: @_comparison.AutomaticOnlyCount.
                                     Янтарная внутренняя рамка означает статус Suspect.
@@ -175,13 +177,11 @@
 
             <RadzenColumn Order="2" Size="12" SizeLG="4" SizeXL="3" Style="min-width:0;">
                 <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" Style="height:100%;">
-                    @if (_selectedComparison is not null && _selectedSheet is not null)
+                    @if ((_selectedComparison is not null || _selectedTotal is not null) && _selectedSheet is not null)
                     {
                         <RadzenCard class="weight-register-cell-inspector">
                             <RadzenStack Orientation="Orientation.Vertical" Gap="0.75rem">
-                                <RadzenText TextStyle="TextStyle.H6">
-                                    Ячейка @_selectedComparison.Key.Row:@_selectedComparison.Key.Column
-                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6">@SelectedCellTitle</RadzenText>
                                 @if (_cellBounds is not null && _selectedSheet.Calibration is not null)
                                 {
                                     <svg viewBox="@CellCropViewBox"
@@ -200,35 +200,54 @@
                                               stroke-width="1" />
                                     </svg>
                                 }
-                                <RadzenText TextStyle="TextStyle.Body2">
-                                    Автоматическая запись:
-                                    @if (_selectedComparison.Automatic is not null)
-                                    {
-                                        <b>@_selectedComparison.Automatic.Weight.ToString("0.00") кг, @_selectedComparison.Automatic.Timestamp.ToString("HH:mm:ss")</b>
-                                    }
-                                    else
-                                    {
-                                        <b>отсутствует</b>
-                                    }
-                                </RadzenText>
-                                @if (_selectedComparison.AutomaticGaps.Count > 0)
+
+                                @if (_selectedComparison is not null)
                                 {
-                                    <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">
-                                        Между соседними ручными ячейками есть автоматическая запись:
-                                        @string.Join(", ", _selectedComparison.AutomaticGaps.Select(item => $"{item.Weight:0.00} кг {item.Timestamp:HH:mm:ss}"))
-                                    </RadzenAlert>
+                                    <RadzenText TextStyle="TextStyle.Body2">
+                                        Автоматическая запись:
+                                        @if (_selectedComparison.Automatic is not null)
+                                        {
+                                            <b>@_selectedComparison.Automatic.Weight.ToString("0.00") кг, @_selectedComparison.Automatic.Timestamp.ToString("HH:mm:ss")</b>
+                                        }
+                                        else
+                                        {
+                                            <b>отсутствует</b>
+                                        }
+                                    </RadzenText>
+                                    @if (_selectedComparison.AutomaticGaps.Count > 0)
+                                    {
+                                        <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">
+                                            Между соседними ручными ячейками есть автоматическая запись:
+                                            @string.Join(", ", _selectedComparison.AutomaticGaps.Select(item => $"{item.Weight:0.00} кг {item.Timestamp:HH:mm:ss}"))
+                                        </RadzenAlert>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(_selectedComparison.Manual.Comment))
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption">@_selectedComparison.Manual.Comment</RadzenText>
+                                    }
                                 }
-                                @if (!string.IsNullOrWhiteSpace(_selectedComparison.Manual.Comment))
+                                else if (_selectedTotal is not null)
                                 {
-                                    <RadzenText TextStyle="TextStyle.Caption">@_selectedComparison.Manual.Comment</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body2">
+                                        Сумма распознанных строк 1–40:
+                                        <b>@(SelectedCalculatedTotal?.ToString("0.00") ?? "отсутствует") кг</b>
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body2">
+                                        Отклонение итога:
+                                        <b>@SelectedTotalDifferenceText</b>
+                                    </RadzenText>
+                                    @if (!string.IsNullOrWhiteSpace(_selectedTotal.Comment))
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption">@_selectedTotal.Comment</RadzenText>
+                                    }
                                 }
                                 @if (CanSee(2))
                                 {
-                                    <RadzenLabel Text="Распознанное значение, кг" />
+                                    <RadzenLabel Text="@SelectedEditorLabel" />
                                     <RadzenNumeric TValue="decimal?"
                                                    @bind-Value="_editedValue"
                                                    Min="@(0.02m)"
-                                                   Max="@(100m)"
+                                                   Max="@SelectedEditorMaximum"
                                                    Step="0.02"
                                                    Format="0.00"
                                                    Style="width:100%" />
@@ -434,6 +453,8 @@
     private IReadOnlyDictionary<int, decimal> _totals = new Dictionary<int, decimal>();
     private IReadOnlyDictionary<int, RegisterReviewTotal> _recognizedTotals = new Dictionary<int, RegisterReviewTotal>();
     private RegisterCellComparison? _selectedComparison;
+    private RegisterReviewTotal? _selectedTotal;
+    private int? _selectedTotalColumn;
     private RegisterCellBounds? _cellBounds;
     private decimal? _editedValue;
     private bool _includeSanitary = true;
@@ -485,6 +506,28 @@
     private string CellCropViewBox => _cellBounds is null
         ? "0 0 1 1"
         : $"{F(_cellBounds.Left)} {F(_cellBounds.Top)} {F(_cellBounds.Width)} {F(_cellBounds.Height)}";
+
+    private string SelectedCellTitle
+        => _selectedTotalColumn is { } totalColumn
+            ? $"Ячейка 41:{totalColumn} — итог"
+            : _selectedComparison is not null
+                ? $"Ячейка {_selectedComparison.Key.Row}:{_selectedComparison.Key.Column}"
+                : "Ячейка";
+
+    private string SelectedEditorLabel
+        => _selectedTotal is not null ? "Распознанный итог, кг" : "Распознанное значение, кг";
+
+    private decimal SelectedEditorMaximum => _selectedTotal is not null ? 10000m : 100m;
+
+    private decimal? SelectedCalculatedTotal
+        => _selectedTotalColumn is { } column && _totals.TryGetValue(column, out var total)
+            ? total
+            : null;
+
+    private string SelectedTotalDifferenceText
+        => _selectedTotal?.EffectiveValue is { } recognized && SelectedCalculatedTotal is { } calculated
+            ? (recognized - calculated).ToString("+0.00;-0.00;0.00") + " кг"
+            : "—";
 
     private string CalibrationRotationTransform => _calibration is null
         ? string.Empty
@@ -579,6 +622,8 @@
         _selectedSheet = _project?.Sheets.FirstOrDefault(sheet => sheet.Id == _selectedSheetId);
         _calibration = _selectedSheet?.Calibration?.Copy();
         _selectedComparison = null;
+        _selectedTotal = null;
+        _selectedTotalColumn = null;
         _cellBounds = null;
         _editedValue = null;
         ResetCalibrationSliders();
@@ -612,12 +657,12 @@
             .GroupBy(cell => cell.Column)
             .ToDictionary(group => group.Key, group => group.Sum(cell => cell.EffectiveValue!.Value));
         _recognizedTotals = _selectedSheet.Totals
+            .Where(total => total.Row == 1)
             .Where(total => total.Column >= 1 && total.Column <= _selectedSheet.Table.Columns)
-            .Where(total => total.EffectiveValue.HasValue)
             .GroupBy(total => total.Column)
             .ToDictionary(
                 group => group.Key,
-                group => group.OrderBy(total => total.Row).First());
+                group => group.First());
     }
 
     private async Task OnProjectChanged(object value)
@@ -695,10 +740,36 @@
     private void OnCellSelected(RegisterCellComparison comparison)
     {
         _selectedComparison = comparison;
+        _selectedTotal = null;
+        _selectedTotalColumn = null;
         _editedValue = comparison.Manual.EffectiveValue;
         _cellBounds = _selectedSheet is null
             ? null
             : WeightRegisterGeometry.GetCellBounds(_selectedSheet, comparison.Key.Row, comparison.Key.Column);
+    }
+
+    private void OnTotalSelected(int column)
+    {
+        if (_selectedSheet is null
+            || column < 1
+            || column > _selectedSheet.Table.Columns
+            || _selectedSheet.Table.TotalRows < 1)
+        {
+            return;
+        }
+
+        _selectedComparison = null;
+        _selectedTotalColumn = column;
+        _selectedTotal = _recognizedTotals.TryGetValue(column, out var total)
+            ? total
+            : new RegisterReviewTotal
+            {
+                Row = 1,
+                Column = column,
+                Status = RegisterCellStatus.Empty
+            };
+        _editedValue = _selectedTotal.EffectiveValue;
+        _cellBounds = WeightRegisterGeometry.GetTotalBounds(_selectedSheet, totalRow: 1, column: column);
     }
 
     private async Task OnCellDoubleClicked(RegisterCellComparison comparison)
@@ -729,6 +800,8 @@
             NotificationService.Notify(NotificationSeverity.Error, "Фильтр санитарного забоя", _comparisonError);
         }
         _selectedComparison = null;
+        _selectedTotal = null;
+        _selectedTotalColumn = null;
         _cellBounds = null;
         _editedValue = null;
         BuildGridRows();
@@ -736,22 +809,42 @@
 
     private async Task SaveCorrectionAsync()
     {
-        if (_project is null || _selectedComparison is null) return;
+        if (_project is null || _selectedSheet is null) return;
         var projectId = _project.Id;
-        var key = _selectedComparison.Key;
         try
         {
-            await ReviewService.CorrectCellAsync(
-                projectId,
-                key.SheetId,
-                key.Row,
-                key.Column,
-                _editedValue,
-                CurrentUser?.Identity?.Name);
-            await LoadProjectAsync(projectId);
-            if (_comparison.Cells.TryGetValue(key, out var refreshed))
+            if (_selectedComparison is not null)
             {
-                OnCellSelected(refreshed);
+                var key = _selectedComparison.Key;
+                await ReviewService.CorrectCellAsync(
+                    projectId,
+                    key.SheetId,
+                    key.Row,
+                    key.Column,
+                    _editedValue,
+                    CurrentUser?.Identity?.Name);
+                await LoadProjectAsync(projectId);
+                if (_comparison.Cells.TryGetValue(key, out var refreshed))
+                {
+                    OnCellSelected(refreshed);
+                }
+            }
+            else if (_selectedTotalColumn is { } totalColumn)
+            {
+                var sheetId = _selectedSheet.Id;
+                await ReviewService.CorrectTotalAsync(
+                    projectId,
+                    sheetId,
+                    totalRow: 1,
+                    column: totalColumn,
+                    correctedValue: _editedValue,
+                    editedBy: CurrentUser?.Identity?.Name);
+                await LoadProjectAsync(projectId);
+                OnTotalSelected(totalColumn);
+            }
+            else
+            {
+                return;
             }
             NotificationService.Notify(NotificationSeverity.Success, "Коррекция", "Значение записано.");
         }

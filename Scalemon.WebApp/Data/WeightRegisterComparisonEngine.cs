@@ -284,4 +284,27 @@ public static class WeightRegisterGeometry
             columnWidth,
             rowHeight);
     }
+
+    /// <summary>Возвращает границы итоговой ячейки в пикселях исходного изображения.</summary>
+    public static RegisterCellBounds GetTotalBounds(WeightRegisterSheet sheet, int totalRow, int column)
+    {
+        ArgumentNullException.ThrowIfNull(sheet);
+        var calibration = sheet.Calibration
+            ?? throw new InvalidOperationException("Лист ещё не откалиброван.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(totalRow, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(totalRow, sheet.Table.TotalRows);
+        ArgumentOutOfRangeException.ThrowIfLessThan(column, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(column, sheet.Table.Columns);
+
+        var gridRows = sheet.Table.HeaderRows + sheet.Table.DataRows + sheet.Table.TotalRows;
+        var gridColumns = sheet.Table.Columns + 1;
+        var rowHeight = (calibration.TableBottom - calibration.TableTop) / gridRows;
+        var columnWidth = (calibration.TableRight - calibration.TableLeft) / gridColumns;
+        return new RegisterCellBounds(
+            calibration.TableLeft + column * columnWidth,
+            calibration.TableTop
+                + (sheet.Table.HeaderRows + sheet.Table.DataRows + totalRow - 1) * rowHeight,
+            columnWidth,
+            rowHeight);
+    }
 }

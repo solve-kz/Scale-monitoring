@@ -61,6 +61,21 @@ public sealed class WeightRegisterReviewServiceTests
             Assert.Equal(new DateOnly(2026, 8, 11), Assert.Single(imported.Sheets).SlaughterDate);
             Assert.Equal(7.86m, Assert.Single(imported.Sheets[0].Cells).Value);
 
+            await service.CorrectTotalAsync(
+                project.Id,
+                sheet.Id,
+                totalRow: 1,
+                column: 1,
+                correctedValue: 7.88m,
+                editedBy: "test");
+            var correctedTotalProject = await service.GetProjectAsync(project.Id);
+            var correctedTotal = Assert.Single(Assert.Single(correctedTotalProject!.Sheets).Totals);
+            Assert.Equal(7.88m, correctedTotal.EffectiveValue);
+            Assert.Equal(RegisterCellStatus.Corrected, correctedTotal.Status);
+            var totalCorrection = Assert.Single(correctedTotalProject.CorrectionLog);
+            Assert.True(totalCorrection.IsTotal);
+            Assert.Equal(41, totalCorrection.Row);
+
             await service.CorrectCellAsync(project.Id, sheet.Id, 1, 1, correctedValue: null, editedBy: "test");
             var cleared = await service.GetProjectAsync(project.Id);
             var clearedCell = Assert.Single(Assert.Single(cleared!.Sheets).Cells);

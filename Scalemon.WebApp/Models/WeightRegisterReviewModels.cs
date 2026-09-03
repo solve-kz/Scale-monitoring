@@ -205,6 +205,7 @@ public sealed class RegisterCorrectionLogEntry
     public string SheetId { get; set; } = string.Empty;
     public int Row { get; set; }
     public int Column { get; set; }
+    public bool IsTotal { get; set; }
     public decimal? OldValue { get; set; }
     public decimal? NewValue { get; set; }
     public string? EditedBy { get; set; }

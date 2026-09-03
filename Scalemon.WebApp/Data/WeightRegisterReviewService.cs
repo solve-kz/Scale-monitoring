@@ -56,6 +56,16 @@ public interface IWeightRegisterReviewService
         string? editedBy,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Записывает исправленное значение итоговой ячейки и добавляет запись аудита.</summary>
+    Task CorrectTotalAsync(
+        string projectId,
+        string sheetId,
+        int totalRow,
+        int column,
+        decimal? correctedValue,
+        string? editedBy,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Открывает исходное изображение листа для безопасной выдачи контроллером.</summary>
     Task<RegisterImageFile?> OpenImageAsync(
         string projectId,
@@ -768,6 +778,82 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 SheetId = sheetId,
                 Row = row,
                 Column = column,
+                OldValue = oldValue,
+                NewValue = correctedValue,
+                EditedBy = editedBy,
+                Timestamp = DateTimeOffset.Now
+            });
+            await SaveProjectCoreAsync(project, cancellationToken);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task CorrectTotalAsync(
+        string projectId,
+        string sheetId,
+        int totalRow,
+        int column,
+        decimal? correctedValue,
+        string? editedBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (correctedValue.HasValue
+            && (correctedValue.Value <= 0m
+                || correctedValue.Value > 10000m
+                || correctedValue.Value * 100m % 2m != 0m))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(correctedValue),
+                "Итог должен быть больше 0, не превышать 10000 кг и соответствовать шагу 0,02 кг.");
+        }
+
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            var sheet = project.Sheets.SingleOrDefault(item => item.Id == sheetId)
+                ?? throw new KeyNotFoundException("Лист проекта не найден.");
+            if (totalRow < 1 || totalRow > sheet.Table.TotalRows
+                || column < 1 || column > sheet.Table.Columns)
+            {
+                throw new ArgumentOutOfRangeException(nameof(totalRow), "Координаты итога находятся вне таблицы.");
+            }
+
+            var total = sheet.Totals.SingleOrDefault(item => item.Row == totalRow && item.Column == column);
+            if (total is null)
+            {
+                total = new RegisterReviewTotal
+                {
+                    Row = totalRow,
+                    Column = column,
+                    Status = RegisterCellStatus.Empty
+                };
+                sheet.Totals.Add(total);
+            }
+
+            var oldValue = total.EffectiveValue;
+            if (correctedValue.HasValue)
+            {
+                total.CorrectedValue = correctedValue;
+                total.Status = RegisterCellStatus.Corrected;
+            }
+            else
+            {
+                total.Value = null;
+                total.CorrectedValue = null;
+                total.Status = RegisterCellStatus.Empty;
+            }
+
+            project.CorrectionLog.Add(new RegisterCorrectionLogEntry
+            {
+                SheetId = sheetId,
+                Row = sheet.Table.DataRows + totalRow,
+                Column = column,
+                IsTotal = true,
                 OldValue = oldValue,
                 NewValue = correctedValue,
                 EditedBy = editedBy,

@@ -13,7 +13,7 @@
     <Columns>
         <RadzenDataGridColumn TItem="RegisterGridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
             <Template Context="row">@row.No</Template>
-            <FooterTemplate><b>Σ 1–40:</b></FooterTemplate>
+            <FooterTemplate><b title="Рукописные итоги на скане">41 / кг</b></FooterTemplate>
         </RadzenDataGridColumn>
         @for (var index = 1; index <= 10; index++)
         {
@@ -32,9 +32,13 @@
                     </div>
                 </Template>
                 <FooterTemplate>
-                    <div title="Сумма распознанных ячеек 1–40"
-                         style="@GetCalculatedTotalStyle(column)">
-                        <b>@(Totals.TryGetValue(column, out var total) ? total.ToString("0.00") : string.Empty)</b>
+                    @{
+                        var total = GetRecognizedTotal(column);
+                    }
+                    <div title="@GetRecognizedTotalTitle(column, total)"
+                         style="@GetRecognizedTotalStyle(column, total)"
+                         @onclick="@(() => OnTotalClickAsync(column))">
+                        <b>@(total?.EffectiveValue?.ToString("0.00") ?? total?.OcrText ?? string.Empty)</b>
                     </div>
                 </FooterTemplate>
             </RadzenDataGridColumn>
@@ -43,13 +47,12 @@
 </RadzenDataGrid>
 
 <div style="display:grid;grid-template-columns:80px repeat(10,minmax(64px,1fr));border:1px solid var(--rz-border-color);border-top:0;min-width:788px;">
-    <div style="padding:0.5rem;font-weight:700;border-right:1px solid var(--rz-border-color);">Итог</div>
+    <div style="padding:0.5rem;font-weight:700;border-right:1px solid var(--rz-border-color);">Σ 1–40</div>
     @for (var column = 1; column <= 10; column++)
     {
-        var total = GetRecognizedTotal(column);
-        <div title="@GetRecognizedTotalTitle(total)"
-             style="@GetRecognizedTotalStyle(total)">
-            @(total?.EffectiveValue?.ToString("0.00") ?? string.Empty)
+        <div title="Сумма распознанных ячеек 1–40"
+             style="@GetCalculatedTotalStyle()">
+            @(Totals.TryGetValue(column, out var total) ? total.ToString("0.00") : string.Empty)
         </div>
     }
     <div style="padding:0.5rem;font-weight:700;border-right:1px solid var(--rz-border-color);border-top:1px solid var(--rz-border-color);">Δ кг</div>
@@ -66,8 +69,10 @@
     [Parameter] public IReadOnlyDictionary<int, decimal> Totals { get; set; } = new Dictionary<int, decimal>();
     [Parameter] public IReadOnlyDictionary<int, RegisterReviewTotal> RecognizedTotals { get; set; } = new Dictionary<int, RegisterReviewTotal>();
     [Parameter] public RegisterCellKey? SelectedKey { get; set; }
+    [Parameter] public int? SelectedTotalColumn { get; set; }
     [Parameter] public EventCallback<RegisterCellComparison> CellSelected { get; set; }
     [Parameter] public EventCallback<RegisterCellComparison> CellDoubleClicked { get; set; }
+    [Parameter] public EventCallback<int> TotalSelected { get; set; }
 
     private async Task OnCellClick(DataGridCellMouseEventArgs<RegisterGridRowVm> args)
     {
@@ -170,26 +175,46 @@
     private RegisterReviewTotal? GetRecognizedTotal(int column)
         => RecognizedTotals.TryGetValue(column, out var total) ? total : null;
 
-    private string GetCalculatedTotalStyle(int column)
+    private async Task OnTotalClickAsync(int column)
     {
-        var background = TryGetTotalDifference(column, out var difference)
-            ? Math.Abs(difference) <= 0.04m ? "#d9ead3" : "#f4cccc"
-            : "transparent";
-        return $"padding:0.35rem;background:{background};";
+        if (TotalSelected.HasDelegate)
+        {
+            await TotalSelected.InvokeAsync(column);
+        }
     }
 
-    private static string GetRecognizedTotalStyle(RegisterReviewTotal? total)
+    private static string GetCalculatedTotalStyle()
+        => "padding:0.5rem;text-align:center;border-right:1px solid var(--rz-border-color);";
+
+    private string GetRecognizedTotalStyle(int column, RegisterReviewTotal? total)
     {
+        var hasCalculated = Totals.ContainsKey(column);
+        var background = total?.EffectiveValue.HasValue == true && hasCalculated
+            ? TryGetTotalDifference(column, out var difference)
+                ? Math.Abs(difference) <= 0.04m ? "#d9ead3" : "#f8d7da"
+                : "transparent"
+            : total?.EffectiveValue.HasValue == true || hasCalculated
+                ? "#f4cccc"
+                : "transparent";
         var suspect = total?.Status == RegisterCellStatus.Suspect
             ? "box-shadow:inset 0 0 0 3px #f59e0b;"
             : string.Empty;
-        return $"padding:0.5rem;text-align:center;border-right:1px solid var(--rz-border-color);{suspect}";
+        var selected = SelectedTotalColumn == column
+            ? "outline:3px solid var(--rz-primary);outline-offset:-3px;"
+            : string.Empty;
+        return $"min-height:1.5rem;padding:0.35rem;background:{background};cursor:pointer;{suspect}{selected}";
     }
 
-    private static string GetRecognizedTotalTitle(RegisterReviewTotal? total)
-        => string.IsNullOrWhiteSpace(total?.OcrText)
-            ? string.Empty
+    private string GetRecognizedTotalTitle(int column, RegisterReviewTotal? total)
+    {
+        var recognized = string.IsNullOrWhiteSpace(total?.OcrText)
+            ? "Рукописный итог не распознан"
             : $"Рукописный текст: {total.OcrText}";
+        var calculated = Totals.TryGetValue(column, out var value)
+            ? $"; сумма строк 1–40: {value:0.00} кг"
+            : "; сумма строк 1–40 отсутствует";
+        return recognized + calculated;
+    }
 
     private string FormatTotalDifference(int column)
         => TryGetTotalDifference(column, out var difference)
