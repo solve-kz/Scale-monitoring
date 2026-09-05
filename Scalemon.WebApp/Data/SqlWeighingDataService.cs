@@ -488,6 +488,7 @@ ORDER BY [RecordedAt], [Id];";
     public async Task<DayLiveSnapshot> GetDaySnapshotAsync(
         DateOnly date,
         bool includeSanitary = true,
+        DateTime? countFrom = null,
         CancellationToken ct = default)
     {
         if (includeSanitary)
@@ -495,6 +496,13 @@ ORDER BY [RecordedAt], [Id];";
             await EnsureConfiguredAsync(ct);
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = date.AddDays(1).ToDateTime(TimeOnly.MinValue);
+            var countStart = countFrom.HasValue && countFrom.Value > start
+                ? countFrom.Value
+                : start;
+            if (countStart > end)
+            {
+                countStart = end;
+            }
             await using var connection = NewConn();
             await connection.OpenAsync(ct);
 
@@ -502,7 +510,7 @@ ORDER BY [RecordedAt], [Id];";
             int count;
             await using (var countCommand = new SqlCommand(countSql, connection))
             {
-                countCommand.Parameters.Add(new SqlParameter("@s", SqlDbType.DateTime2) { Value = start });
+                countCommand.Parameters.Add(new SqlParameter("@s", SqlDbType.DateTime2) { Value = countStart });
                 countCommand.Parameters.Add(new SqlParameter("@e", SqlDbType.DateTime2) { Value = end });
                 count = Convert.ToInt32(await countCommand.ExecuteScalarAsync(ct) ?? 0);
             }
@@ -524,7 +532,10 @@ ORDER BY [RecordedAt], [Id];";
 
         var items = await GetDayAllAsync(date, includeSanitary, ct);
         var last = items.LastOrDefault();
-        return new DayLiveSnapshot(items.Count, last?.Weight, last?.Timestamp);
+        var filteredCount = countFrom.HasValue
+            ? items.Count(item => item.Timestamp >= countFrom.Value)
+            : items.Count;
+        return new DayLiveSnapshot(filteredCount, last?.Weight, last?.Timestamp);
     }
 
     private async Task<IReadOnlyList<Weighing>> AttachModesAsync(

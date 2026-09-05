@@ -33,6 +33,7 @@ public sealed class WeightRegisterComparisonEngine
         ArgumentNullException.ThrowIfNull(automaticWeighings);
 
         var manual = project.Sheets
+            .Where(sheet => sheet.IsRecognitionComplete)
             .SelectMany(sheet => sheet.Cells
                 .Where(cell => cell.Row >= 1 && cell.Row <= sheet.Table.DataRows)
                 .Where(cell => cell.Column >= 1 && cell.Column <= sheet.Table.Columns)

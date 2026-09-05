@@ -76,6 +76,17 @@
                 @if (CanSee(2))
                 {
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        @if (CanAppendSheets)
+                        {
+                            <RadzenUpload Url="@AppendUploadUrl"
+                                          ParameterName="files"
+                                          Multiple="true"
+                                          Auto="true"
+                                          Accept=".jpg,.jpeg,.png"
+                                          ChooseText="Добавить листы"
+                                          Complete="OnAppendUploadComplete"
+                                          Error="OnUploadError" />
+                        }
                         <RadzenButton Text="Запустить распознавание"
                                       Icon="document_scanner"
                                       ButtonStyle="ButtonStyle.Primary"
@@ -103,6 +114,70 @@
             {
                 <RadzenText TextStyle="TextStyle.Caption">@_project.StatusMessage</RadzenText>
             }
+            @if (RecognitionWarnings.Count > 0)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">
+                    @foreach (var warning in RecognitionWarnings)
+                    {
+                        <div>@warning</div>
+                    }
+                </RadzenAlert>
+            }
+            @if (IsRecognitionActive)
+            {
+                <RadzenStack Orientation="Orientation.Vertical" Gap="0.4rem" Style="margin-top:0.75rem;">
+                    <RadzenProgressBar Mode="ProgressBarMode.Indeterminate" Style="width:100%;" />
+                    <RadzenText TextStyle="TextStyle.Body2">@RecognitionActivityText</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption">@RecognitionTimingText</RadzenText>
+                    @if (RecognitionQueueWarning is { } warning)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">@warning</RadzenAlert>
+                    }
+                </RadzenStack>
+            }
+            else if (_project.RecognitionFinishedAt is { } finishedAt)
+            {
+                <RadzenText TextStyle="TextStyle.Caption">
+                    Завершено @finishedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss").
+                </RadzenText>
+            }
+            @if (CanSee(2) && _recognitionQueueInfo?.Items.Count > 0)
+            {
+                <RadzenFieldset Text="Управление очередью" Style="margin-top:0.75rem;">
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.45rem">
+                        @foreach (var item in _recognitionQueueInfo.Items)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal"
+                                         AlignItems="AlignItems.Center"
+                                         JustifyContent="JustifyContent.SpaceBetween"
+                                         Gap="0.5rem"
+                                         Wrap="FlexWrap.Wrap">
+                                <RadzenText TextStyle="TextStyle.Body2">
+                                    @item.Position. @item.CuttingDate.ToString("dd.MM.yyyy") — @item.ProjectName
+                                    (@QueueItemStatusText(item))
+                                </RadzenText>
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                    <RadzenButton Icon="arrow_upward"
+                                                  Size="ButtonSize.Small"
+                                                  ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@(!CanMoveQueueItem(item, -1))"
+                                                  Click="@(() => MoveQueueItemAsync(item.ProjectId, -1))" />
+                                    <RadzenButton Icon="arrow_downward"
+                                                  Size="ButtonSize.Small"
+                                                  ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@(!CanMoveQueueItem(item, 1))"
+                                                  Click="@(() => MoveQueueItemAsync(item.ProjectId, 1))" />
+                                    <RadzenButton Icon="cancel"
+                                                  Size="ButtonSize.Small"
+                                                  ButtonStyle="ButtonStyle.Danger"
+                                                  Disabled="@item.CancellationRequested"
+                                                  Click="@(() => CancelQueueItemAsync(item))" />
+                                </RadzenStack>
+                            </RadzenStack>
+                        }
+                    </RadzenStack>
+                </RadzenFieldset>
+            }
         </RadzenCard>
 
         <RadzenRow Gap="1rem">
@@ -118,7 +193,7 @@
                                 <RadzenLabel Text="Лист" />
                                 <RadzenDropDown TValue="string"
                                                 Data="_project.Sheets"
-                                                TextProperty="Name"
+                                                TextProperty="DisplayName"
                                                 ValueProperty="Id"
                                                 Value="_selectedSheetId"
                                                 Change="OnSheetChanged"
@@ -137,13 +212,15 @@
                                 @(_includeSanitary ? "Санитарный включён в сравнение" : "Санитарный исключён из сравнения")
                             </RadzenText>
                             <RadzenSwitch @bind-Value="_includeSanitary" @bind-Value:after="OnSanitaryToggleChangedAsync" />
-                            @if (_project.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                            @if (HasRecognizedSheets)
                             {
-                                <RadzenText TextStyle="TextStyle.Caption">Автоматические записи: @AutomaticDatesText</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption">
+                                    Автоматические записи: @AutomaticDatesText@(_project.CuttingDate == Today ? "; обновляются автоматически" : string.Empty)
+                                </RadzenText>
                             }
                         </RadzenStack>
 
-                        @if (_project.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                        @if (_selectedSheet?.IsRecognitionComplete == true)
                         {
                             @if (!string.IsNullOrWhiteSpace(_comparisonError))
                             {
@@ -168,7 +245,7 @@
                         else
                         {
                             <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">
-                                После калибровки запустите распознавание. При выключенном AI-исполнителе скачайте задание и импортируйте JSON результата вручную.
+                                Этот лист ещё не распознан. Сохраните его калибровку и запустите распознавание; уже готовые листы остаются доступными в списке.
                             </RadzenAlert>
                         }
                     </RadzenStack>
@@ -441,6 +518,9 @@
     private readonly CultureInfo _invariant = CultureInfo.InvariantCulture;
     private readonly CancellationTokenSource _refreshCts = new();
     private Task? _refreshTask;
+    private WeightRegisterRecognitionQueueInfo? _recognitionQueueInfo;
+    private DateTimeOffset _recognitionClock = DateTimeOffset.Now;
+    private DateTimeOffset _lastAutomaticRefreshAt = DateTimeOffset.MinValue;
     private DateTime _uploadDate = DateTime.Today;
     private IReadOnlyList<WeightRegisterProjectSummary> _projects = Array.Empty<WeightRegisterProjectSummary>();
     private string? _selectedProjectId;
@@ -467,8 +547,22 @@
 
     private const double CalibrationBoundaryStep = 2d;
 
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
     private string UploadUrl
         => Navigation.ToAbsoluteUri($"api/weight-register/uploads?cuttingDate={_uploadDate:yyyy-MM-dd}").ToString();
+
+    private string AppendUploadUrl
+        => _project is null
+            ? Navigation.ToAbsoluteUri("api/weight-register/projects/invalid/uploads").ToString()
+            : Navigation.ToAbsoluteUri($"api/weight-register/projects/{_project.Id}/uploads").ToString();
+
+    private bool CanAppendSheets
+        => _project?.CuttingDate == Today
+            && _project.RecognitionStatus is not (RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing);
+
+    private bool HasRecognizedSheets
+        => _project?.Sheets.Any(sheet => sheet.IsRecognitionComplete) == true;
 
     private string RecognitionImportUrl
         => _project is null
@@ -488,6 +582,7 @@
         RegisterRecognitionStatus.Processing => "Распознаётся",
         RegisterRecognitionStatus.Completed => "Распознано",
         RegisterRecognitionStatus.Failed => "Ошибка",
+        RegisterRecognitionStatus.Cancelled => "Отменено",
         _ => "Не выбран"
     };
 
@@ -495,9 +590,101 @@
     {
         RegisterRecognitionStatus.Completed => BadgeStyle.Success,
         RegisterRecognitionStatus.Failed => BadgeStyle.Danger,
+        RegisterRecognitionStatus.Cancelled => BadgeStyle.Light,
         RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing => BadgeStyle.Info,
         _ => BadgeStyle.Warning
     };
+
+    private bool IsRecognitionActive
+        => _project?.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing;
+
+    private IReadOnlyList<string> RecognitionWarnings
+        => _project?.Sheets
+            .SelectMany(sheet => sheet.RecognitionWarnings ?? new List<string>())
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+            ?? Array.Empty<string>();
+
+    private string RecognitionActivityText
+        => _project?.RecognitionStatus switch
+        {
+            RegisterRecognitionStatus.Pending when _recognitionQueueInfo?.Position is { } position
+                => $"Очередь: место {position} из {_recognitionQueueInfo.ActiveCount}; ожидающих заданий: {_recognitionQueueInfo.WaitingCount}.",
+            RegisterRecognitionStatus.Pending => "Задание ожидает фонового исполнителя.",
+            RegisterRecognitionStatus.Processing when _project.RecognitionTotalSheets > 0
+                => string.IsNullOrWhiteSpace(_project.RecognitionCurrentSheet)
+                    ? $"Обработано листов: {_project.RecognitionCompletedSheets} из {_project.RecognitionTotalSheets}."
+                    : $"Лист «{_project.RecognitionCurrentSheet}»; завершено {_project.RecognitionCompletedSheets} из {_project.RecognitionTotalSheets}.",
+            RegisterRecognitionStatus.Processing => $"Распознавание выполняется, попытка {_project.RecognitionAttempt}.",
+            _ => string.Empty
+        };
+
+    private string RecognitionTimingText
+    {
+        get
+        {
+            if (_project is null)
+            {
+                return string.Empty;
+            }
+
+            var since = _project.RecognitionStatus == RegisterRecognitionStatus.Processing
+                ? _project.RecognitionStartedAt
+                : _project.RecognitionQueuedAt;
+            var elapsed = since.HasValue ? FormatDuration(_recognitionClock - since.Value) : "неизвестно";
+            var worker = _recognitionQueueInfo?.WorkerLastSeenAt is { } lastSeen
+                ? $" Последний отклик исполнителя: {lastSeen.ToLocalTime():HH:mm:ss}."
+                : " Отклик исполнителя ещё не получен.";
+            var workerMessage = string.IsNullOrWhiteSpace(_recognitionQueueInfo?.WorkerMessage)
+                ? string.Empty
+                : $" {_recognitionQueueInfo.WorkerMessage}";
+            return $"Прошло: {elapsed}.{worker}{workerMessage}";
+        }
+    }
+
+    private string? RecognitionQueueWarning
+    {
+        get
+        {
+            if (_project?.RecognitionStatus != RegisterRecognitionStatus.Pending || _recognitionQueueInfo is null)
+            {
+                return null;
+            }
+            if (!_recognitionQueueInfo.AutomaticRecognitionEnabled)
+            {
+                return "Автоматический исполнитель выключен в конфигурации запущенной службы.";
+            }
+            var workerSilent = _recognitionQueueInfo.WorkerLastSeenAt is not { } workerLastSeenAt
+                || _recognitionClock - workerLastSeenAt > TimeSpan.FromSeconds(90);
+            if (_recognitionQueueInfo.ProcessingCount == 0 && workerSilent)
+            {
+                return "Фоновый исполнитель не подтверждает работу. Проверьте журнал службы и перезапустите именно Scalemon.ServiceHost.";
+            }
+            return null;
+        }
+    }
+
+    private static string QueueItemStatusText(WeightRegisterRecognitionQueueItem item)
+        => item.Status switch
+        {
+            RegisterRecognitionStatus.Processing when item.CancellationRequested => "отменяется",
+            RegisterRecognitionStatus.Processing => "выполняется",
+            _ => "ожидает"
+        };
+
+    private bool CanMoveQueueItem(WeightRegisterRecognitionQueueItem item, int direction)
+    {
+        if (item.Status != RegisterRecognitionStatus.Pending || _recognitionQueueInfo is null)
+        {
+            return false;
+        }
+        var pending = _recognitionQueueInfo.Items
+            .Where(candidate => candidate.Status == RegisterRecognitionStatus.Pending)
+            .ToArray();
+        var index = Array.FindIndex(pending, candidate => candidate.ProjectId == item.ProjectId);
+        return index >= 0 && index + direction >= 0 && index + direction < pending.Length;
+    }
 
     private string CalibrationViewBox => _calibration is null
         ? "0 0 1 1"
@@ -590,6 +777,8 @@
             return;
         }
         _selectedProjectId = _project.Id;
+        _recognitionQueueInfo = await ReviewService.GetRecognitionQueueInfoAsync(_project.Id);
+        _recognitionClock = DateTimeOffset.Now;
         _selectedSheetId = _project.Sheets.Any(sheet => sheet.Id == _selectedSheetId)
             ? _selectedSheetId
             : _project.Sheets.FirstOrDefault()?.Id;
@@ -599,7 +788,7 @@
 
     private async Task RebuildComparisonAsync()
     {
-        if (_project is null || _project.RecognitionStatus != RegisterRecognitionStatus.Completed)
+        if (_project is null || !HasRecognizedSheets)
         {
             _comparison = new RegisterComparisonResult();
             return;
@@ -686,6 +875,28 @@
         await LoadProjectsAsync(selectNewest: true);
     }
 
+    private async Task OnAppendUploadComplete(UploadCompleteEventArgs _)
+    {
+        if (_project is null)
+        {
+            return;
+        }
+        var projectId = _project.Id;
+        var existingSheetIds = _project.Sheets.Select(sheet => sheet.Id).ToHashSet(StringComparer.Ordinal);
+        await LoadProjectAsync(projectId);
+        var addedSheet = _project?.Sheets.FirstOrDefault(sheet => !existingSheetIds.Contains(sheet.Id));
+        if (addedSheet is not null)
+        {
+            _selectedSheetId = addedSheet.Id;
+            SelectSheet();
+        }
+        await LoadProjectsAsync(selectNewest: false);
+        NotificationService.Notify(
+            NotificationSeverity.Success,
+            "Листы добавлены",
+            "Новые листы добавлены в проект текущего дня. Проверьте их калибровку.");
+    }
+
     private void OnUploadError(UploadErrorEventArgs _)
         => NotificationService.Notify(NotificationSeverity.Error, "Ошибка загрузки", "Сервер отклонил файл. Проверьте формат и размер.");
 
@@ -714,11 +925,70 @@
         {
             await ReviewService.QueueRecognitionAsync(_project.Id);
             await LoadProjectAsync(_project.Id);
+            _recognitionQueueInfo = await ReviewService.GetRecognitionQueueInfoAsync(_project.Id);
+            _recognitionClock = DateTimeOffset.Now;
             NotificationService.Notify(NotificationSeverity.Info, "Распознавание", "Задание поставлено в очередь.");
         }
         catch (Exception ex)
         {
             NotificationService.Notify(NotificationSeverity.Error, "Распознавание", ex.Message);
+        }
+    }
+
+    private async Task MoveQueueItemAsync(string projectId, int direction)
+    {
+        try
+        {
+            await ReviewService.MoveRecognitionAsync(projectId, direction);
+            if (_project is not null)
+            {
+                _recognitionQueueInfo = await ReviewService.GetRecognitionQueueInfoAsync(_project.Id);
+                _recognitionClock = DateTimeOffset.Now;
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Очередь распознавания", ex.Message);
+        }
+    }
+
+    private async Task CancelQueueItemAsync(WeightRegisterRecognitionQueueItem item)
+    {
+        var actionText = item.Status == RegisterRecognitionStatus.Processing
+            ? "запросить отмену выполняющегося задания"
+            : "отменить ожидающее задание";
+        var confirmed = await DialogService.Confirm(
+            $"{actionText} «{item.ProjectName}»?",
+            "Очередь распознавания",
+            new ConfirmOptions { OkButtonText = "Да", CancelButtonText = "Нет" });
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await ReviewService.CancelRecognitionAsync(item.ProjectId);
+            _projects = await ReviewService.ListProjectsAsync();
+            if (_project?.Id == item.ProjectId)
+            {
+                await LoadProjectAsync(item.ProjectId);
+            }
+            if (_project is not null)
+            {
+                _recognitionQueueInfo = await ReviewService.GetRecognitionQueueInfoAsync(_project.Id);
+                _recognitionClock = DateTimeOffset.Now;
+            }
+            NotificationService.Notify(
+                NotificationSeverity.Info,
+                "Очередь распознавания",
+                item.Status == RegisterRecognitionStatus.Processing
+                    ? "Запрос отмены отправлен."
+                    : "Задание отменено.");
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Очередь распознавания", ex.Message);
         }
     }
 
@@ -976,6 +1246,17 @@
 
     private string F(double value) => value.ToString("0.###", _invariant);
 
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+        {
+            duration = TimeSpan.Zero;
+        }
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}"
+            : $"{duration.Minutes}:{duration.Seconds:00}";
+    }
+
     private async Task RefreshRecognitionStatusAsync(CancellationToken cancellationToken)
     {
         try
@@ -985,30 +1266,66 @@
                 await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
                 var projectId = _project?.Id;
                 var previousStatus = _project?.RecognitionStatus;
+                var hasActiveQueue = _recognitionQueueInfo?.Items.Count > 0;
+                var refreshCurrentDay = _project?.CuttingDate == Today && HasRecognizedSheets;
                 if (string.IsNullOrWhiteSpace(projectId)
-                    || previousStatus is not (RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing))
+                    || (previousStatus is not (RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
+                        && !hasActiveQueue
+                        && !refreshCurrentDay))
                 {
                     continue;
                 }
 
                 var latest = await ReviewService.GetProjectAsync(projectId, cancellationToken);
-                if (latest is null || latest.RecognitionStatus == previousStatus)
+                if (latest is null)
                 {
                     continue;
                 }
+                var queueInfo = await ReviewService.GetRecognitionQueueInfoAsync(projectId, cancellationToken);
+                var statusChanged = latest.RecognitionStatus != previousStatus;
 
                 await InvokeAsync(async () =>
                 {
-                    await LoadProjectAsync(projectId);
-                    _projects = await ReviewService.ListProjectsAsync(cancellationToken);
-                    if (latest.RecognitionStatus == RegisterRecognitionStatus.Completed)
+                    if (_project?.Id != projectId)
+                    {
+                        return;
+                    }
+
+                    if (statusChanged
+                        && latest.RecognitionStatus is RegisterRecognitionStatus.Completed or RegisterRecognitionStatus.Failed)
+                    {
+                        await LoadProjectAsync(projectId);
+                    }
+                    else
+                    {
+                        ApplyRecognitionState(latest);
+                    }
+                    _recognitionQueueInfo = queueInfo;
+                    _recognitionClock = DateTimeOffset.Now;
+                    if (refreshCurrentDay
+                        && _recognitionClock - _lastAutomaticRefreshAt >= TimeSpan.FromSeconds(9))
+                    {
+                        var selectedKey = _selectedComparison?.Key;
+                        await RebuildComparisonAsync();
+                        BuildGridRows();
+                        if (selectedKey is { } key && _comparison.Cells.TryGetValue(key, out var refreshed))
+                        {
+                            OnCellSelected(refreshed);
+                        }
+                        _lastAutomaticRefreshAt = _recognitionClock;
+                    }
+                    if (statusChanged)
+                    {
+                        _projects = await ReviewService.ListProjectsAsync(cancellationToken);
+                    }
+                    if (statusChanged && latest.RecognitionStatus == RegisterRecognitionStatus.Completed)
                     {
                         NotificationService.Notify(
                             NotificationSeverity.Success,
                             "Распознавание",
                             "Сканы распознаны и сопоставлены с автоматическим реестром.");
                     }
-                    else if (latest.RecognitionStatus == RegisterRecognitionStatus.Failed)
+                    else if (statusChanged && latest.RecognitionStatus == RegisterRecognitionStatus.Failed)
                     {
                         NotificationService.Notify(
                             NotificationSeverity.Error,
@@ -1029,6 +1346,25 @@
                 "Распознавание",
                 $"Не удалось обновить статус автоматически: {ex.Message}"));
         }
+    }
+
+    private void ApplyRecognitionState(WeightRegisterProject latest)
+    {
+        if (_project?.Id != latest.Id)
+        {
+            return;
+        }
+
+        _project.RecognitionStatus = latest.RecognitionStatus;
+        _project.StatusMessage = latest.StatusMessage;
+        _project.RecognitionAttempt = latest.RecognitionAttempt;
+        _project.RecognitionQueuedAt = latest.RecognitionQueuedAt;
+        _project.RecognitionStartedAt = latest.RecognitionStartedAt;
+        _project.RecognitionFinishedAt = latest.RecognitionFinishedAt;
+        _project.RecognitionUpdatedAt = latest.RecognitionUpdatedAt;
+        _project.RecognitionCompletedSheets = latest.RecognitionCompletedSheets;
+        _project.RecognitionTotalSheets = latest.RecognitionTotalSheets;
+        _project.RecognitionCurrentSheet = latest.RecognitionCurrentSheet;
     }
 
     /// <inheritdoc />

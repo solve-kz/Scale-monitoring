@@ -10,6 +10,12 @@ namespace Scalemon.Common
     public interface IScaleStateMachine
     {
         FsmState CurrentState { get; }
+
+        /// <summary>
+        /// Показывает, что технологическая ошибка защёлкнута до подтверждённого нуля.
+        /// </summary>
+        bool HasLatchedProcessError { get; }
+
         Task SetConnectionAsync(bool isConnected);
         Task SetAlarmAsync(bool isAlarm);
 

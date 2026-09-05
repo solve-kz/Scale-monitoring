@@ -34,10 +34,13 @@ using System.Net.Http.Headers;
 using System.Text;
 
 const long LogUploadLimitBytes = 256L * 1024 * 1024;
+const string PersistentSettingsPath = @"C:\Scalemon\Scalemon.settings.json";
 
 // --- 1. СОЗДАНИЕ УНИВЕРСАЛЬНОГО ПОСТРОИТЕЛЯ ПРИЛОЖЕНИЯ ---
 // WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
 var builder = WebApplication.CreateBuilder(args);
+Directory.CreateDirectory(Path.GetDirectoryName(PersistentSettingsPath)!);
+builder.Configuration.AddJsonFile(PersistentSettingsPath, optional: true, reloadOnChange: true);
 var config = builder.Configuration;
 
 builder.WebHost.ConfigureKestrel(options =>
@@ -224,6 +227,11 @@ builder.Services.AddRadzenCookieThemeService(options =>
 // Библиотечные сервисы UI
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();                        // если ApiClient использует HttpClient
+builder.Services.AddHttpClient(nameof(OpenAiWeightRegisterRecognizer), client =>
+{
+    // Тайм-аут каждого листа задаётся WeightRegisterReview:Recognition:RequestTimeoutSeconds.
+    client.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddScoped<ApiClient>();                 // если он есть и используется из компонентов
 builder.Services.AddTransient<ForwardAuthCookiesHandler>();
 builder.Services.AddHttpClient<ApiClient>((sp, http) =>
@@ -260,6 +268,7 @@ builder.Services.Configure<JsonFileSettingsSource.WebAppOptions>(
 // ВОТ ГЛАВНОЕ: регистрация сервиса данных, который требует Monitoring
 builder.Services.AddScoped<IWeighingDataService, SqlWeighingDataService>();
 builder.Services.AddScoped<IWeighingEditLogService, SqlWeighingEditLogService>();
+builder.Services.AddSingleton<WeightRegisterRecognitionCancellationRegistry>();
 builder.Services.AddSingleton<IWeightRegisterReviewService, JsonWeightRegisterReviewService>();
 builder.Services.AddSingleton<IRegisterImageUploadPreprocessor, RegisterImageUploadPreprocessor>();
 builder.Services.AddSingleton<WeightRegisterComparisonEngine>();

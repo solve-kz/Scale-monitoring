@@ -115,27 +115,25 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task ExplicitZeroRejectionFallsBackToOneMeasuredTare()
+    public async Task ExplicitZeroRejectionLatchesErrorAfterConfiguredAttempts()
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
-        var fsm = CreateFsm(records, commands, request =>
-            request.Command == ResidualCorrectionCommand.SetZero
-                ? ScaleCommandResult.Rejected(0x15, "ZERO rejected")
-                : ScaleCommandResult.Success(0x12, "TARE accepted"));
+        var settings = CreateSettings();
+        settings.ZeroCommandMaxAttempts = 3;
+        var fsm = CreateFsm(records, commands, _ =>
+            ScaleCommandResult.Rejected(0x15, "ZERO rejected"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
-        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+        await FeedAsync(
+            fsm,
+            Enumerable.Repeat(0.08m, settings.UnloadStableSamples * 3).ToArray());
 
-        Assert.Collection(
-            commands,
-            request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command),
-            request =>
-            {
-                Assert.Equal(ResidualCorrectionCommand.SetTare, request.Command);
-                Assert.Equal(0.08m, request.WeightKg);
-            });
-        Assert.Equal(FsmState.Weighing, fsm.CurrentState);
+        Assert.Equal(3, commands.Count);
+        Assert.All(commands, request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -176,6 +174,24 @@ public class PlateauZeroStateMachineTests
         await FeedAsync(cleaningFsm, 0.31m, 0.31m, 0.31m);
         Assert.Empty(cleaningCommands);
         Assert.Equal(FsmState.InvalidWeightState, cleaningFsm.CurrentState);
+        Assert.True(cleaningFsm.HasLatchedProcessError);
+    }
+
+    [Fact]
+    public async Task ResidualAboveTareMaximumAfterRecordedLoadLatchesError()
+    {
+        var records = new List<decimal>();
+        var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(records, commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+        await FeedAsync(fsm, 0.31m, 0.31m, 0.31m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.Empty(commands);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -191,7 +207,7 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task LargeNegativeResidualWarnsWithoutBlockingNextLoad()
+    public async Task LargeNegativeResidualLatchesRedWithoutBlockingNextLoad()
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
@@ -204,6 +220,7 @@ public class PlateauZeroStateMachineTests
         Assert.Equal(new[] { 7.50m }, records);
         Assert.Empty(commands);
         Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -224,17 +241,98 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task TareRejectionLatchesRedUntilStableNormalReading()
+    public async Task SmallStableResidualReappearingAfterZeroTriggersAnotherCorrection()
     {
         var commands = new List<ResidualCorrectionRequest>();
+        var fsm = CreateFsm(new(), commands);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+
+        Assert.Equal(2, commands.Count);
+        Assert.All(commands, request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
+    }
+
+    [Fact]
+    public async Task AutomaticZeroApplicationLimitLatchesErrorBeforeNextCommand()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.MaxAutomaticZeroApplications = 2;
+        var fsm = CreateFsm(new(), commands, settings: settings);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 0.08m, 0.08m, 0.08m);
+
+        Assert.Equal(2, commands.Count);
+        Assert.True(fsm.HasLatchedProcessError);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task AutomaticTareApplicationLimitLatchesErrorBeforeNextCommand()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.MaxAutomaticTareApplications = 2;
+        var fsm = CreateFsm(new(), commands, settings: settings);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
+
+        Assert.Equal(2, commands.Count);
+        Assert.True(fsm.HasLatchedProcessError);
+        Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+    }
+
+    [Fact]
+    public async Task TareRejectionUsesConfiguredAttemptLimit()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.TareCommandMaxAttempts = 2;
         var fsm = CreateFsm(
             new(),
             commands,
-            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"));
+            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"),
+            settings);
+        await ConnectAndArmAsync(fsm);
+
+        await FeedAsync(
+            fsm,
+            Enumerable.Repeat(0.20m, settings.UnloadStableSamples * 2).ToArray());
+
+        Assert.Equal(2, commands.Count);
+        Assert.All(commands, request => Assert.Equal(ResidualCorrectionCommand.SetTare, request.Command));
+        Assert.True(fsm.HasLatchedProcessError);
+    }
+
+    [Fact]
+    public async Task TareRejectionLatchesRedUntilStableZero()
+    {
+        var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.TareCommandMaxAttempts = 1;
+        var fsm = CreateFsm(
+            new(),
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
         Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
         Assert.Single(commands);
 
         await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
@@ -243,6 +341,7 @@ public class PlateauZeroStateMachineTests
 
         await FeedZeroAsync(fsm);
         Assert.Equal(FsmState.IdleZero, fsm.CurrentState);
+        Assert.False(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -250,14 +349,18 @@ public class PlateauZeroStateMachineTests
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.ZeroCommandMaxAttempts = 1;
         var fsm = CreateFsm(
             records,
             commands,
-            _ => ScaleCommandResult.Rejected(0x15, "ZERO rejected"));
+            _ => ScaleCommandResult.Rejected(0x15, "ZERO rejected"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, -0.02m, -0.02m, -0.02m);
         Assert.Equal(FsmState.InvalidWeightState, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
 
         await FeedAsync(fsm, 7.68m, 7.68m, 7.68m);
 
@@ -274,10 +377,13 @@ public class PlateauZeroStateMachineTests
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.ZeroCommandMaxAttempts = 1;
         var fsm = CreateFsm(
             records,
             commands,
-            _ => ScaleCommandResult.Rejected(0x15, "Установка >0< невозможна"));
+            _ => ScaleCommandResult.Rejected(0x15, "Установка >0< невозможна"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, 7.68m, 7.68m, 7.68m);
@@ -297,10 +403,13 @@ public class PlateauZeroStateMachineTests
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
+        var settings = CreateSettings();
+        settings.TareCommandMaxAttempts = 1;
         var fsm = CreateFsm(
             records,
             commands,
-            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"));
+            _ => ScaleCommandResult.Rejected(0x15, "TARE rejected"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, 0.20m, 0.20m, 0.20m);
@@ -329,7 +438,7 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task LargeResidualWarnsButDoesNotBlockNextLoad()
+    public async Task LargeResidualLatchesRedButDoesNotBlockNextLoad()
     {
         var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
@@ -342,6 +451,7 @@ public class PlateauZeroStateMachineTests
         Assert.Equal(new[] { 7.50m }, records);
         Assert.Empty(commands);
         Assert.Equal(FsmState.AwaitUnload, fsm.CurrentState);
+        Assert.True(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -367,7 +477,7 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task MaterialResidualChangeAllowsOneNewCorrectionAttempt()
+    public async Task FreshStableResidualAllowsNextCorrectionAttempt()
     {
         var commands = new List<ResidualCorrectionRequest>();
         var fsm = CreateFsm(
@@ -385,20 +495,32 @@ public class PlateauZeroStateMachineTests
     }
 
     [Fact]
-    public async Task DisabledFeatureFlagPreservesLegacyNegativeCorrectionSequence()
+    public async Task DisabledNonBlockingCorrectionKeepsLoadBlockedWhileErrorIsLatched()
     {
+        var records = new List<decimal>();
         var commands = new List<ResidualCorrectionRequest>();
         var settings = CreateSettings();
         settings.EnableNonBlockingCorrection = false;
-        var fsm = CreateFsm(new(), commands, settings: settings);
+        settings.ZeroCommandMaxAttempts = 1;
+        var fsm = CreateFsm(
+            records,
+            commands,
+            _ => ScaleCommandResult.Rejected(0x15, "ZERO rejected"),
+            settings);
         await ConnectAndArmAsync(fsm);
 
         await FeedAsync(fsm, -0.05m, -0.05m, -0.05m);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
 
-        Assert.Collection(
-            commands,
-            request => Assert.Equal(ResidualCorrectionCommand.TareCurrentWeight, request.Command),
-            request => Assert.Equal(ResidualCorrectionCommand.SetZero, request.Command));
+        Assert.Empty(records);
+        Assert.Equal(ResidualCorrectionCommand.SetZero, Assert.Single(commands).Command);
+        Assert.True(fsm.HasLatchedProcessError);
+
+        await FeedZeroAsync(fsm);
+        await FeedAsync(fsm, 7.50m, 7.50m, 7.50m);
+
+        Assert.Equal(new[] { 7.50m }, records);
+        Assert.False(fsm.HasLatchedProcessError);
     }
 
     [Fact]
@@ -433,6 +555,37 @@ public class PlateauZeroStateMachineTests
         Assert.Throws<InvalidOperationException>(settings.ValidateWeighing);
     }
 
+    [Fact]
+    public void CorrectionProtectionSettingsHaveExpectedDefaults()
+    {
+        var settings = new SystemSettings();
+
+        Assert.Equal(10, settings.ZeroCommandMaxAttempts);
+        Assert.Equal(5, settings.TareCommandMaxAttempts);
+        Assert.Equal(3, settings.MaxAutomaticZeroApplications);
+        Assert.Equal(2, settings.MaxAutomaticTareApplications);
+    }
+
+    [Fact]
+    public void SettingsRejectNonPositiveCorrectionLimits()
+    {
+        var settings = CreateSettings();
+        settings.ZeroCommandMaxAttempts = 0;
+        Assert.Throws<InvalidOperationException>(settings.ValidateWeighing);
+
+        settings = CreateSettings();
+        settings.TareCommandMaxAttempts = 0;
+        Assert.Throws<InvalidOperationException>(settings.ValidateWeighing);
+
+        settings = CreateSettings();
+        settings.MaxAutomaticZeroApplications = 0;
+        Assert.Throws<InvalidOperationException>(settings.ValidateWeighing);
+
+        settings = CreateSettings();
+        settings.MaxAutomaticTareApplications = 0;
+        Assert.Throws<InvalidOperationException>(settings.ValidateWeighing);
+    }
+
     private static PlateauZeroStateMachine CreateFsm(
         List<decimal> records,
         List<ResidualCorrectionRequest> commands,
@@ -463,7 +616,11 @@ public class PlateauZeroStateMachineTests
         PlateauStableSamples = 3,
         PlateauWindowKg = 0.04m,
         UnloadStableSamples = 3,
-        CommandTimeoutMs = 500
+        CommandTimeoutMs = 500,
+        ZeroCommandMaxAttempts = 10,
+        TareCommandMaxAttempts = 5,
+        MaxAutomaticZeroApplications = 3,
+        MaxAutomaticTareApplications = 2
     };
 
     private static async Task ConnectAndArmAsync(PlateauZeroStateMachine fsm)

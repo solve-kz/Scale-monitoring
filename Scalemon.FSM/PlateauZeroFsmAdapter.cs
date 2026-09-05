@@ -17,6 +17,7 @@ namespace Scalemon.FSM
             _log = logger;
         }
         public FsmState CurrentState => _core.CurrentState;
+        public bool HasLatchedProcessError => _core.HasLatchedProcessError;
         public Task SetConnectionAsync(bool isConnected) 
         { 
             _core.SetConnection(isConnected); 

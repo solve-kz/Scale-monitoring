@@ -129,8 +129,28 @@
         public int CommandTimeoutMs { get; set; } = 500;
 
         /// <summary>
-        /// Разрешает продолжать автофиксацию при отказе коррекции ZERO/TARE.
-        /// Отключение временно возвращает прежнее блокирующее поведение для отката.
+        /// Максимальное число попыток ZERO в одном цикле коррекции, включая первую попытку.
+        /// </summary>
+        public int ZeroCommandMaxAttempts { get; set; } = 10;
+
+        /// <summary>
+        /// Максимальное число попыток TARE в одном цикле коррекции, включая первую попытку.
+        /// </summary>
+        public int TareCommandMaxAttempts { get; set; } = 5;
+
+        /// <summary>
+        /// Максимальное число успешных автоматических ZERO между подтверждёнными грузами.
+        /// </summary>
+        public int MaxAutomaticZeroApplications { get; set; } = 3;
+
+        /// <summary>
+        /// Максимальное число успешных автоматических TARE между подтверждёнными грузами.
+        /// </summary>
+        public int MaxAutomaticTareApplications { get; set; } = 2;
+
+        /// <summary>
+        /// Разрешает продолжать автофиксацию при защёлкнутой ошибке ZERO/TARE.
+        /// Красная индикация при этом сохраняется до очистки и стабильного нуля.
         /// </summary>
         public bool EnableNonBlockingCorrection { get; set; } = true;
 
@@ -161,6 +181,14 @@
                 throw new InvalidOperationException("Окно плато должно быть больше нуля и меньше минимального веса продукции.");
             if (CommandTimeoutMs is < 100 or > 3000)
                 throw new InvalidOperationException("Тайм-аут команды должен быть в диапазоне 100..3000 мс.");
+            if (ZeroCommandMaxAttempts is < 1 or > 50)
+                throw new InvalidOperationException("Число попыток ZERO должно быть в диапазоне 1..50.");
+            if (TareCommandMaxAttempts is < 1 or > 20)
+                throw new InvalidOperationException("Число попыток TARE должно быть в диапазоне 1..20.");
+            if (MaxAutomaticZeroApplications is < 1 or > 100)
+                throw new InvalidOperationException("Лимит автоматических ZERO должен быть в диапазоне 1..100.");
+            if (MaxAutomaticTareApplications is < 1 or > 50)
+                throw new InvalidOperationException("Лимит автоматических TARE должен быть в диапазоне 1..50.");
         }
     }
 

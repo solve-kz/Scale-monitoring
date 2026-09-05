@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
@@ -28,17 +29,20 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
     private readonly IWeightRegisterRecognizer _recognizer;
     private readonly ILogger<WeightRegisterRecognitionWorker> _logger;
     private readonly WeightRegisterRecognitionOptions _options;
+    private readonly WeightRegisterRecognitionCancellationRegistry _cancellationRegistry;
 
     public WeightRegisterRecognitionWorker(
         IWeightRegisterReviewService reviewService,
         IWeightRegisterRecognizer recognizer,
         IOptions<WeightRegisterReviewOptions> options,
+        WeightRegisterRecognitionCancellationRegistry cancellationRegistry,
         ILogger<WeightRegisterRecognitionWorker> logger)
     {
         _reviewService = reviewService;
         _recognizer = recognizer;
         _logger = logger;
         _options = options.Value.Recognition;
+        _cancellationRegistry = cancellationRegistry;
     }
 
     /// <inheritdoc />
@@ -46,15 +50,19 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
     {
         if (!_options.Enabled)
         {
+            _reviewService.ReportRecognitionWorkerHeartbeat("Автоматическое распознавание отключено в настройках.");
             return;
         }
 
         var pollInterval = TimeSpan.FromSeconds(Math.Clamp(_options.PollIntervalSeconds, 2, 60));
+        _reviewService.ReportRecognitionWorkerHeartbeat("Исполнитель распознавания запущен.");
         while (!stoppingToken.IsCancellationRequested)
         {
             WeightRegisterProject? project = null;
+            CancellationTokenSource? jobCancellation = null;
             try
             {
+                _reviewService.ReportRecognitionWorkerHeartbeat("Проверка очереди распознавания.");
                 project = await _reviewService.TryClaimRecognitionAsync(stoppingToken);
                 if (project is null)
                 {
@@ -62,14 +70,17 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
                     continue;
                 }
 
-                var recognized = await _recognizer.RecognizeAsync(project, stoppingToken);
-                recognized.RecognitionStatus = RegisterRecognitionStatus.Completed;
-                recognized.RecognitionFinishedAt = DateTimeOffset.Now;
-                recognized.StatusMessage = "AI-распознавание завершено; результат готов к сравнению.";
-                await using var json = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(
-                    recognized,
-                    OpenAiWeightRegisterRecognizer.ProjectJsonOptions));
-                await _reviewService.ImportRecognitionAsync(project.Id, json, stoppingToken);
+                _reviewService.ReportRecognitionWorkerHeartbeat($"Выполняется проект «{project.ProjectName}».");
+                jobCancellation = _cancellationRegistry.Register(project.Id, stoppingToken);
+                var recognized = await _recognizer.RecognizeAsync(project, jobCancellation.Token);
+                var completed = await _reviewService.CompleteRecognitionAsync(project.Id, recognized, stoppingToken);
+                _reviewService.ReportRecognitionWorkerHeartbeat(completed
+                    ? "Последнее задание успешно завершено."
+                    : "Последнее задание отменено.");
+                if (!completed)
+                {
+                    continue;
+                }
                 _logger.LogInformation(
                     "Распознавание ручного реестра {ProjectId} завершено: {SheetCount} листов",
                     project.Id,
@@ -78,6 +89,12 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (OperationCanceledException) when (project is not null && jobCancellation?.IsCancellationRequested == true)
+            {
+                await _reviewService.FinishRecognitionCancellationAsync(project.Id, stoppingToken);
+                _reviewService.ReportRecognitionWorkerHeartbeat("Последнее задание отменено.");
+                _logger.LogInformation("Распознавание ручного реестра {ProjectId} отменено", project.Id);
             }
             catch (Exception ex)
             {
@@ -100,6 +117,7 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
                     ex,
                     "Не удалось распознать ручной реестр {ProjectId}",
                     project?.Id ?? "не выбран");
+                _reviewService.ReportRecognitionWorkerHeartbeat("Последнее задание завершилось с ошибкой.");
 
                 try
                 {
@@ -108,6 +126,13 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
                     break;
+                }
+            }
+            finally
+            {
+                if (project is not null && jobCancellation is not null)
+                {
+                    _cancellationRegistry.Unregister(project.Id, jobCancellation);
                 }
             }
         }
@@ -127,8 +152,6 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
 /// <summary>Исполнитель визуального распознавания через OpenAI Responses API.</summary>
 public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
 {
-    internal static readonly JsonSerializerOptions ProjectJsonOptions = CreateProjectJsonOptions();
-
     private static readonly JsonSerializerOptions ApiJsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -174,9 +197,21 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
         CancellationToken cancellationToken = default)
     {
         ValidateConfiguration();
-        foreach (var sheet in project.Sheets)
+        var targetSheets = project.Sheets.Where(sheet => !sheet.IsRecognitionComplete).ToArray();
+        if (targetSheets.Length == 0)
         {
+            throw new WeightRegisterRecognitionException("В проекте нет новых листов для распознавания.");
+        }
+        for (var index = 0; index < targetSheets.Length; index++)
+        {
+            var sheet = targetSheets[index];
             cancellationToken.ThrowIfCancellationRequested();
+            await _reviewService.UpdateRecognitionProgressAsync(
+                project.Id,
+                index,
+                targetSheets.Length,
+                sheet.Name,
+                cancellationToken);
             if (!sheet.IsCalibrationConfirmed || sheet.Calibration is null)
             {
                 throw new WeightRegisterRecognitionException($"Лист «{sheet.Name}» не откалиброван.");
@@ -186,21 +221,31 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
                 ?? throw new WeightRegisterRecognitionException($"Исходное изображение листа «{sheet.Name}» не найдено.");
             await using var source = image.Content;
             using var prepared = PrepareImages(source, sheet.Calibration, sheet.Table);
-            var payload = await RecognizeSheetAsync(sheet, prepared, cancellationToken);
+            var payload = await RecognizeSheetAsync(project, sheet, prepared, cancellationToken);
             ApplyPayload(project, sheet, payload);
+            sheet.IsRecognitionComplete = true;
+            await _reviewService.UpdateRecognitionProgressAsync(
+                project.Id,
+                index + 1,
+                targetSheets.Length,
+                index + 1 < targetSheets.Length ? targetSheets[index + 1].Name : null,
+                cancellationToken);
         }
 
         return project;
     }
 
     private async Task<RecognizedSheetPayload> RecognizeSheetAsync(
+        WeightRegisterProject project,
         WeightRegisterSheet sheet,
         PreparedScanImages preparedImages,
         CancellationToken cancellationToken)
     {
         var dateHeaderData = Convert.ToBase64String(preparedImages.DateHeader.ToArray());
         var tableData = Convert.ToBase64String(preparedImages.TableOverview.ToArray());
-        var prompt = $"Лист: {sheet.Name}. Не доверяй имени файла или внешним датам: даты забоя и разделки прочитай только на первом изображении. "
+        var prompt = $"Лист: {sheet.Name}. Ожидаемая дата разделки проекта: {project.CuttingDate:dd.MM.yyyy}. "
+            + "Найди строку «дата разделки» на первом увеличенном изображении и внимательно проверь каждую цифру. "
+            + "Ожидаемая дата служит подсказкой, но не подменяет изображение: при неразборчивой дате верни null. "
             + $"Таблица: {sheet.Table.DataRows} строк данных, {sheet.Table.Columns} колонок данных, "
             + $"{sheet.Table.TotalRows} нижних строк итогов.";
         var content = new List<object>
@@ -268,31 +313,67 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
             max_output_tokens = Math.Clamp(_options.MaxOutputTokens, 1000, 100000)
         };
 
+        var requestBytes = JsonSerializer.SerializeToUtf8Bytes(requestBody, ApiJsonOptions);
+        var requestSizeMb = requestBytes.Length / 1024d / 1024d;
+        var clientRequestId = Guid.NewGuid().ToString("D");
         using var request = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", GetApiKey());
-        request.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(requestBody, ApiJsonOptions));
+        request.Headers.TryAddWithoutValidation("X-Client-Request-Id", clientRequestId);
+        request.Content = new ByteArrayContent(requestBytes);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(_options.RequestTimeoutSeconds, 30, 900)));
+        var timeoutSeconds = Math.Clamp(_options.RequestTimeoutSeconds, 30, 900);
+        timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
         var client = _httpClientFactory.CreateClient(nameof(OpenAiWeightRegisterRecognizer));
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new WeightRegisterRecognitionException(
-                $"Сервис распознавания вернул HTTP {(int)response.StatusCode}: {ExtractApiError(responseBody)}");
-        }
-
-        var outputText = ExtractOutputText(responseBody);
+        _reviewService.ReportRecognitionWorkerHeartbeat(
+            $"Отправляется лист «{sheet.Name}»: {requestSizeMb:0.0} МБ, запрос {clientRequestId}.");
+        var requestTimer = Stopwatch.StartNew();
+        HttpResponseMessage response;
         try
         {
-            return JsonSerializer.Deserialize<RecognizedSheetPayload>(outputText, ApiJsonOptions)
-                ?? throw new WeightRegisterRecognitionException("Сервис распознавания вернул пустой JSON.");
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         }
-        catch (JsonException ex)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new WeightRegisterRecognitionException("Структурированный ответ распознавания повреждён.", ex);
+            throw new WeightRegisterRecognitionException(
+                $"OpenAI не ответил за {timeoutSeconds} сек. Размер запроса: {requestSizeMb:0.0} МБ; "
+                + $"X-Client-Request-Id: {clientRequestId}.",
+                ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new WeightRegisterRecognitionException(
+                $"Не удалось подключиться к OpenAI: {ex.Message} X-Client-Request-Id: {clientRequestId}.",
+                ex);
+        }
+
+        using (response)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
+            var serverRequestId = response.Headers.TryGetValues("x-request-id", out var requestIds)
+                ? requestIds.FirstOrDefault()
+                : null;
+            _reviewService.ReportRecognitionWorkerHeartbeat(
+                $"OpenAI ответил за {requestTimer.Elapsed.TotalSeconds:0} сек.; "
+                + $"запрос {serverRequestId ?? clientRequestId}.");
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new WeightRegisterRecognitionException(
+                    $"Сервис распознавания вернул HTTP {(int)response.StatusCode}: {ExtractApiError(responseBody)} "
+                    + $"Запрос: {serverRequestId ?? clientRequestId}.");
+            }
+
+            var outputText = ExtractOutputText(responseBody);
+            try
+            {
+                return JsonSerializer.Deserialize<RecognizedSheetPayload>(outputText, ApiJsonOptions)
+                    ?? throw new WeightRegisterRecognitionException("Сервис распознавания вернул пустой JSON.");
+            }
+            catch (JsonException ex)
+            {
+                throw new WeightRegisterRecognitionException("Структурированный ответ распознавания повреждён.", ex);
+            }
         }
     }
 
@@ -356,9 +437,9 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
         }
 
         var headerBottom = Math.Clamp(
-            Math.Max((int)Math.Ceiling(calibration.TableTop), (int)Math.Ceiling(original.Height * 0.25d)),
+            Math.Max((int)Math.Ceiling(calibration.TableTop), (int)Math.Ceiling(original.Height * 0.12d)),
             1,
-            original.Height);
+            Math.Max(1, (int)Math.Ceiling(original.Height * 0.30d)));
         var table = new Rectangle(left, top, right - left, bottom - top);
         var gridRows = calibration.TableTop < calibration.TableBottom
             ? (double)(tableShape.HeaderRows + tableShape.DataRows + tableShape.TotalRows)
@@ -393,7 +474,11 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
                 (int)Math.Floor(bodyTop + tableShape.DataRows * rowHeight),
                 table.Top,
                 table.Bottom - 1);
-            dateHeader = CropToPng(rotated, new Rectangle(0, 0, original.Width, headerBottom));
+            var dateHeaderLeft = Math.Clamp((int)Math.Floor(original.Width * 0.42d), 0, original.Width - 1);
+            dateHeader = CropToPng(
+                rotated,
+                new Rectangle(dateHeaderLeft, 0, original.Width - dateHeaderLeft, headerBottom),
+                2d);
             tableOverview = CropToPng(rotated, table);
             totals = CropToPng(
                 rotated,
@@ -454,8 +539,13 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
                 $"Лист «{sheet.Name}»: структурированный ответ не содержит обязательные массивы.");
         }
 
-        ValidateCuttingDate(project, sheet, payload.CuttingDate);
-        ValidateSlaughterDate(project, sheet, payload.SlaughterDate);
+        sheet.RecognitionWarnings = (payload.QualityNotes ?? new List<string>())
+            .Where(note => !string.IsNullOrWhiteSpace(note))
+            .Select(note => note.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        AddWarning(sheet, ValidateCuttingDate(project, sheet, payload.CuttingDate));
+        AddWarning(sheet, ValidateSlaughterDate(project, sheet, payload.SlaughterDate));
         var duplicate = payload.Cells
             .GroupBy(cell => (cell.Row, cell.Column))
             .FirstOrDefault(group => group.Count() > 1);
@@ -547,7 +637,7 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
         ValidateTotals(sheet);
     }
 
-    private static void ValidateCuttingDate(
+    private static string? ValidateCuttingDate(
         WeightRegisterProject project,
         WeightRegisterSheet sheet,
         string? recognizedDate)
@@ -560,19 +650,20 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
                 DateTimeStyles.None,
                 out var date))
         {
-            throw new WeightRegisterRecognitionException(
-                $"Лист «{sheet.Name}»: не удалось прочитать строку «дата разделки».");
+            sheet.CuttingDate = project.CuttingDate;
+            return $"Лист «{sheet.Name}»: модель не смогла уверенно прочитать дату разделки; используется дата проекта {project.CuttingDate:dd.MM.yyyy}.";
         }
         if (date != project.CuttingDate)
         {
-            throw new WeightRegisterRecognitionException(
-                $"Лист «{sheet.Name}»: на скане указана дата разделки {date:dd.MM.yyyy}, а проект создан для {project.CuttingDate:dd.MM.yyyy}.");
+            sheet.CuttingDate = project.CuttingDate;
+            return $"Лист «{sheet.Name}»: модель прочитала дату разделки как {date:dd.MM.yyyy}; используется подтверждённая дата проекта {project.CuttingDate:dd.MM.yyyy}. Проверьте заголовок скана.";
         }
 
         sheet.CuttingDate = date;
+        return null;
     }
 
-    private static void ValidateSlaughterDate(
+    private static string? ValidateSlaughterDate(
         WeightRegisterProject project,
         WeightRegisterSheet sheet,
         string? recognizedDate)
@@ -585,16 +676,26 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
                 DateTimeStyles.None,
                 out var date))
         {
-            throw new WeightRegisterRecognitionException(
-                $"Лист «{sheet.Name}»: не удалось прочитать строку «дата забоя».");
+            sheet.SlaughterDate = null;
+            return $"Лист «{sheet.Name}»: модель не смогла уверенно прочитать дату забоя. Проверьте заголовок скана.";
         }
         if (date > project.CuttingDate)
         {
-            throw new WeightRegisterRecognitionException(
-                $"Лист «{sheet.Name}»: дата забоя {date:dd.MM.yyyy} не может быть позже даты разделки {project.CuttingDate:dd.MM.yyyy}.");
+            sheet.SlaughterDate = null;
+            return $"Лист «{sheet.Name}»: модель прочитала дату забоя как {date:dd.MM.yyyy}, что позже даты разделки. Значение не принято.";
         }
 
         sheet.SlaughterDate = date;
+        return null;
+    }
+
+    private static void AddWarning(WeightRegisterSheet sheet, string? warning)
+    {
+        if (!string.IsNullOrWhiteSpace(warning)
+            && !sheet.RecognitionWarnings.Contains(warning, StringComparer.OrdinalIgnoreCase))
+        {
+            sheet.RecognitionWarnings.Add(warning);
+        }
     }
 
     private static void ValidateQuality(
@@ -843,16 +944,6 @@ public sealed class OpenAiWeightRegisterRecognizer : IWeightRegisterRecognizer
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return values.Length == 0 ? null : string.Join("; ", values);
-    }
-
-    private static JsonSerializerOptions CreateProjectJsonOptions()
-    {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        {
-            WriteIndented = true
-        };
-        options.Converters.Add(new JsonStringEnumConverter());
-        return options;
     }
 
     private sealed class RecognizedSheetPayload

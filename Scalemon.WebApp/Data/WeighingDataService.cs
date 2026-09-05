@@ -345,11 +345,15 @@ namespace Scalemon.WebApp.Data
         public async Task<DayLiveSnapshot> GetDaySnapshotAsync(
             DateOnly date,
             bool includeSanitary = true,
+            DateTime? countFrom = null,
             CancellationToken ct = default)
         {
             var items = await GetDayAllAsync(date, includeSanitary, ct);
             var last = items.OrderBy(item => item.Timestamp).LastOrDefault();
-            return new DayLiveSnapshot(items.Count, last?.Weight, last?.Timestamp);
+            var count = countFrom.HasValue
+                ? items.Count(item => item.Timestamp >= countFrom.Value)
+                : items.Count;
+            return new DayLiveSnapshot(count, last?.Weight, last?.Timestamp);
         }
 
         public Task<IReadOnlyList<WeighingEditEntry>> GetAsync(

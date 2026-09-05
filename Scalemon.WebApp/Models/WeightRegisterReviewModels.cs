@@ -24,7 +24,8 @@ public enum RegisterRecognitionStatus
     Pending,
     Processing,
     Completed,
-    Failed
+    Failed,
+    Cancelled
 }
 
 /// <summary>Результат сопоставления ручной и автоматической ячейки.</summary>
@@ -78,8 +79,15 @@ public sealed class WeightRegisterProject
     public RegisterRecognitionStatus RecognitionStatus { get; set; } = RegisterRecognitionStatus.CalibrationRequired;
     public string? StatusMessage { get; set; }
     public int RecognitionAttempt { get; set; }
+    public long? RecognitionQueueOrder { get; set; }
+    public bool RecognitionCancellationRequested { get; set; }
+    public DateTimeOffset? RecognitionQueuedAt { get; set; }
     public DateTimeOffset? RecognitionStartedAt { get; set; }
     public DateTimeOffset? RecognitionFinishedAt { get; set; }
+    public DateTimeOffset? RecognitionUpdatedAt { get; set; }
+    public int RecognitionCompletedSheets { get; set; }
+    public int RecognitionTotalSheets { get; set; }
+    public string? RecognitionCurrentSheet { get; set; }
     public List<WeightRegisterSheet> Sheets { get; set; } = new();
     public List<RegisterCorrectionLogEntry> CorrectionLog { get; set; } = new();
 }
@@ -135,6 +143,15 @@ public sealed class WeightRegisterSheet
     public RegisterTableShape Table { get; set; } = new();
     public RegisterTableCalibration? Calibration { get; set; }
     public bool IsCalibrationConfirmed { get; set; }
+    public bool IsRecognitionComplete { get; set; }
+    public List<string> RecognitionWarnings { get; set; } = new();
+
+    [JsonIgnore]
+    public string DisplayName => IsRecognitionComplete
+        ? $"{Name} — распознан"
+        : IsCalibrationConfirmed
+            ? $"{Name} — готов"
+            : $"{Name} — нужна калибровка";
 
     [JsonPropertyName("data")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -223,6 +240,27 @@ public sealed record WeightRegisterProjectSummary(
 {
     public string DisplayName => $"{CuttingDate:dd.MM.yyyy} — {ProjectName}";
 }
+
+/// <summary>Снимок файловой очереди и состояния фонового исполнителя распознавания.</summary>
+public sealed record WeightRegisterRecognitionQueueInfo(
+    int WaitingCount,
+    int ProcessingCount,
+    int? Position,
+    int ActiveCount,
+    bool AutomaticRecognitionEnabled,
+    DateTimeOffset? WorkerLastSeenAt,
+    string? WorkerMessage,
+    IReadOnlyList<WeightRegisterRecognitionQueueItem> Items);
+
+/// <summary>Задание, отображаемое в панели управления очередью распознавания.</summary>
+public sealed record WeightRegisterRecognitionQueueItem(
+    string ProjectId,
+    string ProjectName,
+    DateOnly CuttingDate,
+    RegisterRecognitionStatus Status,
+    int Position,
+    DateTimeOffset? QueuedAt,
+    bool CancellationRequested);
 
 /// <summary>Загружаемый файл скана.</summary>
 public sealed record RegisterUploadFile(string FileName, string ContentType, Stream Content, long Length);

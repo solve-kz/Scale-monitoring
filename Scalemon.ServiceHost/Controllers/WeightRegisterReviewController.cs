@@ -66,6 +66,42 @@ public sealed class WeightRegisterReviewController : ControllerBase
         }
     }
 
+    /// <summary>Добавляет сканы в существующий проект текущего дня.</summary>
+    [HttpPost("projects/{projectId}/uploads")]
+    [Authorize(Roles = "Editor,Admin")]
+    public async Task<IActionResult> AddSheetsAsync(
+        string projectId,
+        [FromForm] List<IFormFile> files,
+        CancellationToken cancellationToken)
+    {
+        if (files.Count == 0)
+        {
+            return BadRequest(new { error = "Выберите хотя бы один скан." });
+        }
+
+        IReadOnlyList<PreparedRegisterUpload> prepared = Array.Empty<PreparedRegisterUpload>();
+        try
+        {
+            prepared = await _uploadPreprocessor.PrepareAsync(files, cancellationToken);
+            var uploads = prepared
+                .Select(file => new RegisterUploadFile(file.FileName, "image/png", file.Content, file.Length))
+                .ToArray();
+            var project = await _reviewService.AddSheetsAsync(projectId, uploads, cancellationToken);
+            return Ok(new { projectId = project.Id, projectName = project.ProjectName });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException or ArgumentException or KeyNotFoundException)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        finally
+        {
+            foreach (var upload in prepared)
+            {
+                await upload.DisposeAsync();
+            }
+        }
+    }
+
     /// <summary>Импортирует современный или совместимый с WeightRegisterReviewApp JSON.</summary>
     [HttpPost("projects/{projectId}/recognition-result")]
     [Authorize(Roles = "Editor,Admin")]
@@ -131,7 +167,7 @@ public sealed class WeightRegisterReviewController : ControllerBase
                     await requestInput.CopyToAsync(requestOutput, cancellationToken);
                 }
 
-                foreach (var sheet in project.Sheets)
+                foreach (var sheet in project.Sheets.Where(sheet => !sheet.IsRecognitionComplete))
                 {
                     var image = await _reviewService.OpenImageAsync(projectId, sheet.Id, cancellationToken);
                     if (image is null)

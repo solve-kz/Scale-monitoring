@@ -56,7 +56,12 @@ public class ScalemonService : BackgroundService
     }
 
     private void HandleArduinoConnected()
-        => _ = _arduino.SendAsync(ArduinoSignalCode.RequestSlaughterMode);
+    {
+        // Arduino гасит лампы при перезапуске. Сбрасываем кэш, чтобы следующий
+        // снимок весов обязательно восстановил актуальную индикацию, включая ошибку.
+        _lastSentSignal = null;
+        _ = _arduino.SendAsync(ArduinoSignalCode.RequestSlaughterMode);
+    }
 
     private void HandleArduinoDisconnected()
     {
@@ -116,6 +121,10 @@ public class ScalemonService : BackgroundService
             else if (fsmState == FsmState.Disconnected)
             {
                 signalToSend = Enums.ArduinoSignalCode.LinkOff;
+            }
+            else if (_fsm.HasLatchedProcessError)
+            {
+                signalToSend = Enums.ArduinoSignalCode.RedOn;
             }
             else if (fsmState == FsmState.InvalidWeightState)
             {

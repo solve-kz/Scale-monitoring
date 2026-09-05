@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
@@ -21,6 +22,12 @@ public interface IWeightRegisterReviewService
         IReadOnlyList<RegisterUploadFile> files,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Добавляет новые листы в проект текущего дня, не затрагивая уже распознанные листы.</summary>
+    Task<WeightRegisterProject> AddSheetsAsync(
+        string projectId,
+        IReadOnlyList<RegisterUploadFile> files,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Сохраняет калибровку листа в координатах исходного изображения.</summary>
     Task SaveCalibrationAsync(
         string projectId,
@@ -34,6 +41,34 @@ public interface IWeightRegisterReviewService
     /// <summary>Атомарно забирает следующий проект из очереди фонового распознавания.</summary>
     Task<WeightRegisterProject?> TryClaimRecognitionAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Возвращает положение проекта в очереди и состояние фонового исполнителя.</summary>
+    Task<WeightRegisterRecognitionQueueInfo?> GetRecognitionQueueInfoAsync(
+        string projectId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Сохраняет прогресс обработки листов текущего проекта.</summary>
+    Task UpdateRecognitionProgressAsync(
+        string projectId,
+        int completedSheets,
+        int totalSheets,
+        string? currentSheet,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Отмечает активность фонового исполнителя распознавания.</summary>
+    void ReportRecognitionWorkerHeartbeat(string message);
+
+    /// <summary>Отменяет ожидающее задание либо запрашивает отмену выполняющегося.</summary>
+    Task CancelRecognitionAsync(string projectId, CancellationToken cancellationToken = default);
+
+    /// <summary>Фиксирует завершение отмены выполнявшегося задания.</summary>
+    Task FinishRecognitionCancellationAsync(string projectId, CancellationToken cancellationToken = default);
+
+    /// <summary>Перемещает ожидающее задание на одну позицию вверх или вниз.</summary>
+    Task MoveRecognitionAsync(
+        string projectId,
+        int direction,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Сохраняет безопасное описание ошибки фонового распознавания.</summary>
     Task FailRecognitionAsync(
         string projectId,
@@ -44,6 +79,12 @@ public interface IWeightRegisterReviewService
     Task ImportRecognitionAsync(
         string projectId,
         Stream json,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Завершает автоматическое распознавание результатом фонового исполнителя.</summary>
+    Task<bool> CompleteRecognitionAsync(
+        string projectId,
+        WeightRegisterProject recognized,
         CancellationToken cancellationToken = default);
 
     /// <summary>Записывает исправленное значение и добавляет запись аудита.</summary>
@@ -76,6 +117,52 @@ public interface IWeightRegisterReviewService
     string GetRecognitionRequestPath(string projectId);
 }
 
+/// <summary>Связывает отмену из веб-интерфейса с выполняющимся фоновым запросом.</summary>
+public sealed class WeightRegisterRecognitionCancellationRegistry
+{
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Регистрирует токен текущего задания.</summary>
+    public CancellationTokenSource Register(string projectId, CancellationToken hostToken)
+    {
+        var source = CancellationTokenSource.CreateLinkedTokenSource(hostToken);
+        if (!_jobs.TryAdd(projectId, source))
+        {
+            source.Dispose();
+            throw new InvalidOperationException("Задание уже выполняется.");
+        }
+        return source;
+    }
+
+    /// <summary>Отменяет зарегистрированное выполняющееся задание.</summary>
+    public bool Cancel(string projectId)
+        => _jobs.TryGetValue(projectId, out var source) && TryCancel(source);
+
+    /// <summary>Удаляет регистрацию после завершения задания.</summary>
+    public void Unregister(string projectId, CancellationTokenSource source)
+    {
+        if (_jobs.TryGetValue(projectId, out var registered)
+            && ReferenceEquals(registered, source))
+        {
+            _jobs.TryRemove(projectId, out _);
+        }
+        source.Dispose();
+    }
+
+    private static bool TryCancel(CancellationTokenSource source)
+    {
+        try
+        {
+            source.Cancel();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>Файловая реализация, совместимая с JSON WeightRegisterReviewApp.</summary>
 public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewService
 {
@@ -94,7 +181,11 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
     private readonly string _storageRoot;
     private readonly long _maxUploadBytes;
     private readonly bool _automaticRecognitionEnabled;
+    private readonly WeightRegisterRecognitionCancellationRegistry _cancellationRegistry;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly object _workerStateGate = new();
+    private DateTimeOffset? _workerLastSeenAt;
+    private string? _workerMessage;
 
     static JsonWeightRegisterReviewService()
     {
@@ -102,11 +193,14 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         JsonOptions.Converters.Add(new JsonStringEnumConverter());
     }
 
-    public JsonWeightRegisterReviewService(IOptions<WeightRegisterReviewOptions> options)
+    public JsonWeightRegisterReviewService(
+        IOptions<WeightRegisterReviewOptions> options,
+        WeightRegisterRecognitionCancellationRegistry cancellationRegistry)
     {
         _storageRoot = Path.GetFullPath(options.Value.StoragePath);
         _maxUploadBytes = Math.Max(1, options.Value.MaxUploadBytes);
         _automaticRecognitionEnabled = options.Value.Recognition.Enabled;
+        _cancellationRegistry = cancellationRegistry;
         Directory.CreateDirectory(_storageRoot);
     }
 
@@ -259,6 +353,106 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
     }
 
     /// <inheritdoc />
+    public async Task<WeightRegisterProject> AddSheetsAsync(
+        string projectId,
+        IReadOnlyList<RegisterUploadFile> files,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        if (files.Count == 0)
+        {
+            throw new InvalidOperationException("Не выбрано ни одного изображения.");
+        }
+        if (files.Sum(file => file.Length) > _maxUploadBytes)
+        {
+            throw new InvalidOperationException($"Общий размер сканов превышает {_maxUploadBytes / 1024 / 1024} МБ.");
+        }
+
+        await _writeGate.WaitAsync(cancellationToken);
+        var createdFiles = new List<string>();
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            if (project.CuttingDate != DateOnly.FromDateTime(DateTime.Today))
+            {
+                throw new InvalidOperationException("Добавлять листы можно только в проект текущего дня.");
+            }
+            if (project.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
+            {
+                throw new InvalidOperationException("Дождитесь завершения или отмените текущее распознавание перед добавлением листов.");
+            }
+
+            var sourceDirectory = Path.Combine(GetProjectDirectory(project.Id), "source");
+            Directory.CreateDirectory(sourceDirectory);
+            foreach (var file in files)
+            {
+                var extension = Path.GetExtension(file.FileName);
+                if (!SupportedExtensions.Contains(extension))
+                {
+                    throw new InvalidOperationException($"Формат {extension} не поддерживается. Загрузите JPG или PNG.");
+                }
+                if (file.Length <= 0)
+                {
+                    throw new InvalidOperationException($"Файл {file.FileName} пуст.");
+                }
+
+                var sheetId = Guid.NewGuid().ToString("N");
+                var safeName = MakeSafeFileName(Path.GetFileNameWithoutExtension(file.FileName));
+                var storedName = $"{sheetId}_{safeName}{extension.ToLowerInvariant()}";
+                var storedPath = Path.Combine(sourceDirectory, storedName);
+                await using (var destination = new FileStream(
+                    storedPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    81920,
+                    FileOptions.Asynchronous))
+                {
+                    await file.Content.CopyToAsync(destination, cancellationToken);
+                }
+                createdFiles.Add(storedPath);
+
+                var (width, height) = ReadImageDimensions(storedPath);
+                project.Sheets.Add(new WeightRegisterSheet
+                {
+                    Id = sheetId,
+                    Name = string.IsNullOrWhiteSpace(safeName) ? $"Лист {project.Sheets.Count + 1}" : safeName,
+                    SourceFile = Path.Combine("source", storedName).Replace('\\', '/'),
+                    CuttingDate = project.CuttingDate,
+                    Calibration = WeightRegisterGeometry.CreateDefaultCalibration(width, height)
+                });
+            }
+
+            project.RecognitionStatus = RegisterRecognitionStatus.CalibrationRequired;
+            project.StatusMessage = "Добавлены новые листы. Проверьте и сохраните их калибровку.";
+            project.RecognitionFinishedAt = null;
+            await SaveProjectCoreAsync(project, cancellationToken);
+            return project;
+        }
+        catch
+        {
+            foreach (var path in createdFiles)
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async Task SaveCalibrationAsync(
         string projectId,
         string sheetId,
@@ -274,9 +468,12 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 ?? throw new KeyNotFoundException("Лист проекта не найден.");
             sheet.Calibration = calibration.Copy();
             sheet.IsCalibrationConfirmed = true;
-            project.RecognitionStatus = project.Sheets.All(item => item.IsCalibrationConfirmed)
-                ? RegisterRecognitionStatus.Ready
-                : RegisterRecognitionStatus.CalibrationRequired;
+            var pendingSheets = project.Sheets.Where(item => !item.IsRecognitionComplete).ToArray();
+            project.RecognitionStatus = pendingSheets.Length == 0
+                ? RegisterRecognitionStatus.Completed
+                : pendingSheets.All(item => item.IsCalibrationConfirmed)
+                    ? RegisterRecognitionStatus.Ready
+                    : RegisterRecognitionStatus.CalibrationRequired;
             project.StatusMessage = project.RecognitionStatus == RegisterRecognitionStatus.Ready
                 ? "Калибровка сохранена. Можно запускать распознавание."
                 : "Откалибруйте оставшиеся листы.";
@@ -295,9 +492,14 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         try
         {
             var project = await RequireProjectAsync(projectId, cancellationToken);
-            if (project.RecognitionStatus == RegisterRecognitionStatus.CalibrationRequired)
+            var pendingSheets = project.Sheets.Where(sheet => !sheet.IsRecognitionComplete).ToArray();
+            if (pendingSheets.Length == 0)
             {
-                throw new InvalidOperationException("Сначала сохраните калибровку каждого листа.");
+                throw new InvalidOperationException("Все листы проекта уже распознаны.");
+            }
+            if (pendingSheets.Any(sheet => !sheet.IsCalibrationConfirmed || sheet.Calibration is null))
+            {
+                throw new InvalidOperationException("Сначала сохраните калибровку новых листов.");
             }
             if (project.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
             {
@@ -321,7 +523,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                     maxMassSuspectWithoutReasonPercent = 10,
                     validateCells = new[] { "1:1", "1:10", "40:1", "40:10" }
                 },
-                sheets = project.Sheets.Select(sheet => new
+                sheets = pendingSheets.Select(sheet => new
                 {
                     id = sheet.Id,
                     name = sheet.Name,
@@ -346,9 +548,17 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 await JsonSerializer.SerializeAsync(stream, request, JsonOptions, cancellationToken);
             }
 
+            var queuedAt = DateTimeOffset.Now;
             project.RecognitionStatus = RegisterRecognitionStatus.Pending;
+            project.RecognitionQueueOrder = queuedAt.UtcDateTime.Ticks;
+            project.RecognitionCancellationRequested = false;
+            project.RecognitionQueuedAt = queuedAt;
             project.RecognitionStartedAt = null;
             project.RecognitionFinishedAt = null;
+            project.RecognitionUpdatedAt = queuedAt;
+            project.RecognitionCompletedSheets = 0;
+            project.RecognitionTotalSheets = pendingSheets.Length;
+            project.RecognitionCurrentSheet = null;
             project.StatusMessage = _automaticRecognitionEnabled
                 ? "Задание поставлено в очередь автоматического распознавания."
                 : "Автоматическое распознавание выключено: скачайте ZIP-пакет с заданием и сканами, затем импортируйте recognition-result.json.";
@@ -381,6 +591,13 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 try
                 {
                     var project = await LoadProjectCoreAsync(projectId, cancellationToken);
+                    if (project?.RecognitionStatus == RegisterRecognitionStatus.Processing
+                        && project.RecognitionCancellationRequested)
+                    {
+                        SetRecognitionCancelled(project, DateTimeOffset.Now);
+                        await SaveProjectCoreAsync(project, cancellationToken);
+                        continue;
+                    }
                     if (project is not null
                         && (project.RecognitionStatus == RegisterRecognitionStatus.Pending
                             || project.RecognitionStatus == RegisterRecognitionStatus.Processing))
@@ -395,7 +612,8 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
             }
 
             var claimed = candidates
-                .OrderBy(project => project.CreatedAt)
+                .OrderBy(project => project.RecognitionStatus == RegisterRecognitionStatus.Processing ? 0 : 1)
+                .ThenBy(QueueSortValue)
                 .FirstOrDefault();
             if (claimed is null)
             {
@@ -403,12 +621,251 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
             }
 
             claimed.RecognitionStatus = RegisterRecognitionStatus.Processing;
+            claimed.RecognitionCancellationRequested = false;
             claimed.RecognitionAttempt++;
             claimed.RecognitionStartedAt = now;
             claimed.RecognitionFinishedAt = null;
+            claimed.RecognitionUpdatedAt = now;
+            claimed.RecognitionCompletedSheets = 0;
+            var pendingSheets = claimed.Sheets.Where(sheet => !sheet.IsRecognitionComplete).ToArray();
+            claimed.RecognitionTotalSheets = pendingSheets.Length;
+            claimed.RecognitionCurrentSheet = pendingSheets.FirstOrDefault()?.Name;
             claimed.StatusMessage = $"Распознавание выполняется, попытка {claimed.RecognitionAttempt}.";
             await SaveProjectCoreAsync(claimed, cancellationToken);
             return claimed;
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<WeightRegisterRecognitionQueueInfo?> GetRecognitionQueueInfoAsync(
+        string projectId,
+        CancellationToken cancellationToken = default)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var active = new List<WeightRegisterProject>();
+            foreach (var directory in Directory.EnumerateDirectories(_storageRoot))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var candidateId = Path.GetFileName(directory);
+                if (!IsProjectId(candidateId))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var candidate = await LoadProjectCoreAsync(candidateId, cancellationToken);
+                    if (candidate?.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
+                    {
+                        active.Add(candidate);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Повреждённый проект не мешает показать состояние остальных заданий.
+                }
+            }
+
+            var ordered = active
+                .OrderBy(project => project.RecognitionStatus == RegisterRecognitionStatus.Processing ? 0 : 1)
+                .ThenBy(QueueSortValue)
+                .ToArray();
+            var position = Array.FindIndex(ordered, project => project.Id == projectId);
+            DateTimeOffset? workerLastSeenAt;
+            string? workerMessage;
+            lock (_workerStateGate)
+            {
+                workerLastSeenAt = _workerLastSeenAt;
+                workerMessage = _workerMessage;
+            }
+
+            return new WeightRegisterRecognitionQueueInfo(
+                ordered.Count(project => project.RecognitionStatus == RegisterRecognitionStatus.Pending),
+                ordered.Count(project => project.RecognitionStatus == RegisterRecognitionStatus.Processing),
+                position >= 0 ? position + 1 : null,
+                ordered.Length,
+                _automaticRecognitionEnabled,
+                workerLastSeenAt,
+                workerMessage,
+                ordered.Select((project, index) => new WeightRegisterRecognitionQueueItem(
+                    project.Id,
+                    project.ProjectName,
+                    project.CuttingDate,
+                    project.RecognitionStatus,
+                    index + 1,
+                    project.RecognitionQueuedAt,
+                    project.RecognitionCancellationRequested)).ToArray());
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateRecognitionProgressAsync(
+        string projectId,
+        int completedSheets,
+        int totalSheets,
+        string? currentSheet,
+        CancellationToken cancellationToken = default)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            if (project.RecognitionStatus != RegisterRecognitionStatus.Processing)
+            {
+                return;
+            }
+
+            var safeTotal = Math.Max(0, totalSheets);
+            project.RecognitionCompletedSheets = Math.Clamp(completedSheets, 0, safeTotal);
+            project.RecognitionTotalSheets = safeTotal;
+            project.RecognitionCurrentSheet = string.IsNullOrWhiteSpace(currentSheet) ? null : currentSheet.Trim();
+            project.RecognitionUpdatedAt = DateTimeOffset.Now;
+            project.StatusMessage = project.RecognitionCurrentSheet is null
+                ? $"Обработано листов: {project.RecognitionCompletedSheets} из {safeTotal}."
+                : $"Обрабатывается лист «{project.RecognitionCurrentSheet}»; завершено {project.RecognitionCompletedSheets} из {safeTotal}.";
+            await SaveProjectCoreAsync(project, cancellationToken);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void ReportRecognitionWorkerHeartbeat(string message)
+    {
+        lock (_workerStateGate)
+        {
+            _workerLastSeenAt = DateTimeOffset.Now;
+            _workerMessage = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task CancelRecognitionAsync(
+        string projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var cancelRunning = false;
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            if (project.RecognitionStatus == RegisterRecognitionStatus.Pending)
+            {
+                SetRecognitionCancelled(project, DateTimeOffset.Now);
+            }
+            else if (project.RecognitionStatus == RegisterRecognitionStatus.Processing)
+            {
+                project.RecognitionCancellationRequested = true;
+                project.RecognitionUpdatedAt = DateTimeOffset.Now;
+                project.StatusMessage = "Запрошена отмена выполняющегося распознавания.";
+                cancelRunning = true;
+            }
+            else
+            {
+                throw new InvalidOperationException("Отменить можно только ожидающее или выполняющееся задание.");
+            }
+            await SaveProjectCoreAsync(project, cancellationToken);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+
+        if (cancelRunning)
+        {
+            _cancellationRegistry.Cancel(projectId);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task MoveRecognitionAsync(
+        string projectId,
+        int direction,
+        CancellationToken cancellationToken = default)
+    {
+        if (direction != -1 && direction != 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(direction));
+        }
+
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var pending = new List<WeightRegisterProject>();
+            foreach (var directory in Directory.EnumerateDirectories(_storageRoot))
+            {
+                var candidateId = Path.GetFileName(directory);
+                if (!IsProjectId(candidateId))
+                {
+                    continue;
+                }
+                try
+                {
+                    var candidate = await LoadProjectCoreAsync(candidateId, cancellationToken);
+                    if (candidate?.RecognitionStatus == RegisterRecognitionStatus.Pending)
+                    {
+                        pending.Add(candidate);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Повреждённый проект не мешает изменить порядок остальных заданий.
+                }
+            }
+
+            pending = pending.OrderBy(QueueSortValue).ToList();
+            var currentIndex = pending.FindIndex(project => project.Id == projectId);
+            if (currentIndex < 0)
+            {
+                throw new InvalidOperationException("Менять порядок можно только для ожидающих заданий.");
+            }
+            var destinationIndex = currentIndex + direction;
+            if (destinationIndex < 0 || destinationIndex >= pending.Count)
+            {
+                return;
+            }
+
+            (pending[currentIndex], pending[destinationIndex]) = (pending[destinationIndex], pending[currentIndex]);
+            var firstOrder = pending.Min(QueueSortValue);
+            for (var index = 0; index < pending.Count; index++)
+            {
+                pending[index].RecognitionQueueOrder = firstOrder + index;
+                pending[index].RecognitionUpdatedAt = DateTimeOffset.Now;
+                await SaveProjectCoreAsync(pending[index], cancellationToken);
+            }
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task FinishRecognitionCancellationAsync(
+        string projectId,
+        CancellationToken cancellationToken = default)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            if (project.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
+            {
+                SetRecognitionCancelled(project, DateTimeOffset.Now);
+                await SaveProjectCoreAsync(project, cancellationToken);
+            }
         }
         finally
         {
@@ -427,7 +884,10 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         {
             var project = await RequireProjectAsync(projectId, cancellationToken);
             project.RecognitionStatus = RegisterRecognitionStatus.Failed;
-            project.RecognitionFinishedAt = DateTimeOffset.Now;
+            var finishedAt = DateTimeOffset.Now;
+            project.RecognitionFinishedAt = finishedAt;
+            project.RecognitionUpdatedAt = finishedAt;
+            project.RecognitionCurrentSheet = null;
             var safeMessage = message?.Trim();
             project.StatusMessage = string.IsNullOrWhiteSpace(safeMessage)
                 ? "Распознавание завершилось с ошибкой."
@@ -449,6 +909,25 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         ArgumentNullException.ThrowIfNull(json);
         var recognized = await JsonSerializer.DeserializeAsync<WeightRegisterProject>(json, JsonOptions, cancellationToken)
             ?? throw new JsonException("Файл распознавания пуст.");
+        await ImportRecognitionCoreAsync(projectId, recognized, allowProcessing: false, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> CompleteRecognitionAsync(
+        string projectId,
+        WeightRegisterProject recognized,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recognized);
+        return ImportRecognitionCoreAsync(projectId, recognized, allowProcessing: true, cancellationToken);
+    }
+
+    private async Task<bool> ImportRecognitionCoreAsync(
+        string projectId,
+        WeightRegisterProject recognized,
+        bool allowProcessing,
+        CancellationToken cancellationToken)
+    {
         if (recognized.SchemaVersion is < 1 or > 2 || recognized.Sheets is null || recognized.Sheets.Count == 0)
         {
             throw new JsonException("Ожидался проект WeightRegisterReviewApp schema v1/v2 с непустым массивом sheets.");
@@ -458,11 +937,28 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         try
         {
             var project = await RequireProjectAsync(projectId, cancellationToken);
-            if (project.Sheets.Any(sheet => !sheet.IsCalibrationConfirmed || sheet.Calibration is null))
+            if (allowProcessing && project.RecognitionCancellationRequested)
             {
-                throw new InvalidOperationException("Перед импортом результата сохраните калибровку каждого листа.");
+                SetRecognitionCancelled(project, DateTimeOffset.Now);
+                await SaveProjectCoreAsync(project, cancellationToken);
+                return false;
             }
-            if (_automaticRecognitionEnabled
+            var targetSheets = project.Sheets.Where(sheet => !sheet.IsRecognitionComplete).ToArray();
+            if (targetSheets.Length == 0 && !allowProcessing)
+            {
+                // Сохраняем прежнюю возможность повторно импортировать исправленный JSON всего проекта.
+                targetSheets = project.Sheets.ToArray();
+            }
+            if (targetSheets.Length == 0)
+            {
+                throw new InvalidOperationException("В проекте нет новых листов для импорта результата.");
+            }
+            if (targetSheets.Any(sheet => !sheet.IsCalibrationConfirmed || sheet.Calibration is null))
+            {
+                throw new InvalidOperationException("Перед импортом результата сохраните калибровку новых листов.");
+            }
+            if (!allowProcessing
+                && _automaticRecognitionEnabled
                 && project.RecognitionStatus == RegisterRecognitionStatus.Processing)
             {
                 throw new InvalidOperationException(
@@ -470,7 +966,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
             }
 
             var matchedSources = new HashSet<WeightRegisterSheet>();
-            foreach (var target in project.Sheets)
+            foreach (var target in targetSheets)
             {
                 var source = FindMatchingSheet(recognized.Sheets, target, matchedSources);
                 if (source is null)
@@ -488,16 +984,37 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 target.Totals = recognizedTotals;
                 target.SlaughterDate = source.SlaughterDate;
                 target.CuttingDate = project.CuttingDate;
+                target.IsRecognitionComplete = true;
+                target.RecognitionWarnings = source.RecognitionWarnings?
+                    .Where(warning => !string.IsNullOrWhiteSpace(warning))
+                    .Select(warning => warning.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                    ?? new List<string>();
             }
 
-            if (matchedSources.Count != recognized.Sheets.Count)
+            var knownSourceCount = recognized.Sheets.Count(source => project.Sheets.Any(target =>
+                string.Equals(target.Id, source.Id, StringComparison.Ordinal)
+                || string.Equals(Path.GetFileName(target.SourceFile), Path.GetFileName(source.SourceFile), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(Path.GetFileNameWithoutExtension(source.SourceFile), target.Name, StringComparison.OrdinalIgnoreCase)));
+            if (knownSourceCount != recognized.Sheets.Count)
             {
                 throw new JsonException("Результат содержит лишние или повторяющиеся листы, не соответствующие загруженным сканам.");
             }
 
+            var finishedAt = DateTimeOffset.Now;
             project.RecognitionStatus = RegisterRecognitionStatus.Completed;
-            project.RecognitionFinishedAt = DateTimeOffset.Now;
-            project.StatusMessage = "Распознавание импортировано; выполнено сравнение с автоматическим реестром.";
+            project.RecognitionFinishedAt = finishedAt;
+            project.RecognitionUpdatedAt = finishedAt;
+            project.RecognitionCompletedSheets = targetSheets.Length;
+            project.RecognitionTotalSheets = targetSheets.Length;
+            project.RecognitionCurrentSheet = null;
+            var warningCount = project.Sheets.Sum(sheet => sheet.RecognitionWarnings?.Count ?? 0);
+            project.StatusMessage = warningCount > 0
+                ? $"Распознавание завершено; выполнено сравнение. Предупреждений по заголовкам и качеству: {warningCount}."
+                : allowProcessing
+                    ? "AI-распознавание завершено; выполнено сравнение с автоматическим реестром."
+                    : "Распознавание импортировано; выполнено сравнение с автоматическим реестром.";
             await SaveProjectCoreAsync(project, cancellationToken);
 
             var importedPath = Path.Combine(GetProjectDirectory(projectId), "recognition-result.json");
@@ -505,11 +1022,28 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 importedPath,
                 JsonSerializer.Serialize(recognized, JsonOptions),
                 cancellationToken);
+            return true;
         }
         finally
         {
             _writeGate.Release();
         }
+    }
+
+    private static long QueueSortValue(WeightRegisterProject project)
+        => project.RecognitionQueueOrder
+            ?? (project.RecognitionQueuedAt is { } queuedAt
+                ? queuedAt.UtcDateTime.Ticks
+                : project.CreatedAt.UtcDateTime.Ticks);
+
+    private static void SetRecognitionCancelled(WeightRegisterProject project, DateTimeOffset cancelledAt)
+    {
+        project.RecognitionStatus = RegisterRecognitionStatus.Cancelled;
+        project.RecognitionCancellationRequested = false;
+        project.RecognitionFinishedAt = cancelledAt;
+        project.RecognitionUpdatedAt = cancelledAt;
+        project.RecognitionCurrentSheet = null;
+        project.StatusMessage = "Задание распознавания отменено.";
     }
 
     private static WeightRegisterSheet? FindMatchingSheet(
@@ -917,7 +1451,17 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
             FileShare.ReadWrite,
             81920,
             FileOptions.Asynchronous);
-        return await JsonSerializer.DeserializeAsync<WeightRegisterProject>(stream, JsonOptions, cancellationToken);
+        var project = await JsonSerializer.DeserializeAsync<WeightRegisterProject>(stream, JsonOptions, cancellationToken);
+        if (project?.RecognitionStatus == RegisterRecognitionStatus.Completed
+            && project.Sheets.All(sheet => !sheet.IsRecognitionComplete))
+        {
+            // Совместимость с проектами, сохранёнными до появления статуса отдельного листа.
+            foreach (var sheet in project.Sheets)
+            {
+                sheet.IsRecognitionComplete = true;
+            }
+        }
+        return project;
     }
 
     private async Task SaveProjectCoreAsync(WeightRegisterProject project, CancellationToken cancellationToken)

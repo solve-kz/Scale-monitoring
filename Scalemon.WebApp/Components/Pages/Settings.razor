@@ -291,15 +291,69 @@
             </RadzenColumn>
 
             <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Тайм-аут команды, мс" HelpText="Ожидание единственного ответа на ZERO или TARE">
+              <RadzenFormField Text="Тайм-аут команды, мс" HelpText="Ожидание ответа на каждую попытку ZERO или TARE">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.CommandTimeoutMs" Name="CommandTimeout" Min="100" Max="3000" Step="50" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="CommandTimeout" Min="100" Max="3000" Text="Допустимо 100..3000 мс" />
               </RadzenFormField>
             </RadzenColumn>
 
             <RadzenColumn Size="3" SizeSm="12">
-              <RadzenFormField Text="Неблокирующая коррекция" HelpText="Продолжать автофиксацию при отказе ZERO или TARE">
+              <RadzenFormField Text="Неблокирующая коррекция" HelpText="Записывать валидный груз при красной ошибке; красный сигнал и запрет автокоррекции сохраняются">
                   <RadzenCheckBox @bind-Value="Model.SystemSettings.EnableNonBlockingCorrection" TriState="false" />
+              </RadzenFormField>
+            </RadzenColumn>
+          </RadzenRow>
+
+          <RadzenRow>
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Попыток ZERO" HelpText="Общее число попыток команды ZERO, включая первую">
+                  <RadzenNumeric TValue="int"
+                                 @bind-Value="Model.SystemSettings.ZeroCommandMaxAttempts"
+                                 Name="ZeroCommandMaxAttempts"
+                                 Min="1"
+                                 Max="50"
+                                 Step="1"
+                                 Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="ZeroCommandMaxAttempts" Min="1" Max="50" Text="Допустимо 1..50" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Попыток TARE" HelpText="Общее число попыток команды TARE, включая первую">
+                  <RadzenNumeric TValue="int"
+                                 @bind-Value="Model.SystemSettings.TareCommandMaxAttempts"
+                                 Name="TareCommandMaxAttempts"
+                                 Min="1"
+                                 Max="20"
+                                 Step="1"
+                                 Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="TareCommandMaxAttempts" Min="1" Max="20" Text="Допустимо 1..20" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Максимум авто-ZERO" HelpText="Успешных автоматических ZERO между подтверждёнными грузами">
+                  <RadzenNumeric TValue="int"
+                                 @bind-Value="Model.SystemSettings.MaxAutomaticZeroApplications"
+                                 Name="MaxAutomaticZeroApplications"
+                                 Min="1"
+                                 Max="100"
+                                 Step="1"
+                                 Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="MaxAutomaticZeroApplications" Min="1" Max="100" Text="Допустимо 1..100" />
+              </RadzenFormField>
+            </RadzenColumn>
+
+            <RadzenColumn Size="3" SizeSm="12">
+              <RadzenFormField Text="Максимум авто-TARE" HelpText="Успешных автоматических TARE между подтверждёнными грузами">
+                  <RadzenNumeric TValue="int"
+                                 @bind-Value="Model.SystemSettings.MaxAutomaticTareApplications"
+                                 Name="MaxAutomaticTareApplications"
+                                 Min="1"
+                                 Max="50"
+                                 Step="1"
+                                 Style="width:100%" />
+                  <RadzenNumericRangeValidator Component="MaxAutomaticTareApplications" Min="1" Max="50" Text="Допустимо 1..50" />
               </RadzenFormField>
             </RadzenColumn>
           </RadzenRow>
@@ -567,7 +621,11 @@
             dto.SystemSettings.ValidateWeighing();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await SettingsSource.SaveAsync(dto, cts.Token);
-            NotificationService.Notify(NotificationSeverity.Success, "Сохранено", "Файл настроек успешно сохранён.");
+            Model = EnsureDefaults(await SettingsSource.LoadAsync(cts.Token));
+            NotificationService.Notify(
+                NotificationSeverity.Success,
+                "Сохранено",
+                "Настройки проверены в C:\\Scalemon\\Scalemon.settings.json. Для AI-распознавания перезапустите службу.");
         }
         catch (Exception ex)
         {

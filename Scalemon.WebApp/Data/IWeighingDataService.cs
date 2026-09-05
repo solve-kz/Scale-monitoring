@@ -54,6 +54,7 @@ namespace Scalemon.WebApp.Data
         Task<DayLiveSnapshot> GetDaySnapshotAsync(
             DateOnly date,
             bool includeSanitary = true,
+            DateTime? countFrom = null,
             CancellationToken ct = default);
 
         Task<IReadOnlyList<WeighingEditEntry>> GetEditsAsync(DateOnly date, CancellationToken ct = default);

@@ -5,6 +5,7 @@
 @using System.Globalization
 @inject IWeighingDataService Data
 @inject ISlaughterModeState SlaughterModeState
+@inject IJSRuntime JS
 
 <RadzenStack Orientation="Orientation.Vertical"
              AlignItems="AlignItems.Center"
@@ -21,6 +22,19 @@
         <RadzenBadge Text="@SlaughterModeText"
                      BadgeStyle="@SlaughterModeBadgeStyle"
                      Style="font-size:1.15rem;padding:0.65rem 1rem;" />
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            @if (_counterStartedAt.HasValue)
+            {
+                <RadzenButton Text="За весь день"
+                              Icon="history"
+                              ButtonStyle="ButtonStyle.Light"
+                              Click="RestoreDayCounterAsync" />
+            }
+            <RadzenButton Text="Обнулить счётчик"
+                          Icon="restart_alt"
+                          ButtonStyle="ButtonStyle.Warning"
+                          Click="ResetCounterAsync" />
+        </RadzenStack>
     </RadzenStack>
 
     <RadzenCard Style="@NumericCardStyle">
@@ -29,6 +43,12 @@
             <div style="font-size:clamp(7rem,22vw,18rem);font-weight:800;line-height:0.95;">
                 @_snapshot.Count.ToString("N0", CultureInfo.GetCultureInfo("ru-RU"))
             </div>
+            @if (_counterStartedAt is { } counterStartedAt)
+            {
+                <RadzenText TextStyle="TextStyle.Body1">
+                    Счётчик обнулён в @counterStartedAt.ToString("HH:mm:ss")
+                </RadzenText>
+            }
         </RadzenStack>
     </RadzenCard>
 
@@ -84,6 +104,14 @@
     private Task? _refreshTask;
     private DayLiveSnapshot _snapshot = new(0, null, null);
     private string? _error;
+    private DateOnly _counterDate = Today;
+    private DateTime? _counterStartedAt;
+    private bool _browserStorageReady;
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private static string CounterStorageKey(DateOnly date)
+        => $"scalemon.production-display.counter-start.{date:yyyy-MM-dd}";
 
     private SlaughterMode? CurrentSlaughterMode
     {
@@ -130,6 +158,19 @@
         _refreshTask = RefreshLoopAsync();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _browserStorageReady = true;
+        await LoadCounterStartAsync(Today);
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
     private async Task RefreshLoopAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
@@ -153,9 +194,15 @@
     {
         try
         {
+            var today = Today;
+            if (_browserStorageReady && _counterDate != today)
+            {
+                await LoadCounterStartAsync(today);
+            }
             _snapshot = await Data.GetDaySnapshotAsync(
-                DateOnly.FromDateTime(DateTime.Today),
+                today,
                 includeSanitary: true,
+                countFrom: _counterStartedAt,
                 ct: _disposeToken.Token);
             _error = null;
         }
@@ -166,6 +213,56 @@
         {
             _snapshot = new DayLiveSnapshot(0, null, null);
             _error = $"Не удалось обновить данные: {ex.Message}";
+        }
+    }
+
+    private async Task ResetCounterAsync()
+    {
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Обнулить экранный счётчик? Записи взвешиваний и статистика не изменятся.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _counterDate = Today;
+        _counterStartedAt = DateTime.Now;
+        await JS.InvokeVoidAsync(
+            "localStorage.setItem",
+            CounterStorageKey(_counterDate),
+            _counterStartedAt.Value.ToString("O", CultureInfo.InvariantCulture));
+        await RefreshAsync();
+    }
+
+    private async Task RestoreDayCounterAsync()
+    {
+        _counterDate = Today;
+        _counterStartedAt = null;
+        await JS.InvokeVoidAsync("localStorage.removeItem", CounterStorageKey(_counterDate));
+        await RefreshAsync();
+    }
+
+    private async Task LoadCounterStartAsync(DateOnly date)
+    {
+        _counterDate = date;
+        _counterStartedAt = null;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", CounterStorageKey(date));
+            if (DateTime.TryParseExact(
+                    stored,
+                    "O",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var parsed))
+            {
+                _counterStartedAt = parsed;
+            }
+        }
+        catch (JSException ex)
+        {
+            _error = $"Не удалось восстановить экранный счётчик: {ex.Message}";
         }
     }
 
