@@ -17,6 +17,7 @@ public class ScalemonService : BackgroundService
     private readonly IDataAccess _db;
     private readonly ISignalBus _arduino;
     private readonly ISlaughterModeState _slaughterModeState;
+    private readonly IProductionIndicatorState _indicatorState;
 
     private readonly SemaphoreSlim _fsmGate = new(1, 1);
 
@@ -29,7 +30,8 @@ public class ScalemonService : BackgroundService
             IScaleStateMachine fsm,
             IDataAccess db,
             ISignalBus arduino,
-            ISlaughterModeState slaughterModeState)
+            ISlaughterModeState slaughterModeState,
+            IProductionIndicatorState indicatorState)
     {
         _logger = logger;
         _scale = scale;
@@ -37,6 +39,7 @@ public class ScalemonService : BackgroundService
         _db = db;
         _arduino = arduino;
         _slaughterModeState = slaughterModeState;
+        _indicatorState = indicatorState;
     }
 
     private void HandleSlaughterModeChanged(SlaughterMode mode)
@@ -66,6 +69,7 @@ public class ScalemonService : BackgroundService
     private void HandleArduinoDisconnected()
     {
         _slaughterModeState.Reset();
+        _indicatorState.Reset();
         _logger.LogWarning("Режим забоя неизвестен до восстановления связи с Arduino");
     }
 
@@ -92,6 +96,7 @@ public class ScalemonService : BackgroundService
 
         // Теперь отправляем целевую команду
         await _arduino.SendAsync(signal);
+        _indicatorState.Set(signal);
 
         // И запоминаем её
         _lastSentSignal = signal;

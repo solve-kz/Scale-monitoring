@@ -28,6 +28,12 @@ public interface IWeightRegisterReviewService
         IReadOnlyList<RegisterUploadFile> files,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Сохраняет порядок листов, используемый при сравнении с автоматическими записями.</summary>
+    Task ReorderSheetsAsync(
+        string projectId,
+        IReadOnlyList<string> sheetIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Сохраняет калибровку листа в координатах исходного изображения.</summary>
     Task SaveCalibrationAsync(
         string projectId,
@@ -445,6 +451,43 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
                 }
             }
             throw;
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ReorderSheetsAsync(
+        string projectId,
+        IReadOnlyList<string> sheetIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sheetIds);
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            var project = await RequireProjectAsync(projectId, cancellationToken);
+            if (project.RecognitionStatus is RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing)
+            {
+                throw new InvalidOperationException("Нельзя менять порядок листов во время распознавания.");
+            }
+
+            if (sheetIds.Count != project.Sheets.Count
+                || sheetIds.Distinct(StringComparer.Ordinal).Count() != project.Sheets.Count)
+            {
+                throw new InvalidOperationException("Передан неполный или повторяющийся список листов.");
+            }
+
+            var sheetsById = project.Sheets.ToDictionary(sheet => sheet.Id, StringComparer.Ordinal);
+            if (sheetIds.Any(sheetId => !sheetsById.ContainsKey(sheetId)))
+            {
+                throw new InvalidOperationException("В порядке листов указан неизвестный лист.");
+            }
+
+            project.Sheets = sheetIds.Select(sheetId => sheetsById[sheetId]).ToList();
+            await SaveProjectCoreAsync(project, cancellationToken);
         }
         finally
         {

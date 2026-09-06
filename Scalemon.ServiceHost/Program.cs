@@ -120,6 +120,8 @@ builder.Services.AddSingleton<ISignalBus>(sp =>
         sp.GetRequiredService<ILogger<SignalBus>>(), settings.PortName, settings.BaudRate, settings.ReconnectIntervalMs);
 });
 
+builder.Services.AddSingleton<IProductionIndicatorState, ProductionIndicatorState>();
+
 builder.Services.AddSingleton<IScaleStateMachine>(sp =>
 {
     var log = sp.GetRequiredService<ILogger<PlateauZeroStateMachine>>();

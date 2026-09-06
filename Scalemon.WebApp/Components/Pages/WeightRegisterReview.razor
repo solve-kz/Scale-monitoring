@@ -180,31 +180,54 @@
             }
         </RadzenCard>
 
+        <RadzenCard>
+            <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             AlignItems="AlignItems.Center"
+                             JustifyContent="JustifyContent.SpaceBetween"
+                             Wrap="FlexWrap.Wrap"
+                             Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6">Листы проекта</RadzenText>
+                    @if (_project.Sheets.Count > 1)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption">
+                            @(CanReorderSheets ? "Перетащите листы, чтобы изменить порядок сравнения." : "Порядок нельзя менять во время распознавания.")
+                        </RadzenText>
+                    }
+                </RadzenStack>
+                <div class="weight-register-sheet-strip" role="listbox" aria-label="Листы проекта">
+                    @foreach (var sheet in _project.Sheets)
+                    {
+                        <div class="@SheetTileClass(sheet)"
+                             role="option"
+                             aria-selected="@(sheet.Id == _selectedSheetId)"
+                             draggable="@(CanReorderSheets ? "true" : "false")"
+                             @onclick="@(() => SelectSheet(sheet.Id))"
+                             @ondragstart="@(() => BeginSheetDrag(sheet.Id))"
+                             @ondragover:preventDefault="true"
+                             @ondrop="@(() => DropSheetAsync(sheet.Id))"
+                             @ondragend="EndSheetDrag">
+                            <RadzenIcon Icon="description" class="weight-register-sheet-icon" />
+                            <span class="weight-register-sheet-name" title="@sheet.Name">@sheet.Name</span>
+                            <RadzenBadge Text="@SheetStatusText(sheet)"
+                                         BadgeStyle="@SheetBadgeStyle(sheet)" />
+                        </div>
+                    }
+                </div>
+            </RadzenStack>
+        </RadzenCard>
+
         <RadzenRow Gap="1rem">
-            <RadzenColumn Order="1" Size="12" SizeLG="8" SizeXL="9" Style="min-width:0;">
+            @if (_selectedSheet?.IsRecognitionComplete == true)
+            {
+                <RadzenColumn Order="1" Size="12" SizeLG="8" SizeXL="9" Style="min-width:0;">
                 <RadzenCard>
                     <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
-                        <RadzenStack Orientation="Orientation.Horizontal"
-                                     AlignItems="AlignItems.End"
-                                     JustifyContent="JustifyContent.SpaceBetween"
-                                     Wrap="FlexWrap.Wrap"
-                                     Gap="1rem">
-                            <div style="min-width:260px;">
-                                <RadzenLabel Text="Лист" />
-                                <RadzenDropDown TValue="string"
-                                                Data="_project.Sheets"
-                                                TextProperty="DisplayName"
-                                                ValueProperty="Id"
-                                                Value="_selectedSheetId"
-                                                Change="OnSheetChanged"
-                                                Style="width:100%" />
-                            </div>
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                                @LegendItem("#f4cccc", "нет в автоматической записи")
-                                @LegendItem("#d9ead3", "разница ≤ 0,04 кг")
-                                @LegendItem("#f8d7da", "разница > 0,04 кг")
-                                @LegendItem("#fce5cd", "пропуск в ручной записи")
-                            </RadzenStack>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            @LegendItem("#f4cccc", "нет в автоматической записи")
+                            @LegendItem("#d9ead3", "разница ≤ 0,04 кг")
+                            @LegendItem("#f8d7da", "разница > 0,04 кг")
+                            @LegendItem("#fce5cd", "пропуск в ручной записи")
                         </RadzenStack>
 
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
@@ -220,39 +243,35 @@
                             }
                         </RadzenStack>
 
-                        @if (_selectedSheet?.IsRecognitionComplete == true)
+                        @if (!string.IsNullOrWhiteSpace(_comparisonError))
                         {
-                            @if (!string.IsNullOrWhiteSpace(_comparisonError))
-                            {
-                                <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat">@_comparisonError</RadzenAlert>
-                            }
-                            else
-                            {
-                                <RegisterComparisonGrid Rows="_rows"
-                                                        Totals="_totals"
-                                                        RecognizedTotals="_recognizedTotals"
-                                                        SelectedKey="_selectedComparison?.Key"
-                                                        SelectedTotalColumn="_selectedTotalColumn"
-                                                        CellSelected="OnCellSelected"
-                                                        CellDoubleClicked="OnCellDoubleClicked"
-                                                        TotalSelected="OnTotalSelected" />
-                                <RadzenText TextStyle="TextStyle.Caption">
-                                    Ручных записей без пары: @_comparison.ManualOnlyCount; автоматических записей без ручной пары: @_comparison.AutomaticOnlyCount.
-                                    Янтарная внутренняя рамка означает статус Suspect.
-                                </RadzenText>
-                            }
+                            <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat">@_comparisonError</RadzenAlert>
                         }
                         else
                         {
-                            <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">
-                                Этот лист ещё не распознан. Сохраните его калибровку и запустите распознавание; уже готовые листы остаются доступными в списке.
-                            </RadzenAlert>
+                            <RegisterComparisonGrid Rows="_rows"
+                                                    Totals="_totals"
+                                                    RecognizedTotals="_recognizedTotals"
+                                                    SelectedKey="_selectedComparison?.Key"
+                                                    SelectedTotalColumn="_selectedTotalColumn"
+                                                    CellSelected="OnCellSelected"
+                                                    CellDoubleClicked="OnCellDoubleClicked"
+                                                    TotalSelected="OnTotalSelected" />
+                            <RadzenText TextStyle="TextStyle.Caption">
+                                Ручных записей без пары: @_comparison.ManualOnlyCount; автоматических записей без ручной пары: @_comparison.AutomaticOnlyCount.
+                                Янтарная внутренняя рамка означает статус Suspect.
+                            </RadzenText>
                         }
                     </RadzenStack>
                 </RadzenCard>
-            </RadzenColumn>
+                </RadzenColumn>
+            }
 
-            <RadzenColumn Order="2" Size="12" SizeLG="4" SizeXL="3" Style="min-width:0;">
+            <RadzenColumn Order="2"
+                          Size="12"
+                          SizeLG="@(_selectedSheet?.IsRecognitionComplete == true ? 4 : 12)"
+                          SizeXL="@(_selectedSheet?.IsRecognitionComplete == true ? 3 : 12)"
+                          Style="@CalibrationColumnStyle">
                 <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" Style="height:100%;">
                     @if ((_selectedComparison is not null || _selectedTotal is not null) && _selectedSheet is not null)
                     {
@@ -346,6 +365,12 @@
                                     <RadzenBadge Text="@(_selectedSheet.IsCalibrationConfirmed ? "сохранена" : "не подтверждена")"
                                                  BadgeStyle="@(_selectedSheet.IsCalibrationConfirmed ? BadgeStyle.Success : BadgeStyle.Warning)" />
                                 </RadzenStack>
+                                @if (!_selectedSheet.IsRecognitionComplete)
+                                {
+                                    <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat">
+                                        Проверьте границы таблицы на листе «@_selectedSheet.Name», сохраните калибровку, затем выберите следующий лист.
+                                    </RadzenAlert>
+                                }
                                 @if (CanSee(2))
                                 {
                                     <div style="display:grid;grid-template-columns:48px minmax(0,1fr) 48px;grid-template-rows:auto minmax(320px,520px) auto;gap:0.5rem;align-items:center;">
@@ -496,6 +521,73 @@
 </RadzenStack>
 
 <style>
+    .weight-register-sheet-strip {
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        padding: 0.25rem 0.125rem 0.5rem;
+    }
+
+    .weight-register-sheet-tile {
+        display: grid;
+        grid-template-columns: auto minmax(8rem, 1fr);
+        grid-template-rows: auto auto;
+        align-items: center;
+        column-gap: 0.65rem;
+        row-gap: 0.25rem;
+        flex: 0 0 15rem;
+        min-width: 0;
+        padding: 0.75rem;
+        border: 2px solid var(--rz-border-color);
+        border-radius: var(--rz-border-radius);
+        background: var(--rz-base-background-color);
+        box-shadow: var(--rz-shadow-1);
+        cursor: pointer;
+        user-select: none;
+        transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+    }
+
+    .weight-register-sheet-tile:hover {
+        border-color: var(--rz-primary-lighter);
+        box-shadow: var(--rz-shadow-3);
+    }
+
+    .weight-register-sheet-tile.is-selected {
+        border-color: var(--rz-primary);
+        box-shadow: 0 0 0 2px var(--rz-primary-lighter), var(--rz-shadow-3);
+    }
+
+    .weight-register-sheet-tile.is-draggable {
+        cursor: grab;
+    }
+
+    .weight-register-sheet-tile.is-dragging {
+        opacity: 0.55;
+        transform: scale(0.98);
+    }
+
+    .weight-register-sheet-icon {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        color: var(--rz-primary);
+        font-size: 2rem;
+    }
+
+    .weight-register-sheet-name {
+        grid-column: 2;
+        grid-row: 1;
+        overflow: hidden;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .weight-register-sheet-tile .rz-badge {
+        grid-column: 2;
+        grid-row: 2;
+        justify-self: start;
+    }
+
     .weight-register-cell-inspector {
         position: sticky;
         top: 1rem;
@@ -544,6 +636,8 @@
     private double _rightCalibrationSlider;
     private double _bottomCalibrationSlider;
     private double _rotationCalibrationSlider;
+    private string? _draggedSheetId;
+    private bool _isSavingSheetOrder;
 
     private const double CalibrationBoundaryStep = 2d;
 
@@ -563,6 +657,17 @@
 
     private bool HasRecognizedSheets
         => _project?.Sheets.Any(sheet => sheet.IsRecognitionComplete) == true;
+
+    private bool CanReorderSheets
+        => _project is not null
+            && _project.Sheets.Count > 1
+            && !_isSavingSheetOrder
+            && _project.RecognitionStatus is not (RegisterRecognitionStatus.Pending or RegisterRecognitionStatus.Processing);
+
+    private string CalibrationColumnStyle
+        => _selectedSheet?.IsRecognitionComplete == true
+            ? "min-width:0;"
+            : "min-width:0;max-width:1100px;margin:0 auto;";
 
     private string RecognitionImportUrl
         => _project is null
@@ -863,10 +968,105 @@
         }
     }
 
-    private void OnSheetChanged(object value)
+    private void SelectSheet(string sheetId)
     {
-        _selectedSheetId = value?.ToString();
+        _selectedSheetId = sheetId;
         SelectSheet();
+    }
+
+    private string SheetTileClass(WeightRegisterSheet sheet)
+    {
+        var classes = new List<string> { "weight-register-sheet-tile" };
+        if (sheet.Id == _selectedSheetId)
+        {
+            classes.Add("is-selected");
+        }
+        if (CanReorderSheets)
+        {
+            classes.Add("is-draggable");
+        }
+        if (sheet.Id == _draggedSheetId)
+        {
+            classes.Add("is-dragging");
+        }
+        return string.Join(' ', classes);
+    }
+
+    private static string SheetStatusText(WeightRegisterSheet sheet)
+        => sheet.IsRecognitionComplete
+            ? "распознан"
+            : sheet.IsCalibrationConfirmed
+                ? "готов"
+                : "калибровка";
+
+    private static BadgeStyle SheetBadgeStyle(WeightRegisterSheet sheet)
+        => sheet.IsRecognitionComplete
+            ? BadgeStyle.Success
+            : sheet.IsCalibrationConfirmed
+                ? BadgeStyle.Info
+                : BadgeStyle.Warning;
+
+    private void BeginSheetDrag(string sheetId)
+    {
+        if (CanReorderSheets)
+        {
+            _draggedSheetId = sheetId;
+        }
+    }
+
+    private void EndSheetDrag()
+        => _draggedSheetId = null;
+
+    private async Task DropSheetAsync(string targetSheetId)
+    {
+        if (_project is null || !CanReorderSheets || string.IsNullOrWhiteSpace(_draggedSheetId))
+        {
+            return;
+        }
+
+        var sourceSheetId = _draggedSheetId;
+        _draggedSheetId = null;
+        if (sourceSheetId == targetSheetId)
+        {
+            return;
+        }
+
+        var previousOrder = _project.Sheets.ToList();
+        var reordered = _project.Sheets.ToList();
+        var sourceIndex = reordered.FindIndex(sheet => sheet.Id == sourceSheetId);
+        var targetIndex = reordered.FindIndex(sheet => sheet.Id == targetSheetId);
+        if (sourceIndex < 0 || targetIndex < 0)
+        {
+            return;
+        }
+
+        var movedSheet = reordered[sourceIndex];
+        reordered.RemoveAt(sourceIndex);
+        reordered.Insert(Math.Min(targetIndex, reordered.Count), movedSheet);
+        _project.Sheets = reordered;
+        _isSavingSheetOrder = true;
+
+        try
+        {
+            await ReviewService.ReorderSheetsAsync(
+                _project.Id,
+                reordered.Select(sheet => sheet.Id).ToArray());
+            await RebuildComparisonAsync();
+            BuildGridRows();
+            NotificationService.Notify(
+                NotificationSeverity.Success,
+                "Порядок листов",
+                "Новый порядок сохранён и применён к сравнению.");
+        }
+        catch (Exception ex)
+        {
+            _project.Sheets = previousOrder;
+            NotificationService.Notify(NotificationSeverity.Error, "Порядок листов", ex.Message);
+        }
+        finally
+        {
+            _isSavingSheetOrder = false;
+        }
     }
 
     private async Task OnUploadComplete(UploadCompleteEventArgs _)
