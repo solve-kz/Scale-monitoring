@@ -45,7 +45,16 @@
             /// <summary>
             /// Выключить красную лампу. Используется для сброса состояния ошибки.
             /// </summary>
-            AlarmOff = 0x17
+            AlarmOff = 0x17,
+
+            /// <summary>Включить лампу режима общего забоя.</summary>
+            GeneralModeIndicator = 0x18,
+
+            /// <summary>Включить лампу режима санитарного забоя.</summary>
+            SanitaryModeIndicator = 0x19,
+
+            /// <summary>Запросить у Arduino текущее положение переключателя.</summary>
+            RequestSlaughterMode = 0x1A
         }
 
         /// <summary>
@@ -158,6 +167,20 @@
             /// Связь с базой данных была успешно восстановлена.
             /// </summary>
             DatabaseRestored
+        }
+
+        public enum FsmState
+        {
+            Disconnected,
+            Alarm,
+            IdleZero,        // стабильный ноль; "вооружено"
+            InvalidWeightState, // предупреждение об остатке/коррекции между циклами; валидный груз не блокируется
+            Weighing,        // валидный вес, копим плато (пока не стабилизировалось)
+            AwaitUnload,     // плато подтверждено (≥M), ждём разгрузки
+            PostUnload,      // определили хвост/ноль/отриц.; готовим запись
+            TarePending,     // отослали SetToZero()
+            WaitZeroAfterTare,
+            ZeroFailed
         }
 
 

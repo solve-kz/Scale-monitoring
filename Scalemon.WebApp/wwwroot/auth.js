@@ -1,7 +1,9 @@
-﻿// wwwroot/auth.js
-window.scalemon = {
+// wwwroot/auth.js
+window.scalemon = window.scalemon || {};
+
+Object.assign(window.scalemon, {
     login: async function (username, password) {
-        const r = await fetch('/auth/login', {
+        const r = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',               // <-- важно!
@@ -10,10 +12,10 @@ window.scalemon = {
         return r.ok;
     },
     logout: async function () {
-        await fetch('/auth/logout', {
+        const response = await fetch('/api/auth/logout', {
             method: 'POST',
             credentials: 'include'                // <-- важно!
         });
+        return response.ok;
     }
-};
-
+});

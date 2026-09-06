@@ -7,16 +7,16 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+ 
 
     <!-- Ваши стили -->
     
-    <link rel="stylesheet" href="Scalemon.WebApp.styles.css" />
-    <link rel="icon" type="image/png" href="favicon.png" />
+    
+    <link rel="icon" type="image/png" href="_content/Scalemon.WebApp/favicon.png" />
 
     <!-- ЕДИНСТВЕННЫЙ «загрузчик» темы -->
     <RadzenTheme Theme="material" @rendermode="InteractiveServer" />
-	<link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="_content/Scalemon.WebApp/app.css" />
     <HeadOutlet />
 </head>
 
@@ -25,10 +25,10 @@
         <Routes @rendermode="InteractiveServer" />
     </CascadingAuthenticationState>
 
-    <script src="auth.js"></script>
-    <script src="App.js?v=@(typeof(Program).Assembly.GetName().Version)"></script>
+    <script src="_content/Scalemon.WebApp/auth.js"></script>
+    <script src="_content/Scalemon.WebApp/App.js?v=@(typeof(App).Assembly.GetName().Version)-stream-export-v1"></script>
     <script src="_framework/blazor.web.js"></script>
-    <script src="_content/Radzen.Blazor/Radzen.Blazor.js?v=@(typeof(Radzen.Colors).Assembly.GetName().Version)"></script>
+    <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
 </body>
 
 @code {

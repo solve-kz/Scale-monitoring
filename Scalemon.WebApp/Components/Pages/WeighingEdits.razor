@@ -1,0 +1,152 @@
+@page "/weighing-edits"
+@attribute [Authorize(Roles = "Admin,Editor")]
+
+@using Scalemon.WebApp.Models
+@inject IWeighingEditLogService AuditService
+@inject NavigationManager Nav
+
+<PageTitle>Журнал правок взвешиваний</PageTitle>
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 Wrap="FlexWrap.Wrap"
+                 Gap="0.75rem"
+                 AlignItems="AlignItems.Center">
+        <RadzenDatePicker @bind-Value="_from"
+                          TValue="DateTime?"
+                          DateFormat="yyyy-MM-dd HH:mm"
+                          ShowTime="true"
+                          Placeholder="От"
+                          Style="width:200px"
+                          @bind-Value:after="OnFiltersChanged" />
+        <RadzenDatePicker @bind-Value="_to"
+                          TValue="DateTime?"
+                          DateFormat="yyyy-MM-dd HH:mm"
+                          ShowTime="true"
+                          Placeholder="До"
+                          Style="width:200px"
+                          @bind-Value:after="OnFiltersChanged" />
+        <RadzenDropDown Data="@_users"
+                        @bind-Value="_selectedUser"
+                        AllowClear="true"
+                        Placeholder="Все пользователи"
+                        Style="width:220px"
+                        @bind-Value:after="OnFiltersChanged" />
+        <RadzenDropDown Data="@_actionOptions"
+                        TextProperty="Text"
+                        ValueProperty="Value"
+                        TValue="WeighingEditAction?"
+                        @bind-Value="_selectedAction"
+                        AllowClear="true"
+                        Placeholder="Все действия"
+                        Style="width:220px"
+                        @bind-Value:after="OnFiltersChanged" />
+        <RadzenButton Icon="refresh"
+                      Text="Обновить"
+                      ButtonStyle="ButtonStyle.Primary"
+                      Click="@ReloadAsync"
+                      Disabled="@_isLoading" />
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenText TextStyle="TextStyle.Subtitle2">Всего записей: @_rows.Count</RadzenText>
+    </RadzenCard>
+
+    <RadzenDataGrid TItem="WeighingEditEntry"
+                    Data="@_rows"
+                    AllowPaging="true"
+                    AllowSorting="true"
+                    PageSize="50"
+                    AllowColumnResize="true"
+                    LoadingIndicatorText="Загрузка..."
+                    Count="@_rows.Count">
+        <Columns>
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="EditedAt" Title="Время" Width="200px" FormatString="{0:yyyy-MM-dd HH:mm:ss}" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="WeighingId" Title="ID взвешивания" Width="140px" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Title="Действие" Width="160px">
+                <Template Context="entry">
+                    <RadzenBadge Text="@GetActionText(entry.Action)"
+                                 Style="@GetActionStyle(entry.Action)" />
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="EditedBy" Title="Пользователь" Width="180px" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="OldWeight" Title="Вес (старый)" Width="120px" FormatString="{0:0.00}" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="NewWeight" Title="Вес (новый)" Width="120px" FormatString="{0:0.00}" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="RecordedAtSnapshot" Title="Метка записи" Width="200px" FormatString="{0:yyyy-MM-dd HH:mm:ss}" />
+            <RadzenDataGridColumn TItem="WeighingEditEntry" Property="Comment" Title="Комментарий" />
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private DateTime? _from = DateTime.Today;
+    private DateTime? _to = DateTime.Today.AddDays(1).AddSeconds(-1);
+    private string? _selectedUser;
+    private WeighingEditAction? _selectedAction;
+    private readonly List<ActionOption> _actionOptions = Enum.GetValues<WeighingEditAction>()
+        .Where(a => a != WeighingEditAction.Unknown)
+        .Select(a => new ActionOption(a, GetActionText(a)))
+        .ToList();
+
+    private List<string> _users = new();
+    private List<WeighingEditEntry> _rows = new();
+    private bool _isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsersAsync();
+        await ReloadAsync();
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        var editors = await AuditService.GetEditorsAsync();
+        _users = editors.ToList();
+    }
+
+    // Параметрless Action — совместим с @bind-…:after
+    private void OnFiltersChanged()
+    {
+        _ = InvokeAsync(ReloadAsync);
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            var entries = await AuditService.GetAsync(_from, _to, _selectedUser, _selectedAction);
+            _rows = entries.ToList();
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string GetActionText(WeighingEditAction action) => action switch
+    {
+        WeighingEditAction.Increment => "Увеличение",
+        WeighingEditAction.Decrement => "Уменьшение",
+        WeighingEditAction.Insert => "Вставка",
+        WeighingEditAction.Delete => "Удаление",
+        WeighingEditAction.ManualUpdate => "Изменение",
+        _ => "Неизвестно"
+    };
+
+    private static string GetActionStyle(WeighingEditAction action) => action switch
+    {
+        WeighingEditAction.Increment or WeighingEditAction.Decrement => "background-color:#ffe6f3;color:#000;",
+        WeighingEditAction.Insert => "background-color:#e6ffe6;color:#000;",
+        WeighingEditAction.Delete => "background-color:#fbe9e7;color:#000;",
+        _ => string.Empty
+    };
+
+    private sealed record ActionOption(WeighingEditAction Value, string Text);
+}

@@ -1,8 +1,11 @@
 ﻿@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.Generic
+@using System.Linq
 @inject NavigationManager Nav
 @inject ContextMenuService ContextMenu
 @inject NotificationService NotificationService
 @inject IJSRuntime JS
+@using Scalemon.WebApp.Models
 @using static Scalemon.WebApp.Models.WeighingModels
 
 
@@ -33,7 +36,8 @@
                         @{
                             var cell = GetCell(vm.Row, colIndex); // vm.Row — это GridRow
                         }
-                        <div class="cell @(cell?.HasValue == true ? "has" : "empty")"
+                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
+                             style="@GetDuplicateStyle(vm.No, colIndex)"
                              title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
                             @cell?.Weight?.ToString("0.00")</b>
                         </div>
@@ -50,25 +54,41 @@
 }
 else
 {
-    <!-- Сводный режим: только заголовки и последняя строка -->
+    <!-- Сводный режим: сводные строки и итоги -->
     <RadzenDataGrid TItem="GridRowVm"
-                    Data="Array.Empty<GridRowVm>()"
+                    Data="SummaryRows"
                     AllowPaging="false"
                     AllowSorting="false"
                     AllowFiltering="false"
                     EmptyText=""
                     class="weights-grid summary-grid">
         <Columns>
-            <RadzenDataGridColumn TItem="GridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
+            <RadzenDataGridColumn TItem="GridRowVm" Property="No" Title="№" Width="80px" TextAlign="TextAlign.Center">
+                <Template Context="vm">
+                    @if (vm.No > 0)
+                    {
+                        @vm.No
+                    }
+                </Template>
                 <FooterTemplate><span class="totals-caption">ИТОГО:</span></FooterTemplate>
             </RadzenDataGridColumn>
 
             @for (var i = 1; i <= 10; i++)
             {
                 var colIndex = i;
-                <RadzenDataGridColumn TItem="GridRowVm" Title="@($"{colIndex}")" Width="1fr" TextAlign="TextAlign.Center">
+                <RadzenDataGridColumn TItem="GridRowVm" Property="@($"C{colIndex}")" Title="@($"{colIndex}")" Width="1fr" TextAlign="TextAlign.Center">
+                    <Template Context="vm">
+                        @{
+                            var cell = GetCell(vm.Row, colIndex);
+                        }
+                        <div class="cell @(cell?.HasValue == true ? "has" : "empty") @GetHighlightClass(cell)"
+                             style="@GetDuplicateStyle(vm.No, colIndex)"
+                             title="@cell?.Timestamp?.ToString("HH:mm:ss")"><b>
+                            @cell?.Weight?.ToString("0.00")</b>
+                        </div>
+                    </Template>
                     <FooterTemplate>
-						<b> @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")</b>
+                                                <b> @(Totals is { Length: >= 10 } ? Totals![colIndex - 1].ToString("0.00") : "")</b>
                     </FooterTemplate>
                 </RadzenDataGridColumn>
             }
@@ -81,8 +101,10 @@ else
 
 @code {
     [Parameter] public bool IsDetailed { get; set; } = true;
+    [Parameter] public bool HighlightSameWeightCells { get; set; }
     [Parameter] public decimal[]? Totals { get; set; } // длина 10
     [Parameter] public IReadOnlyList<GridRowVm> Rows { get; set; } = Array.Empty<GridRowVm>();
+    [Parameter] public IReadOnlyList<GridRowVm> SummaryRows { get; set; } = Array.Empty<GridRowVm>();
 
     [Parameter] public int TotalCount { get; set; }
     [Parameter] public int PageSize { get; set; } = 400;
@@ -97,6 +119,20 @@ else
     private (int Row, int Col)? _selectedCellPos;
 
     DotNetObjectReference<WeightsGrid>? _dotRef;
+    readonly HashSet<(int Row, int Col)> _duplicateWeightCells = new();
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        if (IsDetailed)
+        {
+            UpdateDuplicateWeightCells();
+        }
+        else
+        {
+            _duplicateWeightCells.Clear();
+        }
+    }
 
     public int? GetSelectedOrderOnPage()
         => _selectedCellPos is { } pos ? ((pos.Col - 1) * 40 + pos.Row) : null; // 1..400
@@ -110,6 +146,68 @@ else
     
     static int ParseCol(string? p) =>
     p is { Length: > 1 } && p[0] == 'C' && int.TryParse(p.AsSpan(1), out var n) ? n : -1;
+
+    void UpdateDuplicateWeightCells()
+    {
+        _duplicateWeightCells.Clear();
+
+        if (Rows is null || Rows.Count == 0)
+        {
+            return;
+        }
+
+        var orderedRows = Rows.OrderBy(r => r.No).ToList();
+        var currentSequence = new List<(int Row, int Col, decimal Weight)>();
+        decimal? previousWeight = null;
+
+        foreach (var (row, col, cell) in EnumerateCellsInDisplayOrder(orderedRows))
+        {
+            if (cell is null || !cell.HasValue || cell.Weight is not decimal weight)
+            {
+                CommitSequence();
+                currentSequence.Clear();
+                previousWeight = null;
+                continue;
+            }
+
+            if (previousWeight.HasValue && weight == previousWeight.Value)
+            {
+                currentSequence.Add((row, col, weight));
+            }
+            else
+            {
+                CommitSequence();
+                currentSequence.Clear();
+                currentSequence.Add((row, col, weight));
+            }
+
+            previousWeight = weight;
+        }
+
+        CommitSequence();
+
+        void CommitSequence()
+        {
+            if (currentSequence.Count >= 2)
+            {
+                foreach (var (row, col, _) in currentSequence)
+                {
+                    _duplicateWeightCells.Add((row, col));
+                }
+            }
+        }
+    }
+
+    static IEnumerable<(int Row, int Col, Cell? Cell)> EnumerateCellsInDisplayOrder(IList<GridRowVm> rows)
+    {
+        for (int col = 1; col <= 10; col++)
+        {
+            foreach (var vm in rows)
+            {
+                yield return (vm.No, col, GetCell(vm.Row, col));
+            }
+        }
+    }
 
     async Task OnPagerChanged(PagerEventArgs args)
     {
@@ -200,16 +298,13 @@ else
         var cell = GetCell(args.Data.Row, colIndex);
         if (cell is not null && cell.HasValue)
         {
-            args.Attributes["style"] = (args.Attributes.TryGetValue("style", out var style) ? style + ";" : "")
-                                     + "cursor:pointer;"; // или "cursor:crosshair;", "cursor:default;" и т.п.
+            AppendStyle(args.Attributes, "cursor:pointer;"); // или "cursor:crosshair;", "cursor:default;" и т.п.
         }
         // сравниваем с GridRowVm.No
         if (_selectedCellPos is { } pos && pos.Row == args.Data.No && pos.Col == colIndex)
         {
-            // если стиль уже есть, добавляем к нему
-            var style = args.Attributes.ContainsKey("style") ? args.Attributes["style"] + ";" : "";
-            style += "background-color:#ffe0b2;"; // мягкий оранжевый фон
-            args.Attributes["style"] = style;
+            AppendStyle(args.Attributes,
+                "background-color: var(--rz-warning-lighter); color: var(--rz-warning-contrast);");
         }
 
     }
@@ -248,6 +343,18 @@ else
         return InvokeAsync(StateHasChanged);
     }
 
+    static string GetHighlightClass(Cell? cell) => cell?.LastEditAction switch
+    {
+        WeighingEditAction.Increment or WeighingEditAction.Decrement => "last-edit-adjust",
+        WeighingEditAction.Insert => "last-edit-insert",
+        _ => string.Empty
+    };
+
+    string? GetDuplicateStyle(int row, int col)
+        => HighlightSameWeightCells && IsDetailed && _duplicateWeightCells.Contains((row, col))
+            ? "background-color: var(--rz-danger-dark);"
+            : null;
+
     static Cell? GetCell(GridRow row, int col) => col switch
     {
         1 => row.C1,
@@ -276,6 +383,18 @@ else
         int row = (idx % 40) + 1;     // 1..40 (GridRowVm.No)
         _selectedCellPos = (row, col);
         return InvokeAsync(StateHasChanged);
+    }
+
+    static void AppendStyle(IDictionary<string, object> attributes, string style)
+    {
+        if (attributes.TryGetValue("style", out var existing) && existing is string existingStyle && !string.IsNullOrWhiteSpace(existingStyle))
+        {
+            attributes["style"] = existingStyle.EndsWith(';') ? existingStyle + style : existingStyle + ";" + style;
+        }
+        else
+        {
+            attributes["style"] = style;
+        }
     }
 
 }

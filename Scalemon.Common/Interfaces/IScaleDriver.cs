@@ -24,7 +24,17 @@ namespace Scalemon.Common
         /// <summary>
         /// Отправляет команду сброса веса на ноль.
         /// </summary>
-        void SetToZero();
+        ScaleCommandResult SetToZero(int timeoutMs);
+
+        /// <summary>
+        /// Устанавливает указанную массу тары.
+        /// </summary>
+        ScaleCommandResult SetTare(decimal tareKg, int timeoutMs);
+
+        /// <summary>
+        /// Тарирует текущую нагрузку нулевым параметром CMD_SET_TARE.
+        /// </summary>
+        ScaleCommandResult TareCurrentWeight(int timeoutMs);
 
         /// <summary>
         /// Отправляет команду запроса текущего веса.
@@ -45,6 +55,31 @@ namespace Scalemon.Common
         /// Возвращает флаг, указывающий, является ли вес стабильным.
         /// </summary>
         bool Stable { get; }
+
+        /// <summary>
+        /// Возвращает цену деления последнего свежего измерения.
+        /// </summary>
+        decimal DivisionKg { get; }
+
+        /// <summary>
+        /// Возвращает штатный признак нуля терминала.
+        /// </summary>
+        bool IsTerminalZero { get; }
+
+        /// <summary>
+        /// Возвращает штатный признак NET терминала.
+        /// </summary>
+        bool IsNet { get; }
+
+        /// <summary>
+        /// Возвращает тару из ответа терминала, если поле присутствовало.
+        /// </summary>
+        decimal? TareKg { get; }
+
+        /// <summary>
+        /// Показывает, что последнее чтение дало новый корректно разобранный ответ массы.
+        /// </summary>
+        bool HasFreshMeasurement { get; }
 
         /// <summary>
         /// Возвращает числовой код последнего ответа от весов.

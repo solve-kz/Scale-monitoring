@@ -1,0 +1,236 @@
+@using Scalemon.WebApp.Models
+
+<RadzenDataGrid TItem="RegisterGridRowVm"
+                Data="Rows"
+                AllowPaging="false"
+                AllowSorting="false"
+                AllowFiltering="false"
+                EmptyText="Нет распознанных данных"
+                class="weights-grid"
+                CellClick="OnCellClick"
+                CellDoubleClick="OnCellDoubleClick"
+                CellRender="OnCellRender">
+    <Columns>
+        <RadzenDataGridColumn TItem="RegisterGridRowVm" Title="№" Width="80px" TextAlign="TextAlign.Center">
+            <Template Context="row">@row.No</Template>
+            <FooterTemplate><b title="Рукописные итоги на скане">41 / кг</b></FooterTemplate>
+        </RadzenDataGridColumn>
+        @for (var index = 1; index <= 10; index++)
+        {
+            var column = index;
+            <RadzenDataGridColumn TItem="RegisterGridRowVm"
+                                  Property="@($"C{column}")"
+                                  Title="@column.ToString()"
+                                  Width="1fr"
+                                  TextAlign="TextAlign.Center">
+                <Template Context="row">
+                    @{
+                        var comparison = row.GetCell(column);
+                    }
+                    <div title="@GetTitle(comparison)" style="min-height:1.5rem;font-weight:600;">
+                        @GetCellText(comparison)
+                    </div>
+                </Template>
+                <FooterTemplate>
+                    @{
+                        var total = GetRecognizedTotal(column);
+                    }
+                    <div title="@GetRecognizedTotalTitle(column, total)"
+                         style="@GetRecognizedTotalStyle(column, total)"
+                         @onclick="@(() => OnTotalClickAsync(column))">
+                        <b>@(total?.EffectiveValue?.ToString("0.00") ?? total?.OcrText ?? string.Empty)</b>
+                    </div>
+                </FooterTemplate>
+            </RadzenDataGridColumn>
+        }
+    </Columns>
+</RadzenDataGrid>
+
+<div style="display:grid;grid-template-columns:80px repeat(10,minmax(64px,1fr));border:1px solid var(--rz-border-color);border-top:0;min-width:788px;">
+    <div style="padding:0.5rem;font-weight:700;border-right:1px solid var(--rz-border-color);">Σ 1–40</div>
+    @for (var column = 1; column <= 10; column++)
+    {
+        <div title="Сумма распознанных ячеек 1–40"
+             style="@GetCalculatedTotalStyle()">
+            @(Totals.TryGetValue(column, out var total) ? total.ToString("0.00") : string.Empty)
+        </div>
+    }
+    <div style="padding:0.5rem;font-weight:700;border-right:1px solid var(--rz-border-color);border-top:1px solid var(--rz-border-color);">Δ кг</div>
+    @for (var column = 1; column <= 10; column++)
+    {
+        <div style="padding:0.5rem;text-align:center;border-top:1px solid var(--rz-border-color);border-right:1px solid var(--rz-border-color);">
+            @FormatTotalDifference(column)
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<RegisterGridRowVm> Rows { get; set; } = Array.Empty<RegisterGridRowVm>();
+    [Parameter] public IReadOnlyDictionary<int, decimal> Totals { get; set; } = new Dictionary<int, decimal>();
+    [Parameter] public IReadOnlyDictionary<int, RegisterReviewTotal> RecognizedTotals { get; set; } = new Dictionary<int, RegisterReviewTotal>();
+    [Parameter] public RegisterCellKey? SelectedKey { get; set; }
+    [Parameter] public int? SelectedTotalColumn { get; set; }
+    [Parameter] public EventCallback<RegisterCellComparison> CellSelected { get; set; }
+    [Parameter] public EventCallback<RegisterCellComparison> CellDoubleClicked { get; set; }
+    [Parameter] public EventCallback<int> TotalSelected { get; set; }
+
+    private async Task OnCellClick(DataGridCellMouseEventArgs<RegisterGridRowVm> args)
+    {
+        var comparison = GetComparison(args);
+        if (comparison is not null && CellSelected.HasDelegate)
+        {
+            await CellSelected.InvokeAsync(comparison);
+        }
+    }
+
+    private async Task OnCellDoubleClick(DataGridCellMouseEventArgs<RegisterGridRowVm> args)
+    {
+        var comparison = GetComparison(args);
+        if (comparison is not null && CellDoubleClicked.HasDelegate)
+        {
+            await CellDoubleClicked.InvokeAsync(comparison);
+        }
+    }
+
+    private void OnCellRender(DataGridCellRenderEventArgs<RegisterGridRowVm> args)
+    {
+        var comparison = GetComparison(args);
+        if (comparison is null)
+        {
+            return;
+        }
+
+        var style = comparison.Kind switch
+        {
+            RegisterComparisonKind.WithinTolerance => "background-color:#d9ead3;",
+            RegisterComparisonKind.Difference => "background-color:#f8d7da;",
+            RegisterComparisonKind.ManualOnly => "background-color:#f4cccc;",
+            RegisterComparisonKind.AutomaticOnlyBetween => "background-color:#fce5cd;",
+            _ => string.Empty
+        };
+        style += "cursor:pointer;";
+        if (comparison.Manual.Status == RegisterCellStatus.Suspect)
+        {
+            style += "box-shadow:inset 0 0 0 3px #f59e0b;";
+        }
+        if (SelectedKey == comparison.Key)
+        {
+            style += "outline:3px solid var(--rz-primary);outline-offset:-3px;";
+        }
+        AppendStyle(args.Attributes, style);
+    }
+
+    private static RegisterCellComparison? GetComparison(DataGridCellMouseEventArgs<RegisterGridRowVm> args)
+    {
+        var column = ParseColumn(args.Column?.Property);
+        return column > 0 ? args.Data.GetCell(column) : null;
+    }
+
+    private static RegisterCellComparison? GetComparison(DataGridCellRenderEventArgs<RegisterGridRowVm> args)
+    {
+        var column = ParseColumn(args.Column?.Property);
+        return column > 0 ? args.Data.GetCell(column) : null;
+    }
+
+    private static int ParseColumn(string? property)
+        => property is { Length: > 1 }
+            && property[0] == 'C'
+            && int.TryParse(property.AsSpan(1), out var column)
+                ? column
+                : -1;
+
+    private static string GetTitle(RegisterCellComparison? comparison)
+    {
+        if (comparison is null)
+        {
+            return string.Empty;
+        }
+
+        var automatic = comparison.Automatic is null
+            ? "автоматическая запись отсутствует"
+            : $"автомат: {comparison.Automatic.Weight:0.00} кг, {comparison.Automatic.Timestamp:HH:mm:ss}";
+        var suspect = comparison.Manual.Status == RegisterCellStatus.Suspect
+            ? $"; требует проверки: {comparison.Manual.Comment}"
+            : string.Empty;
+        return automatic + suspect;
+    }
+
+    private static string GetCellText(RegisterCellComparison? comparison)
+        => comparison?.Manual.EffectiveValue?.ToString("0.00")
+            ?? comparison?.Manual.OcrText
+            ?? string.Empty;
+
+    private static void AppendStyle(IDictionary<string, object> attributes, string style)
+    {
+        if (attributes.TryGetValue("style", out var existing) && existing is string current && !string.IsNullOrWhiteSpace(current))
+        {
+            attributes["style"] = current.TrimEnd(';') + ";" + style;
+        }
+        else
+        {
+            attributes["style"] = style;
+        }
+    }
+
+    private RegisterReviewTotal? GetRecognizedTotal(int column)
+        => RecognizedTotals.TryGetValue(column, out var total) ? total : null;
+
+    private async Task OnTotalClickAsync(int column)
+    {
+        if (TotalSelected.HasDelegate)
+        {
+            await TotalSelected.InvokeAsync(column);
+        }
+    }
+
+    private static string GetCalculatedTotalStyle()
+        => "padding:0.5rem;text-align:center;border-right:1px solid var(--rz-border-color);";
+
+    private string GetRecognizedTotalStyle(int column, RegisterReviewTotal? total)
+    {
+        var hasCalculated = Totals.ContainsKey(column);
+        var background = total?.EffectiveValue.HasValue == true && hasCalculated
+            ? TryGetTotalDifference(column, out var difference)
+                ? Math.Abs(difference) <= 0.04m ? "#d9ead3" : "#f8d7da"
+                : "transparent"
+            : total?.EffectiveValue.HasValue == true || hasCalculated
+                ? "#f4cccc"
+                : "transparent";
+        var suspect = total?.Status == RegisterCellStatus.Suspect
+            ? "box-shadow:inset 0 0 0 3px #f59e0b;"
+            : string.Empty;
+        var selected = SelectedTotalColumn == column
+            ? "outline:3px solid var(--rz-primary);outline-offset:-3px;"
+            : string.Empty;
+        return $"min-height:1.5rem;padding:0.35rem;background:{background};cursor:pointer;{suspect}{selected}";
+    }
+
+    private string GetRecognizedTotalTitle(int column, RegisterReviewTotal? total)
+    {
+        var recognized = string.IsNullOrWhiteSpace(total?.OcrText)
+            ? "Рукописный итог не распознан"
+            : $"Рукописный текст: {total.OcrText}";
+        var calculated = Totals.TryGetValue(column, out var value)
+            ? $"; сумма строк 1–40: {value:0.00} кг"
+            : "; сумма строк 1–40 отсутствует";
+        return recognized + calculated;
+    }
+
+    private string FormatTotalDifference(int column)
+        => TryGetTotalDifference(column, out var difference)
+            ? difference.ToString("+0.00;-0.00;0.00")
+            : string.Empty;
+
+    private bool TryGetTotalDifference(int column, out decimal difference)
+    {
+        difference = 0m;
+        var recognized = GetRecognizedTotal(column)?.EffectiveValue;
+        if (!recognized.HasValue || !Totals.TryGetValue(column, out var calculated))
+        {
+            return false;
+        }
+
+        difference = recognized.Value - calculated;
+        return true;
+    }
+}

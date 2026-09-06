@@ -1,69 +1,102 @@
 ﻿@page "/monitoring"
+@attribute [Authorize]
+@using System.Collections.Generic
 @using System.Globalization
-@using Microsoft.AspNetCore.Authorization
+@using System.IO
+@using System.Linq
+@using ClosedXML.Excel
+@using Microsoft.JSInterop
 @using Scalemon.WebApp.Models
 @using Scalemon.WebApp.Data
+@using Scalemon.WebApp.Components.Dialogs
 @using static Scalemon.WebApp.Models.WeighingModels
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using Radzen
 @inject ProtectedLocalStorage PLS
-@attribute [Authorize(Policy = "CanEdit")]
 @inject IWeighingDataService Data
 @inject NavigationManager Nav
+@inject ISettingsSource SettingsSource
+@inject DialogService DialogService
+@inject IJSRuntime JS
+@inject NotificationService NotificationService
 
 <RadzenRow>   
 
     <!-- ЛЕВАЯ КОЛОНКА: заголовок + таблица -->
-    <RadzenColumn Size="12" SizeLG="9">
+    <RadzenColumn Order="2" OrderLG="1" Size="12" SizeLG="8" SizeXL="9">
         <!-- Новый заголовок с «сводкой» + переключатель режима -->
-        <RadzenCard Style="padding:0">
-            <RadzenStack Orientation="Orientation.Horizontal"
-                         JustifyContent="JustifyContent.SpaceBetween"
-                         AlignItems="AlignItems.Center"
-                         class="rz-p-3 rz-pb-2">
-
-                <RadzenStack Orientation="Orientation.Vertical" class="rz-w-75 rz-pl-4">
-					<RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
-						@(
-												_totalCount > 0
-												? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
-												: "Данные за день отсутствуют"
-												)
-					</RadzenText>
-                    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
-
-						<RadzenText TextStyle="TextStyle.Subtitle2">
-							@{
-								var ru = CultureInfo.GetCultureInfo("ru-RU");
-								var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
-								var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
-							}
-							Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
-						</RadzenText>
-						<RadzenText TextStyle="TextStyle.Subtitle2">
-							@{
-								var ru = CultureInfo.GetCultureInfo("ru-RU");
-								var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
-								var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
-								var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
-							}
-							Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
-						</RadzenText>
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" class="rz-pb-2">
+            <RadzenStack Orientation="Orientation.Vertical">                               
+                <RadzenStack Orientation="Orientation.Horizontal">
+                    <RadzenText TextStyle="TextStyle.H5" TextAlign="TextAlign.Left">
+                        @(
+                            _totalCount > 0
+                            ? $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}"
+                            : "Данные за день отсутствуют"
+                        )
+                    </RadzenText>
+                    <RadzenButton Text="Скачать"
+                                   Icon="file_download"
+                                   Size="ButtonSize.Small"
+                                   ButtonStyle="ButtonStyle.Secondary"
+                                   Click="@ExportToExcelAsync"
+                                   Style="align-self:flex-start" />
+                </RadzenStack> 
+			    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Left">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">
+						@{
+							var ru = CultureInfo.GetCultureInfo("ru-RU");
+							var sumText = _daySummary?.Sum.ToString("N2", ru) ?? "0,00";
+							var cntText = (_daySummary?.Count ?? 0).ToString("N0", ru);
+						}
+						Всего: <b>@sumText</b> кг (<b>@cntText</b> шт.)
+				    </RadzenText>
+				    <RadzenText TextStyle="TextStyle.Subtitle2">
+						@{
+							var ru = CultureInfo.GetCultureInfo("ru-RU");
+							var avgText = _daySummary?.Avg?.ToString("N2", ru) ?? "0,00";
+							var minText = _daySummary?.Min?.ToString("N2", ru) ?? "—";
+							var maxText = _daySummary?.Max?.ToString("N2", ru) ?? "—";
+						}
+						Средний вес <b>@avgText</b> кг (min: <b>@minText</b> кг, max: <b>@maxText</b> кг)
+				    </RadzenText>
+			    </RadzenStack>
+			</RadzenStack>
+            <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" JustifyContent="JustifyContent.Start" AlignItems="AlignItems.End">
+                    
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
+                        <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                    </RadzenStack>
+                @if (_isDetailed)
+                {
+					<RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+						<RadzenText TextStyle="TextStyle.Subtitle2">@(_highlightRepeats ? "Выключить подсветку" : "Включить подсветку")</RadzenText>
+						<RadzenSwitch @bind-Value="_highlightRepeats" @bind-Value:after="OnHighlightToggleChanged" />
 					</RadzenStack>
-                </RadzenStack>
-                
-                
-
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                    <RadzenText TextStyle="TextStyle.Subtitle2">@(_isDetailed ? "Подробный" : "Сводный")</RadzenText>
-                    <RadzenSwitch @bind-Value="_isDetailed" @bind-Value:after="OnUiChanged" />
+                }
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2">@(_includeSanitary ? "Санитарный включён" : "Санитарный исключён")</RadzenText>
+                    <RadzenSwitch @bind-Value="_includeSanitary" @bind-Value:after="OnSanitaryToggleChanged" />
                 </RadzenStack>
             </RadzenStack>
-        </RadzenCard>
+        </RadzenStack>
+
+        @if (!string.IsNullOrWhiteSpace(_pageLoadError))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" class="rz-mb-2">@_pageLoadError</RadzenAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(_monthLoadError))
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat" class="rz-mb-2">@_monthLoadError</RadzenAlert>
+        }
 
         <WeightsGrid @ref="_grid"
                      IsDetailed="@_isDetailed"
+                     HighlightSameWeightCells="@(_isDetailed && _highlightRepeats)"
                      Rows="@_rows"
+                     SummaryRows="@_summaryRows"
                      Totals="@_totals"
                      TotalCount="@_totalCount"
                      PageSize="400"
@@ -73,7 +106,7 @@
     </RadzenColumn>
 
     <!-- ПРАВАЯ КОЛОНКА: календарь + детали -->
-    <RadzenColumn Size="12" SizeLG="3"
+    <RadzenColumn Order="1" OrderLG="2" Size="12" SizeLG="4" SizeXL="3"
                   Style="display:flex; flex-direction:column; min-height:100vh;">
         <!-- Нижний блок, "прилипший" к низу окна -->
         <div style="margin-top:auto; position:sticky; bottom:0px; z-index:10; width:100%;">
@@ -112,11 +145,19 @@
     int _pageIndex = 0;
 
     HashSet<DateOnly> _markedDays = new();
+    int _visibleCalendarYear = DateTime.Today.Year;
+    int _visibleCalendarMonth = DateTime.Today.Month;
     DaySummary? _daySummary;
 
     bool _isDetailed = true;
+    bool _highlightRepeats;
+    bool _includeSanitary = true;
+    string? _pageLoadError;
+    string? _monthLoadError;
 
     IReadOnlyList<GridRowVm> _rows = Array.Empty<GridRowVm>();
+    IReadOnlyList<GridRowVm> _summaryRows = Array.Empty<GridRowVm>();
+    IReadOnlyDictionary<int, WeighingEditEntry> _latestEdits = new Dictionary<int, WeighingEditEntry>();
     decimal[] _totals = new decimal[10];
     int _totalCount = 0;
 
@@ -131,6 +172,8 @@
     sealed class MonitoringUiStateV2
     {
         public bool? IsDetailed { get; set; }
+        public bool? HighlightRepeats { get; set; }
+        public bool? IncludeSanitary { get; set; }
     }
 
     sealed class ReturnToMonitoring
@@ -140,6 +183,10 @@
         public int PageIndex { get; set; }               // страница (0..)
         public int? SelectedOrderInDay { get; set; }     // № взвешивания за день (1..N), может быть null
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? SelectedTimestamp { get; set; }
+        public int? PollingIntervalMs { get; set; }
+        public DateTime? LogsFrom { get; set; }
+        public DateTime? LogsTo { get; set; }
     }
 
     protected override async Task OnInitializedAsync()
@@ -180,8 +227,19 @@
 
     async Task LoadMonthMarks(int year, int month)
     {
-        var dict = await Data.GetMonthStatsAsync(year, month);
-        _markedDays = dict.Keys.ToHashSet();
+        _visibleCalendarYear = year;
+        _visibleCalendarMonth = month;
+        try
+        {
+            var dict = await Data.GetMonthStatsAsync(year, month, _includeSanitary);
+            _markedDays = dict.Keys.ToHashSet();
+            _monthLoadError = null;
+        }
+        catch (Exception ex)
+        {
+            _markedDays = new HashSet<DateOnly>();
+            _monthLoadError = $"Не удалось загрузить календарь с выбранным фильтром: {ex.Message}";
+        }
         StateHasChanged();
     }
 
@@ -276,6 +334,14 @@
             {
                 _isDetailed = det;
             }
+            if (s?.HighlightRepeats is bool highlight)
+            {
+                _highlightRepeats = highlight;
+            }
+            if (s?.IncludeSanitary is bool includeSanitary)
+            {
+                _includeSanitary = includeSanitary;
+            }
         }
         catch { /* ok */ }
     }
@@ -283,20 +349,42 @@
     async Task SaveUiStateAsync()
     {
         if (!_uiLoaded) return;
-        await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2 { IsDetailed = _isDetailed });
+        await PLS.SetAsync(UiStateKey, new MonitoringUiStateV2
+        {
+            IsDetailed = _isDetailed,
+            HighlightRepeats = _highlightRepeats,
+            IncludeSanitary = _includeSanitary
+        });
     }
 
 
     async Task LoadPage(int pageIndex)
     {
+        try
+        {
+            await LoadPageCore(pageIndex);
+            _pageLoadError = null;
+        }
+        catch (Exception ex)
+        {
+            _totalCount = 0;
+            _daySummary = new DaySummary(0, 0m, null, null, null);
+            _latestEdits = new Dictionary<int, WeighingEditEntry>();
+            BuildMatrix(Array.Empty<Weighing>(), _latestEdits);
+            _pageLoadError = $"Не удалось загрузить данные с выбранным фильтром: {ex.Message}";
+        }
+    }
+
+    async Task LoadPageCore(int pageIndex)
+    {
         var dateOnly = DateOnly.FromDateTime(SelectedDate);
 
         // теперь сюда передаём pageIndex и PageSize
-        var (items, total) = await Data.GetDayPageAsync(dateOnly, pageIndex, 400);
+        var (items, total) = await Data.GetDayPageAsync(dateOnly, pageIndex, 400, _includeSanitary);
         _totalCount = total;
 
         // Получаем ВСЕ записи за день (только для сводки)
-        var allItems = await Data.GetDayAllAsync(dateOnly);
+        var allItems = await Data.GetDayAllAsync(dateOnly, _includeSanitary);
         var weights = allItems.Select(x => x.Weight).ToList();
 
         _daySummary = new DaySummary(
@@ -306,11 +394,187 @@
             Max: weights.Count > 0 ? weights.Max() : null,
             Avg: weights.Count > 0 ? weights.Average() : null);
 
+        var edits = await Data.GetEditsAsync(dateOnly);
+        _latestEdits = edits
+            .Where(e => e.WeighingId.HasValue && e.Action is WeighingEditAction.Increment or WeighingEditAction.Decrement or WeighingEditAction.Insert)
+            .GroupBy(e => e.WeighingId!.Value)
+            .Select(g => g.OrderByDescending(x => x.EditedAt).First())
+            .ToDictionary(x => x.WeighingId!.Value, x => x);
+
         // Построение матрицы — только для текущей страницы
-        BuildMatrix(items);
+        BuildMatrix(items, _latestEdits);
     }
 
-    void BuildMatrix(IReadOnlyList<Weighing> items)
+    async Task ExportToExcelAsync()
+    {
+        try
+        {
+            var dateOnly = DateOnly.FromDateTime(SelectedDate);
+            var allItems = await Data.GetDayAllAsync(dateOnly, _includeSanitary);
+            if (allItems is null || allItems.Count == 0)
+            {
+                NotificationService.Notify(NotificationSeverity.Info, "Экспорт в Excel", "За выбранный день нет данных для экспорта.");
+                return;
+            }
+
+            var ordered = allItems.OrderBy(x => x.Timestamp).ToList();
+            var summary = new DaySummary(
+                Count: ordered.Count,
+                Sum: ordered.Sum(x => x.Weight),
+                Min: ordered.Count > 0 ? ordered.Min(x => x.Weight) : null,
+                Max: ordered.Count > 0 ? ordered.Max(x => x.Weight) : null,
+                Avg: ordered.Count > 0 ? ordered.Average(x => x.Weight) : null);
+
+            const int pageSize = 400;
+            var pageCount = (int)Math.Ceiling(summary.Count / (double)pageSize);
+            var ru = CultureInfo.GetCultureInfo("ru-RU");
+
+            using var workbook = new XLWorkbook();
+            workbook.Style.Font.SetFontName("Times New Roman");
+            workbook.Style.Font.SetFontSize(11);
+
+            for (var page = 0; page < pageCount; page++)
+            {
+                var worksheet = workbook.Worksheets.Add($"Страница {page + 1}");
+                var currentRow = 1;
+
+                var title = $"Реестр взвешиваний за {SelectedDate:dd.MM.yyyy}";
+                worksheet.Cell(currentRow, 1).Value = title;
+                var titleRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                titleRange.Merge();
+                titleRange.Style.Font.SetFontSize(16);
+                titleRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                titleRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                worksheet.Row(currentRow).Height = 19.5;
+                currentRow += 2;
+
+                var totalText = $"Всего: {summary.Sum.ToString("N2", ru)} кг ({summary.Count.ToString("N0", ru)} шт.)";
+                worksheet.Cell(currentRow, 1).Value = totalText;
+                var totalRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                totalRange.Merge();
+                totalRange.Style.Font.SetFontSize(12);
+                worksheet.Row(currentRow).Height = 15;
+                currentRow++;
+
+                var avgText = summary.Avg?.ToString("N2", ru) ?? "0,00";
+                var minText = summary.Min?.ToString("N2", ru) ?? "—";
+                var maxText = summary.Max?.ToString("N2", ru) ?? "—";
+                var summaryText = $"Средний вес {avgText} кг (min: {minText} кг, max: {maxText} кг)";
+                worksheet.Cell(currentRow, 1).Value = summaryText;
+                var summaryRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                summaryRange.Merge();
+                summaryRange.Style.Font.SetFontSize(12);
+                worksheet.Row(currentRow).Height = 15;
+                currentRow++;
+
+                worksheet.Cell(currentRow, 1).Value = $"Страница {page + 1} из {pageCount}";
+                var pagerRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                pagerRange.Merge();
+                pagerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
+                pagerRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                currentRow += 2;
+
+                worksheet.Cell(currentRow, 1).Value = "№";
+                for (var col = 1; col <= 10; col++)
+                {
+                    worksheet.Cell(currentRow, col + 1).Value = col.ToString(CultureInfo.InvariantCulture);
+                }
+
+                var headerRow = currentRow;
+                currentRow++;
+
+                var pageItems = ordered.Skip(page * pageSize).Take(pageSize).ToList();
+                for (var rowIdx = 0; rowIdx < 40; rowIdx++)
+                {
+                    worksheet.Cell(currentRow + rowIdx, 1).Value = rowIdx + 1;
+
+                    for (var col = 0; col < 10; col++)
+                    {
+                        var index = col * 40 + rowIdx;
+                        if (index >= pageItems.Count)
+                        {
+                            continue;
+                        }
+
+                        var weight = pageItems[index].Weight;
+                        worksheet.Cell(currentRow + rowIdx, col + 2).Value = weight;
+                    }
+                }
+
+                currentRow += 40;
+
+                worksheet.Cell(currentRow, 1).Value = "ИТОГО:";
+                for (var col = 0; col < 10; col++)
+                {
+                    var columnLetter = XLHelper.GetColumnLetterFromNumber(col + 2);
+                    var dataStartRow = headerRow + 1;
+                    var dataEndRow = headerRow + 40;
+                    var formula = $"=SUM({columnLetter}{dataStartRow}:{columnLetter}{dataEndRow})";
+                    worksheet.Cell(currentRow, col + 2).SetFormulaA1(formula);
+                }
+
+                var headerRange = worksheet.Range(headerRow, 1, headerRow, 11);
+                headerRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                headerRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                headerRange.Style.Fill.SetBackgroundColor(XLColor.LightYellow);
+                headerRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                headerRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Row(headerRow).Height = 16.5;
+
+                var dataStart = headerRow + 1;
+                var dataEnd = headerRow + 40;
+                var indexRange = worksheet.Range(dataStart, 1, dataEnd, 1);
+                indexRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                indexRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                indexRange.Style.Fill.SetBackgroundColor(XLColor.LightYellow);
+                indexRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                indexRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Rows(dataStart, dataEnd).Height = 15.75;
+
+                var valuesRange = worksheet.Range(dataStart, 2, dataEnd, 11);
+                valuesRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                valuesRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+                valuesRange.Style.Alignment.SetIndent(1);
+                valuesRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                valuesRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                valuesRange.Style.NumberFormat.Format = "#,##0.00";
+
+                var totalRowRange = worksheet.Range(currentRow, 1, currentRow, 11);
+                totalRowRange.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                totalRowRange.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                totalRowRange.Style.Fill.SetBackgroundColor(XLColor.LightGreen);
+                totalRowRange.Style.Font.SetBold();
+                totalRowRange.Style.Font.SetFontColor(XLColor.DarkBlue);
+                totalRowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                totalRowRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                worksheet.Range(currentRow, 2, currentRow, 11).Style.NumberFormat.Format = "#,##0.00";
+
+                worksheet.PageSetup.PrintAreas.Clear();
+                var printAreaAddress = $"A1:K{currentRow.ToString(CultureInfo.InvariantCulture)}";
+                worksheet.PageSetup.PrintAreas.Add(printAreaAddress);
+                worksheet.PageSetup.FitToPages(1, 1);
+
+                worksheet.Column(1).AdjustToContents();
+                worksheet.Columns(2, 11).Width = 8;
+            }
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            var base64 = Convert.ToBase64String(stream.ToArray());
+            var fileName = $"weighings-{SelectedDate:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync(
+                "scalemon.downloadFile",
+                fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                base64);
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Экспорт в Excel", ex.Message);
+        }
+    }
+
+    void BuildMatrix(IReadOnlyList<Weighing> items, IReadOnlyDictionary<int, WeighingEditEntry> editsById)
     {
         var ordered = items.OrderBy(x => x.Timestamp).ToList();
 
@@ -325,7 +589,11 @@
             int col = i / 40;   // номер столбца (0..9)
             int row = i % 40;   // номер строки в столбце (0..39)
 
-            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp));
+            var highlightAction = editsById.TryGetValue(ordered[i].Id, out var edit)
+                ? edit.Action
+                : (WeighingEditAction?)null;
+
+            columns[col].Add(new Cell(ordered[i].Id, ordered[i].Weight, ordered[i].Timestamp, highlightAction, ordered[i].Mode));
         }
 
         // дополняем пустыми ячейками до 40 в каждом столбце
@@ -344,10 +612,51 @@
             rows.Add(new GridRowVm(r + 1, data));
         }
         _rows = rows;
+        _summaryRows = BuildSummaryRows(rows);
 
         // итоги по столбцам
         for (int col = 0; col < 10; col++)
             _totals[col] = columns[col].Where(c => c.HasValue).Sum(c => c!.Weight!.Value);
+    }
+
+    static IReadOnlyList<GridRowVm> BuildSummaryRows(IReadOnlyList<GridRowVm> rows)
+    {
+        if (rows.Count == 0)
+            return Array.Empty<GridRowVm>();
+
+        var summary = new List<GridRowVm>();
+
+        summary.Add(rows[0]);
+        summary.Add(CreateEmptySummaryRow());
+
+        if (rows.Count >= 3)
+        {
+            var secondLastIndex = rows.Count - 2;
+            if (secondLastIndex != 0)
+            {
+                summary.Add(rows[secondLastIndex]);
+            }
+        }
+
+        if (rows.Count >= 2)
+        {
+            var lastIndex = rows.Count - 1;
+            if (lastIndex != 0)
+            {
+                summary.Add(rows[lastIndex]);
+            }
+        }
+
+        return summary;
+    }
+
+    static GridRowVm CreateEmptySummaryRow()
+    {
+        static Cell EmptyCell() => new(null, null, null);
+
+        return new GridRowVm(0, new GridRow(
+            EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(),
+            EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell(), EmptyCell()));
     }
 
     Task OnCellSelected(Cell? cell)
@@ -361,6 +670,26 @@
     }
 
     async Task OnUiChanged() => await SaveUiStateAsync();
+    async Task OnHighlightToggleChanged() => await SaveUiStateAsync();
+
+    async Task OnSanitaryToggleChanged()
+    {
+        _pageIndex = 0;
+        _selectedCell = null;
+        if (_grid is not null)
+        {
+            await _grid.ClearSelectionAsync();
+        }
+
+        await LoadPage(0);
+        if (_grid is not null)
+        {
+            await _grid.GoFirstPageAsync();
+        }
+
+        await LoadMonthMarks(_visibleCalendarYear, _visibleCalendarMonth);
+        await SaveUiStateAsync();
+    }
 
     
     async Task SaveReturnTicketAsync()
@@ -369,31 +698,135 @@
         var posOnPage = _grid?.GetSelectedOrderOnPage(); // 1..400 или null
         int? orderInDay = posOnPage.HasValue ? (_pageIndex * 400) + posOnPage.Value : _selectedOrderInDay;
 
+        DateTime? selectedTimestamp = _selectedCell?.Timestamp;
+        int? pollingIntervalMs = null;
+        DateTime? logsFrom = null;
+        DateTime? logsTo = null;
+
+        if (selectedTimestamp is DateTime ts)
+        {
+            try
+            {
+                var settings = await SettingsSource.LoadAsync();
+                pollingIntervalMs = settings?.ScaleSettings?.PollingIntervalMs;
+            }
+            catch
+            {
+                pollingIntervalMs = null;
+            }
+
+            double intervalSeconds = 0;
+            if (pollingIntervalMs is int pollMs && pollMs > 0)
+            {
+                intervalSeconds = pollMs * 0.05;
+            }
+
+            logsFrom = ts.AddSeconds(-intervalSeconds);
+            logsTo = ts.AddSeconds(3);
+        }
+
         var ticket = new ReturnToMonitoring
         {
             Date = SelectedDate.Date,
             PageIndex = _pageIndex,
-            SelectedOrderInDay = orderInDay
+            SelectedOrderInDay = orderInDay,
+            SelectedTimestamp = selectedTimestamp,
+            PollingIntervalMs = pollingIntervalMs,
+            LogsFrom = logsFrom,
+            LogsTo = logsTo
         };
         await PLS.SetAsync(ReturnKey, ticket);
     }
     
+    async Task<WeighingInsertRequest?> OpenInsertDialogAsync(string action)
+    {
+        if (_selectedCell?.Timestamp is not DateTime baseTimestamp)
+            return null;
+
+        // +1 сек — “ниже”, -1 сек — “выше”
+        var offsetSeconds = action == "addAbove" ? -1 : 1;
+        var defaultTimestamp = ClampToSelectedDay(baseTimestamp.AddSeconds(offsetSeconds));
+
+        var parms = new Dictionary<string, object?>
+        {
+            [nameof(WeighingInsertDialog.BaseDate)] = defaultTimestamp,          // дата И время
+            [nameof(WeighingInsertDialog.InitialWeight)] = _selectedCell!.Weight // начальный вес
+        };
+
+        var title = action == "addAbove" ? "Добавить выше" : "Добавить ниже";
+        var opts = new DialogOptions
+        {
+            Width = "520px",
+            CloseDialogOnEsc = true,
+            CloseDialogOnOverlayClick = true
+        };
+
+        var res = await DialogService.OpenAsync<WeighingInsertDialog>(title, parms, opts);
+
+        return res as WeighingInsertRequest;
+
+        DateTime ClampToSelectedDay(DateTime value)
+        {
+            var dayStart = SelectedDate.Date;
+            var dayEnd = dayStart.AddDays(1).AddTicks(-1);
+            if (value < dayStart) return dayStart;
+            if (value > dayEnd) return dayEnd;
+            return value;
+        }
+    }
+
     async Task OnActionFromGrid(string action)
     {
         if (_selectedCell?.HasValue != true) return;
         var id = _selectedCell.Id!.Value;
 
+        var userName = CurrentUser?.Identity?.Name;
+
+        var shouldReload = false;
+
         switch (action)
         {
-            case "inc":      await Data.AdjustAsync(id, +Step); break;
-            case "dec":      await Data.AdjustAsync(id, -Step); break;
-            case "addAbove": await Data.InsertAboveAsync(id, _selectedCell!.Weight ?? 0); break;
-            case "addBelow": await Data.InsertBelowAsync(id, _selectedCell!.Weight ?? 0); break;
-            case "delete":   await Data.DeleteAsync(id); break;
-            case "logs": await SaveReturnTicketAsync(); Nav.NavigateTo("/logs?from=mon"); return;
+            case "inc":
+                await Data.AdjustAsync(id, +Step, userName);
+                shouldReload = true;
+                break;
+            case "dec":
+                await Data.AdjustAsync(id, -Step, userName);
+                shouldReload = true;
+                break;
+            case "addAbove":
+            case "addBelow":
+                var insertRequest = await OpenInsertDialogAsync(action);
+                if (insertRequest is null)
+                {
+                    return;
+                }
+
+                if (action == "addAbove")
+                {
+                    await Data.InsertAboveAsync(id, insertRequest.Weight, insertRequest.Timestamp, userName);
+                }
+                else
+                {
+                    await Data.InsertBelowAsync(id, insertRequest.Weight, insertRequest.Timestamp, userName);
+                }
+
+                shouldReload = true;
+                break;
+            case "delete":
+                await Data.DeleteAsync(id, userName);
+                shouldReload = true;
+                break;
+            case "logs":
+                await SaveReturnTicketAsync();
+                Nav.NavigateTo("/logs?from=mon");
+                return;
         }
 
-        await LoadPage(_pageIndex);
+        if (shouldReload)
+        {
+            await LoadPage(_pageIndex);
+        }
     }
 
     Task OnActionFromDetails(string action) => OnActionFromGrid(action);

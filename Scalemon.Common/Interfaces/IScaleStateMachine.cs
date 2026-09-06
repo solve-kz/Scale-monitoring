@@ -3,57 +3,29 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static Scalemon.Common.Enums;
 
 namespace Scalemon.Common
 {
-    
-    /// <summary>
-    /// Определяет контракт для конечного автомата (FSM), управляющего логикой взвешивания.
-    /// Предоставляет методы-обработчики для всех внешних событий системы.
-    /// </summary>
     public interface IScaleStateMachine
     {
-        /// <summary>
-        /// Обрабатывает событие установления связи с весами.
-        /// </summary>
-        Task OnScaleConnectedAsync();
+        FsmState CurrentState { get; }
 
         /// <summary>
-        /// Обрабатывает событие потери связи с весами.
+        /// Показывает, что технологическая ошибка защёлкнута до подтверждённого нуля.
         /// </summary>
-        Task OnScaleDisconnectedAsync();
+        bool HasLatchedProcessError { get; }
+
+        Task SetConnectionAsync(bool isConnected);
+        Task SetAlarmAsync(bool isAlarm);
 
         /// <summary>
-        /// Обрабатывает событие, когда вес на платформе становится нестабильным.
+        /// Передаёт в FSM полный снимок свежего ответа весового терминала.
         /// </summary>
-        Task OnScaleUnstableAsync();
+        Task OnScaleSampleAsync(ScaleDataPoint sample);
 
-        /// <summary>
-        /// Обрабатывает событие аппаратной ошибки весов.
-        /// </summary>
-        Task OnScaleAlarmAsync();
-
-        /// <summary>
-        /// Обрабатывает получение нового стабильного значения веса от процессора.
-        /// </summary>
-        /// <param name="raw">Необработанное значение веса.</param>
-        Task OnWeightReceivedAsync(decimal raw);
-
-        /// <summary>
-        /// Обрабатывает событие сбоя при записи в базу данных.
-        /// </summary>
-        /// <param name="ex">Исключение, вызвавшее сбой.</param>
-        Task OnDatabaseFailedAsync(Exception ex);
-
-        /// <summary>
-        /// Обрабатывает событие восстановления связи с базой данных.
-        /// </summary>
+        Task OnDatabaseFailedAsync(Exception ex); // без изменений в остальной системе
         Task OnDatabaseRestoredAsync();
-
-        /// <summary>
-        /// Обрабатывает событие нажатия кнопки на пульте Arduino.
-        /// </summary>
         Task OnButtonPressedAsync();
     }
 }
-

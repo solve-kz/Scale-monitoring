@@ -1,11 +1,18 @@
 ﻿@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Authorization
-@inherits LayoutComponentBase
+@inherits RoleAwareLayoutComponentBase
 
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject CookieThemeService CookieThemeService
 @implements IAsyncDisposable
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback OnLogin { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private string? UserName => CurrentUser?.Identity?.Name;
+}
 
 <RadzenLayout>
 
@@ -13,23 +20,50 @@
     <RadzenHeader Class="rz-shadow-2 rz-px-3">
         <RadzenStack Orientation="Orientation.Horizontal"
                      AlignItems="AlignItems.Center"
-                     Gap="8"
-                     JustifyContent="JustifyContent.Start"
-                     Style="height:56px">
-            <RadzenImage Path="images/logo-main.png" Style="width:24px;height:24px" />
-            <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
-            <RadzenText Text="·" Class="rz-ml-1 rz-mr-1" />
-            <RadzenText Text="@_pageTitle" TextStyle="TextStyle.H6" Class="rz-text-secondary" />
+                     Style="height:56px;gap:16px;width:100%">
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         Gap="8"
+                         Style="flex:0 0 auto">
+                <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="width:24px;height:24px" />
+                <RadzenLink Path="/" Style="text-decoration:none;color:inherit">
+                    <RadzenText Text="ScaleMonitoring" TextStyle="TextStyle.H5" />
+                </RadzenLink>
+            </RadzenStack>
+            <RadzenText Text="@_pageTitle"
+                        TextStyle="TextStyle.H6"
+                        Class="rz-text-secondary"
+                        Style="flex:1;text-align:center;text-transform:uppercase;" />
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.Center"
+                         Gap="8"
+                         Style="margin-left:auto;justify-content:flex-end"
+                         Visible="@CanSee(1)">
+                <RadzenIcon Icon="account_circle" />
+                @if (!Collapsed && !string.IsNullOrWhiteSpace(UserName))
+                {
+                    <RadzenLabel Text="@UserName" />
+                }
+                <RadzenButton Icon="logout"
+                              Text="Выход"
+                              ButtonStyle="ButtonStyle.Secondary"
+                              Size="ButtonSize.Small"
+                              Click="Logout" />
+            </RadzenStack>
         </RadzenStack>
     </RadzenHeader>
 
-    <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
-    <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")">
-        <NavMenu Collapsed="@(navCollapsed)"
-                 OnToggleSidebar="ToggleSidebar"
-                 OnLogin="Login"
-                 OnLogout="Logout" />
-    </RadzenSidebar>
+    @if (!_isLoginPage)
+    {
+        <!-- ВАЖНО: не привязываем Expanded, держим панель всегда видимой -->
+        <RadzenSidebar Style="@(navCollapsed ? "width:64px;transition:width .2s" : "width:200px;transition:width .2s")"
+                       Visible="@CanSee(1)">
+            <NavMenu Collapsed="@(navCollapsed)"
+                     OnToggleSidebar="ToggleSidebar"
+                     OnLogin="Login"
+                     OnLogout="Logout" />
+        </RadzenSidebar>
+    }
 
     <RadzenBody>
         <div class="rz-p-3">
@@ -49,7 +83,7 @@
     // private bool sidebarExpanded = true;
     private string _pageTitle = "Главная";
     private bool navCollapsed = false; // false=широкая, true=узкая рейка
-
+    private bool _isLoginPage;
     protected override void OnInitialized()
     {
         SetPageTitle(Nav.Uri);
@@ -58,7 +92,7 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        
+
         SetPageTitle(e.Location);
     }
 
@@ -66,13 +100,17 @@
     {
         // Простой «роут->заголовок» без лишнего кода
         var path = new Uri(uri).AbsolutePath.ToLowerInvariant();
+        _isLoginPage = path == "/login";
         _pageTitle = path switch
         {
             "/monitoring" => "Мониторинг",
             "/logs" => "Логи службы Scalemon",
             "/statistics" => "Статистика",
+            "/production-display" => "Экран цеха",
+            "/weight-register-review" => "Сверка ручного реестра",
             "/settings" => "Настройки",
-            "/" or "/about" => "О программе",
+            "/" or "/about" => "Служба регистрации взвешиваний",
+            "/login" => "Вход",
             _ => "Страница"
         };
         StateHasChanged();
@@ -85,17 +123,16 @@
     }
 
     // Простейшие заглушки под ваши реальные процедуры авторизации
-    private async Task Login()
+    private Task Login()
     {
-        // Покажите ваш диалог логина (например, RadzenDialog/RadzenLogin)
-        await JS.InvokeVoidAsync("scalemon.showLogin");
+        Nav.NavigateTo("/login");
+        return Task.CompletedTask;
     }
 
     private async Task Logout()
     {
-        // Ваш существующий сценарий выхода
         await JS.InvokeVoidAsync("scalemon.logout");
-        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+        Nav.NavigateTo("/login", forceLoad: true);
     }
 
     public async ValueTask DisposeAsync()

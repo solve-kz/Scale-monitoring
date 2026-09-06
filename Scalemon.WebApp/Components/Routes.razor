@@ -2,12 +2,13 @@
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Authorization
 
-<Router AppAssembly="typeof(Program).Assembly">
+@using Scalemon.WebApp.Components.Auth
+
+<Router AppAssembly="typeof(App).Assembly">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="typeof(Layout.MainLayout)">
             <NotAuthorized>
-                @* Можно показать заглушку или просто отправить на главную *@
-                <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Незнакомцам доступа нет!</RadzenText>
+                <RedirectToLogin />
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />

@@ -1,30 +1,98 @@
-﻿@page "/about"
-@using Microsoft.AspNetCore.Components.Authorization
-@inject Radzen.DialogService Dialog
+@page "/about"
+@attribute [Authorize]
+<RadzenStack AlignItems="AlignItems.Stretch" Gap="24px" Class="rz-mx-auto rz-my-8 rz-px-4" Style="max-width: 960px;">
+    <RadzenHeading Size="HeadingSize.H1" TextAlign="TextAlign.Left">
+        О программно-аппаратном комплексе "Scalemon"
+    </RadzenHeading>
 
+    <RadzenStack Gap="12px">
+        <RadzenText TextStyle="TextStyle.Body1">
+            <strong>Scalemon</strong> — это современная система для автоматизации сбора, хранения и анализа данных с весового оборудования. Комплекс предназначен для повышения эффективности и прозрачности процессов взвешивания на производстве, складах и в логистических центрах.
+        </RadzenText>
+        <RadzenText TextStyle="TextStyle.Body1">
+            Система в режиме реального времени получает данные с весов, обрабатывает их и предоставляет пользователям удобный веб-интерфейс для мониторинга и анализа.
+        </RadzenText>
+    </RadzenStack>
 
-<AuthorizeView>
-    <Authorized>
-        <RadzenStack AlignItems="AlignItems.Center" class="rz-mx-auto rz-my-12">
+    <div class="rz-divider rz-my-2"></div>
 
-            <RadzenImage Path="images/logo.png" Style="width: 15rem;" AlternateText="community" />
-            <RadzenText TextStyle="TextStyle.DisplayH3">Здесь будет описание программы и рекламный текст</RadzenText>
-        </RadzenStack>
-    </Authorized>
-    <NotAuthorized>
-        <RadzenText TextStyle="TextStyle.DisplayH4" class="rz-mx-auto">Нет доступа незнакомцам!</RadzenText>
-    </NotAuthorized>
-</AuthorizeView>
+    <RadzenHeading Size="HeadingSize.H3" TextAlign="TextAlign.Left">
+        Ключевые возможности и разделы интерфейса
+    </RadzenHeading>
+    <RadzenText TextStyle="TextStyle.Body1">
+        Наш интуитивно понятный веб-интерфейс позволяет вам легко управлять всеми аспектами процесса взвешивания.
+    </RadzenText>
 
-@code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
-    protected override async Task OnAfterRenderAsync(bool first)
-    {
-        if (!first || AuthTask is null) return;
-        var user = (await AuthTask).User;
-        if (!(user.Identity?.IsAuthenticated ?? false))
-            await Dialog.OpenAsync<Auth.LoginPopup>("Вход",
-              new Dictionary<string, object>(),
-              new DialogOptions { Width = "420px", ShowClose = false, CloseDialogOnOverlayClick = false });
-    }
-}
+    <RadzenRow Gutter="20">
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard Style="height: 100%;">
+                <RadzenStack Gap="8px">
+                    <RadzenHeading Size="HeadingSize.H4">📈 Мониторинг</RadzenHeading>
+                    <RadzenText>Просмотр текущих показаний весов в режиме реального времени.</RadzenText>
+                    <RadzenText>Отслеживание статуса подключения оборудования.</RadzenText>
+                    <RadzenText>Визуализация динамики веса на графиках.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard Style="height: 100%;">
+                <RadzenStack Gap="8px">
+                    <RadzenHeading Size="HeadingSize.H4">📊 Статистика</RadzenHeading>
+                    <RadzenText>Формирование отчетов по взвешиваниям за любой период.</RadzenText>
+                    <RadzenText>Анализ данных с помощью интерактивных диаграмм и таблиц.</RadzenText>
+                    <RadzenText>Выгрузка данных в форматах CSV и PDF для дальнейшего анализа.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard Style="height: 100%;">
+                <RadzenStack Gap="8px">
+                    <RadzenHeading Size="HeadingSize.H4">🗂️ Журналы событий</RadzenHeading>
+                    <RadzenText>Просмотр системных логов для диагностики и контроля работы комплекса.</RadzenText>
+                    <RadzenText>Фильтрация событий по дате, типу и важности.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard Style="height: 100%;">
+                <RadzenStack Gap="8px">
+                    <RadzenHeading Size="HeadingSize.H4">⚙️ Настройки</RadzenHeading>
+                    <RadzenText>Управление параметрами подключения к весовому оборудованию.</RadzenText>
+                    <RadzenText>Настройка пороговых значений и уведомлений.</RadzenText>
+                    <RadzenText>Администрирование пользователей и их прав доступа.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <div class="rz-divider rz-my-2"></div>
+
+    <RadzenRow AlignItems="AlignItems.Stretch" Gutter="20">
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard>
+                <RadzenStack Gap="12px" AlignItems="AlignItems.Center">
+                    <RadzenHeading Size="HeadingSize.H4">Заказчик</RadzenHeading>
+                    <RadzenImage Path="_content/Scalemon.WebApp/images/logo.png" Style="max-width: 15rem;" AlternateText="Imperium Caeli" />
+                    <RadzenText TextStyle="TextStyle.Subtitle1">ТОО "Imperium Caeli"</RadzenText>
+                    <RadzenText Style="font-style: italic;">Холодильные технологии для вашего бизнеса.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+        <RadzenColumn SizeMD="6" SizeXS="12">
+            <RadzenCard>
+                <RadzenStack Gap="12px" AlignItems="AlignItems.Center">
+                    <RadzenHeading Size="HeadingSize.H4">Разработчик</RadzenHeading>
+                    <RadzenImage Path="_content/Scalemon.WebApp/images/logo-main.png" Style="max-width: 5rem;" AlternateText="Solve.kz" />
+                    <RadzenText TextStyle="TextStyle.Subtitle1">ИП Приходько П. С. Solve.kz</RadzenText>
+                    <RadzenText Style="font-style: italic;">Профессиональные программные решения.</RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+    </RadzenRow>
+
+    <RadzenStack Gap="8px" AlignItems="AlignItems.Start">
+        <RadzenText TextStyle="TextStyle.Subtitle1">Программно-аппаратный комплекс "Scalemon"</RadzenText>
+        <RadzenText>Версия 1.0.0</RadzenText>
+        <RadzenText>© 2025. Все права защищены.</RadzenText>
+    </RadzenStack>
+</RadzenStack>

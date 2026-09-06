@@ -1,0 +1,377 @@
+@page "/production-display"
+@layout DisplayLayout
+@attribute [AllowAnonymous]
+@implements IAsyncDisposable
+@using System.Globalization
+@inject IWeighingDataService Data
+@inject ISlaughterModeState SlaughterModeState
+@inject IProductionIndicatorState IndicatorState
+@inject IJSRuntime JS
+
+<div class="production-display @IndicatorClass">
+<RadzenStack Orientation="Orientation.Vertical"
+             AlignItems="AlignItems.Center"
+             JustifyContent="JustifyContent.Center"
+             Gap="3rem"
+             Style="min-height:100vh;padding:3rem;text-align:center;">
+    <RadzenStack Orientation="Orientation.Horizontal"
+                 AlignItems="AlignItems.Center"
+                 JustifyContent="JustifyContent.SpaceBetween"
+                 Wrap="FlexWrap.Wrap"
+                 Gap="1rem"
+                 Style="width:min(92vw,1100px);">
+        <RadzenText TextStyle="TextStyle.H3">Взвешивания за @DateTime.Today.ToString("dd.MM.yyyy")</RadzenText>
+        <RadzenBadge Text="@SlaughterModeText"
+                     BadgeStyle="@SlaughterModeBadgeStyle"
+                     Style="font-size:1.15rem;padding:0.65rem 1rem;" />
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+            <RadzenButton Text="Обнулить счётчик"
+                          Icon="restart_alt"
+                          Class="production-action"
+                          ButtonStyle="ButtonStyle.Light"
+                          Click="ResetCounterAsync" />
+        </RadzenStack>
+    </RadzenStack>
+
+    <RadzenCard Class="@NumericCardClass" Style="width:min(92vw,1100px);padding:2.5rem;">
+        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenText TextStyle="TextStyle.H5">Количество</RadzenText>
+            <div style="font-size:clamp(7rem,22vw,18rem);font-weight:800;line-height:0.95;">
+                @_snapshot.Count.ToString("N0", CultureInfo.GetCultureInfo("ru-RU"))
+            </div>
+            @if (_counterStartedAt is { } counterStartedAt && _counterPreviousCount is { } previousCount)
+            {
+                <RadzenText TextStyle="TextStyle.Body1">
+                    Счётчик обнулён в @counterStartedAt.ToString("HH-mm-ss") после @previousCount.ToString("N0", CultureInfo.GetCultureInfo("ru-RU")) записей.
+                </RadzenText>
+            }
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenCard Class="@NumericCardClass" Style="width:min(92vw,1100px);padding:2.5rem;">
+        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.75rem">
+            <RadzenText TextStyle="TextStyle.H5">Последнее взвешивание</RadzenText>
+            <div style="font-size:clamp(5rem,15vw,12rem);font-weight:800;line-height:1;">
+                @(_snapshot.LastWeight?.ToString("0.00", CultureInfo.GetCultureInfo("ru-RU")) ?? "—")
+                <span style="font-size:0.28em;font-weight:500;">кг</span>
+            </div>
+            <RadzenText TextStyle="TextStyle.H4">
+                @(_snapshot.LastRecordedAt?.ToString("HH:mm:ss") ?? "Нет записей")
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Variant="Variant.Flat">@_error</RadzenAlert>
+    }
+</RadzenStack>
+</div>
+
+@if (IsSanitaryMode)
+{
+    <div class="sanitary-mode-mark" aria-label="Санитарный забой">×</div>
+}
+
+<style>
+    .production-display {
+        --indicator-background: #f4f5f7;
+        --indicator-surface: rgba(255, 255, 255, 0.78);
+        --indicator-foreground: #171717;
+        min-height: 100vh;
+        background: var(--indicator-background);
+        color: var(--indicator-foreground);
+        transition: background-color 180ms ease, color 180ms ease;
+    }
+
+    .production-display.indicator-ready {
+        --indicator-background: #00ff00;
+        --indicator-surface: #5cff5c;
+        --indicator-foreground: #000;
+    }
+
+    .production-display.indicator-unstable {
+        --indicator-background: #fff;
+        --indicator-surface: #fff;
+        --indicator-foreground: #000;
+    }
+
+    .production-display.indicator-completed {
+        --indicator-background: #ff8000;
+        --indicator-surface: #ffad33;
+        --indicator-foreground: #000;
+    }
+
+    .production-display.indicator-error {
+        --indicator-background: #c62828;
+        --indicator-surface: rgba(255, 239, 239, 0.24);
+        --indicator-foreground: #240000;
+    }
+
+    .production-display.indicator-disconnected {
+        --indicator-background: #667085;
+        --indicator-surface: rgba(255, 255, 255, 0.22);
+        --indicator-foreground: #111827;
+    }
+
+    .production-display .production-number-card {
+        background: var(--indicator-surface);
+        color: var(--indicator-foreground);
+        border: 3px solid rgba(0, 0, 0, 0.42);
+        box-shadow: 0 1.5rem 3.8rem rgba(0, 0, 0, 0.48), 0 0.35rem 1rem rgba(0, 0, 0, 0.38);
+    }
+
+    .production-display .production-number-card.sanitary-frame {
+        border: 10px solid #c62828;
+    }
+
+    .production-display .production-action {
+        background: var(--indicator-surface);
+        color: var(--indicator-foreground);
+        border: 3px solid rgba(0, 0, 0, 0.48);
+        box-shadow: 0 0.7rem 1.5rem rgba(0, 0, 0, 0.46);
+        font-weight: 800;
+    }
+
+    .sanitary-mode-mark {
+        position: fixed;
+        top: 1.5rem;
+        right: 1.5rem;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        width: clamp(6rem, 11vw, 10rem);
+        height: clamp(6rem, 11vw, 10rem);
+        border: 10px solid #c62828;
+        border-radius: 50%;
+        background: #fff;
+        color: #c62828;
+        font-family: Arial, sans-serif;
+        font-size: clamp(6rem, 12vw, 11rem);
+        font-weight: 900;
+        line-height: 0.7;
+        transform: rotate(45deg);
+        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.85);
+        pointer-events: none;
+    }
+</style>
+
+@code {
+    private readonly CancellationTokenSource _disposeToken = new();
+    private Task? _refreshTask;
+    private DayLiveSnapshot _snapshot = new(0, null, null);
+    private string? _error;
+    private DateOnly _counterDate = Today;
+    private DateTime? _counterStartedAt;
+    private int? _counterPreviousCount;
+    private bool _browserStorageReady;
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private static string CounterStorageKey(DateOnly date)
+        => $"scalemon.production-display.counter-start.{date:yyyy-MM-dd}";
+
+    private static string CounterPreviousCountStorageKey(DateOnly date)
+        => $"scalemon.production-display.counter-previous-count.{date:yyyy-MM-dd}";
+
+    private SlaughterMode? CurrentSlaughterMode
+    {
+        get
+        {
+            if (!SlaughterModeState.IsKnown)
+            {
+                return null;
+            }
+
+            try
+            {
+                return SlaughterModeState.Current;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private bool IsSanitaryMode => CurrentSlaughterMode == SlaughterMode.Sanitary;
+
+    private string SlaughterModeText
+        => CurrentSlaughterMode is not { } current
+            ? "Режим шкафа не определён"
+            : current == SlaughterMode.Sanitary
+                ? "САНИТАРНЫЙ ЗАБОЙ"
+                : "ОБЩИЙ ЗАБОЙ";
+
+    private BadgeStyle SlaughterModeBadgeStyle
+        => CurrentSlaughterMode is not { } current
+            ? BadgeStyle.Warning
+            : current == SlaughterMode.Sanitary
+                ? BadgeStyle.Danger
+                : BadgeStyle.Success;
+
+    private Enums.ArduinoSignalCode? CurrentIndicator
+    {
+        get
+        {
+            if (!IndicatorState.IsKnown)
+            {
+                return null;
+            }
+
+            try
+            {
+                return IndicatorState.Current;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private string IndicatorClass => CurrentIndicator switch
+    {
+        Enums.ArduinoSignalCode.Idle => "indicator-ready",
+        Enums.ArduinoSignalCode.Completed => "indicator-completed",
+        Enums.ArduinoSignalCode.RedOn or Enums.ArduinoSignalCode.YellowRedOn => "indicator-error",
+        Enums.ArduinoSignalCode.LinkOff => "indicator-disconnected",
+        _ => "indicator-unstable"
+    };
+
+    private string NumericCardClass
+        => IsSanitaryMode
+            ? "production-number-card sanitary-frame"
+            : "production-number-card";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _refreshTask = RefreshLoopAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _browserStorageReady = true;
+        await LoadCounterStartAsync(Today);
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_disposeToken.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (_disposeToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var today = Today;
+            if (_browserStorageReady && _counterDate != today)
+            {
+                await LoadCounterStartAsync(today);
+            }
+            _snapshot = await Data.GetDaySnapshotAsync(
+                today,
+                includeSanitary: true,
+                countFrom: _counterStartedAt,
+                ct: _disposeToken.Token);
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_disposeToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _snapshot = new DayLiveSnapshot(0, null, null);
+            _error = $"Не удалось обновить данные: {ex.Message}";
+        }
+    }
+
+    private async Task ResetCounterAsync()
+    {
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Обнулить экранный счётчик? Записи взвешиваний и статистика не изменятся.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _counterDate = Today;
+        _counterPreviousCount = _snapshot.Count;
+        _counterStartedAt = DateTime.Now;
+        await JS.InvokeVoidAsync(
+            "localStorage.setItem",
+            CounterStorageKey(_counterDate),
+            _counterStartedAt.Value.ToString("O", CultureInfo.InvariantCulture));
+        await JS.InvokeVoidAsync(
+            "localStorage.setItem",
+            CounterPreviousCountStorageKey(_counterDate),
+            _counterPreviousCount.Value.ToString(CultureInfo.InvariantCulture));
+        await RefreshAsync();
+    }
+
+    private async Task LoadCounterStartAsync(DateOnly date)
+    {
+        _counterDate = date;
+        _counterStartedAt = null;
+        _counterPreviousCount = null;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", CounterStorageKey(date));
+            if (DateTime.TryParseExact(
+                    stored,
+                    "O",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var parsed))
+            {
+                _counterStartedAt = parsed;
+            }
+
+            var storedCount = await JS.InvokeAsync<string?>(
+                "localStorage.getItem",
+                CounterPreviousCountStorageKey(date));
+            if (int.TryParse(storedCount, System.Globalization.NumberStyles.Integer, CultureInfo.InvariantCulture, out var previousCount)
+                && previousCount >= 0)
+            {
+                _counterPreviousCount = previousCount;
+            }
+        }
+        catch (JSException ex)
+        {
+            _error = $"Не удалось восстановить экранный счётчик: {ex.Message}";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposeToken.Cancel();
+        if (_refreshTask is not null)
+        {
+            await _refreshTask;
+        }
+        _disposeToken.Dispose();
+    }
+}

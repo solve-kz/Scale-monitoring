@@ -1,9 +1,11 @@
 ﻿@page "/logs"
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
-@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Net.Http.Json
 @using System.Globalization
+@using System.Collections.Generic
+@using System.Linq
 @using ApiLogEntry = Scalemon.WebApp.ApiClient.LogEntry
 @inject NavigationManager Nav
 @inject ApiClient Api
@@ -12,7 +14,7 @@
 @inject ProtectedLocalStorage PLS 
 
 @attribute [StreamRendering]
-@attribute [Authorize(Policy = "CanEdit")]
+
 
 <PageTitle>Логи службы Scalemon</PageTitle>
 
@@ -46,14 +48,14 @@
 
   <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
     <RadzenButton Icon="refresh" Text="Обновить" Click="@ReloadAsync" ButtonStyle="ButtonStyle.Primary" />
-    <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsv" />
-
-        <RadzenButton Icon="delete" Text="Очистить"
-                      Click="@ClearLogAsync"
-                      ButtonStyle="ButtonStyle.Danger"
-                      Disabled="@( !CanClear )" />
+    <RadzenButton Icon="download" Text="Экспорт CSV" Click="@DownloadCsvAsync" />
+    <RadzenButton Icon="upload" Text="Импорт логов" Click="@TriggerImportDialogAsync" />
   </RadzenStack>
 </RadzenStack>
+
+<div style="display:none">
+    <InputFile @ref="_importInput" Multiple OnChange="OnImportFilesSelected" />
+</div>
 
 <RadzenSplitter Style="height: calc(100vh - 210px); min-height:480px" 
                 Resize="@OnSplitterResize">
@@ -152,14 +154,14 @@
     private static readonly string[] allLevels = new[] { "Verbose", "Debug", "Information", "Warning", "Error", "Fatal" };
 
     private CancellationTokenSource _cts = new();
+    private InputFile? _importInput;
+    private const long MaxImportFileSize = 256L * 1024 * 1024;
   
 
     // Auto refresh
     private bool AutoRefresh = false;
     private int RefreshSeconds = 15;
     private System.Timers.Timer? _timer;
-
-    private bool CanClear => true; // TODO: проверка политики/роли
 
     private string? SelectedLevel { get; set; }
     const string SessionFromKey = "logs.from";
@@ -229,33 +231,99 @@
 
     private void OnRowSelect(ApiLogEntry entry) => selected = entry;
 
-    private void DownloadCsv()
-    {
-        NotificationService.Notify(new NotificationMessage
-        {
-            Severity = NotificationSeverity.Info,
-            Summary = "Экспорт CSV",
-            Detail = "Реализуйте endpoint /api/logs/export для скачивания файла.",
-            Duration = 4000
-        });
-    }
-
-    // очистка текущего лога
-    async Task ClearLogAsync()
+    private async Task DownloadCsvAsync()
     {
         try
         {
-            await Api.ClearLogAsync(path, _cts.Token);
-            NotificationService.Notify(NotificationSeverity.Success, "Логи", "Файл очищен");
-            if (grid is not null)
-                await grid.Reload();
-            else
-                await ReloadAsync();
+            var relativeUrl = Api.GetLogsExportUrl(
+                path: path,
+                levels: SelectedLevel,
+                search: search,
+                from: from,
+                to: to);
+            var absoluteUrl = Nav.ToAbsoluteUri(relativeUrl).ToString();
+            await JS.InvokeVoidAsync("scalemon.downloadUrl", absoluteUrl);
         }
         catch (Exception ex)
         {
-            NotificationService.Notify(NotificationSeverity.Error, "Очистка лога", ex.Message);
+            NotificationService.Notify(NotificationSeverity.Error, "Экспорт CSV", ex.Message);
         }
+    }
+
+    private async Task TriggerImportDialogAsync()
+    {
+        if (_importInput is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("scalemon.triggerFileDialog", _importInput.Element);
+    }
+
+    private async Task OnImportFilesSelected(InputFileChangeEventArgs e)
+    {
+        var files = e.GetMultipleFiles();
+        if (files.Count == 0)
+        {
+            await ResetImportInputAsync();
+            return;
+        }
+
+        var uploads = new List<ApiClient.UploadFilePayload>(files.Count);
+
+        try
+        {
+            foreach (var file in files)
+            {
+                var stream = file.OpenReadStream(MaxImportFileSize);
+                uploads.Add(new ApiClient.UploadFilePayload(stream, file.Name, file.ContentType, file.Name));
+            }
+
+            var results = await Api.ImportLogsAsync(uploads, _cts.Token);
+
+            var successes = results.Where(r => string.IsNullOrEmpty(r.Error)).ToList();
+            foreach (var item in successes)
+            {
+                var target = item.Database ?? item.Path ?? "выбранную базу";
+                NotificationService.Notify(NotificationSeverity.Success, "Импорт логов",
+                    $"Файл {item.File} импортирован ({item.Imported} записей) в {target}.");
+            }
+
+            var failures = results.Where(r => !string.IsNullOrEmpty(r.Error)).ToList();
+            foreach (var item in failures)
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "Импорт логов",
+                    $"Файл {item.File}: {item.Error}");
+            }
+
+            if (successes.Count > 0)
+            {
+                await ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Импорт логов", ex.Message);
+        }
+        finally
+        {
+            foreach (var upload in uploads)
+            {
+                upload.Stream.Dispose();
+            }
+
+            await ResetImportInputAsync();
+        }
+    }
+
+    private async Task ResetImportInputAsync()
+    {
+        if (_importInput is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("scalemon.resetFileInput", _importInput.Element);
     }
 
   private string GetLevelStyle(string? level) => level?.ToLowerInvariant() switch
@@ -334,8 +402,34 @@
             var t = res.Success ? res.Value : null;
             if (t != null)
             {
-                from = StartOfDay(t.Date);
-                to = EndOfDay(t.Date);
+                if (t.LogsFrom is DateTime fromTs && t.LogsTo is DateTime toTs)
+                {
+                    from = fromTs;
+                    to = toTs;
+                }
+                else if (t.SelectedTimestamp is DateTime ts)
+                {
+                    double intervalSeconds = 0;
+                    if (t.PollingIntervalMs is int pollMs && pollMs > 0)
+                    {
+                        intervalSeconds = pollMs * 0.05;
+                    }
+
+                    from = ts.AddSeconds(-intervalSeconds);
+                    to = ts.AddSeconds(3);
+                }
+                else
+                {
+                    from = StartOfDay(t.Date);
+                    to = EndOfDay(t.Date);
+                }
+
+                if (from is DateTime fVal && to is DateTime tVal && fVal > tVal)
+                {
+                    var fallback = StartOfDay(t.Date);
+                    from = fallback;
+                    to = EndOfDay(t.Date);
+                }
                 await PersistDatesToSessionAsync();
                 return;
             }
@@ -438,5 +532,9 @@
         public int PageIndex { get; set; }
         public int? SelectedOrderInDay { get; set; }
         public DateTime CreatedAt { get; set; }
+        public DateTime? SelectedTimestamp { get; set; }
+        public int? PollingIntervalMs { get; set; }
+        public DateTime? LogsFrom { get; set; }
+        public DateTime? LogsTo { get; set; }
     }
 }

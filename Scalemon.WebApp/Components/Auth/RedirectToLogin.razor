@@ -1,0 +1,54 @@
+@using System
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@if (_showAccessDenied)
+{
+    <div class="alert alert-warning">
+        <p>У вас нет доступа к этой странице.</p>
+        <p>
+            Попробуйте вернуться на <a href="/">главную страницу</a> или используйте доступные разделы приложения.
+        </p>
+    </div>
+}
+else if (_redirectStarted)
+{
+    <p>Перенаправление на страницу входа...</p>
+}
+else
+{
+    <p>Готовим перенаправление на страницу входа...</p>
+}
+
+@code {
+    private bool _redirectStarted;
+    private bool _showAccessDenied;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (_redirectStarted || _showAccessDenied)
+        {
+            return;
+        }
+
+        var state = AuthenticationStateTask is null
+            ? null
+            : await AuthenticationStateTask;
+
+        if (state?.User?.Identity?.IsAuthenticated == true)
+        {
+            _showAccessDenied = true;
+            return;
+        }
+
+        _redirectStarted = true;
+        var uri = new Uri(Nav.Uri);
+        var returnUrl = uri.PathAndQuery + uri.Fragment;
+        var loginUrl = "/login?returnUrl=" + Uri.EscapeDataString(returnUrl);
+        Nav.NavigateTo(loginUrl, forceLoad: true);
+    }
+}

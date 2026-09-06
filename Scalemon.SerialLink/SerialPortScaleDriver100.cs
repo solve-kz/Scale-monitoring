@@ -24,6 +24,11 @@ namespace Scalemon.SerialLink
         private decimal _weight;
         private bool _stable;
         private bool _scaleAlarm;
+        private bool _hasFreshMeasurement;
+        private decimal _divisionKg = 0.01m;
+        private bool _isTerminalZero;
+        private bool _isNet;
+        private decimal? _tareKg;
 
         // Настройки порта (Протокол 2)
         private const int BaudRate = 4800;
@@ -52,6 +57,11 @@ namespace Scalemon.SerialLink
 
         public decimal Weight => _weight;
         public bool Stable => _stable;
+        public decimal DivisionKg => _divisionKg;
+        public bool IsTerminalZero => _isTerminalZero;
+        public bool IsNet => _isNet;
+        public decimal? TareKg => _tareKg;
+        public bool HasFreshMeasurement => _hasFreshMeasurement;
 
         public long LastResponseNum => _lastResponseNum;
         public string LastResponseText => _lastResponseText;
@@ -117,10 +127,12 @@ namespace Scalemon.SerialLink
         {
             lock (_sync)
             {
-                EnsureOpen();
+                _hasFreshMeasurement = false;
+                _stable = false;
 
                 try
                 {
+                    EnsureOpen();
                     // было: строили кадр и считали CRC сами
                     // стало: шлём проверенный кадр как в SpeedTest
                     byte[] cmdGetMassa = { 0xF8, 0x55, 0xCE, 0x01, 0x00, 0x23, 0x4E, 0x6E };
@@ -131,27 +143,33 @@ namespace Scalemon.SerialLink
 
                     var body = ReadFrame(_sp);
 
+                    if (body.Length == 0)
+                    {
+                        _connected = true;
+                        SetStatus(2, "Пустой ответ весового терминала");
+                        return;
+                    }
+
                     byte cmd = body[0];
                     if (cmd == 0x24) // CMD_ACK_MASSA
                     {
-                        // [0]=0x24, [1..4]=Int32 Weight, [5]=Division, [6]=Stable, [7]=Net, [8]=Zero, [9..12]?=Tare
-                        int raw = BitConverter.ToInt32(body, 1);
-                        byte division = body[5];
-                        double stepKg = division switch
+                        if (!Protocol100MassParser.TryParse(body, out var reading, out var error))
                         {
-                            0 => 0.0001, // 100 мг
-                            1 => 0.001,  // 1 г
-                            2 => 0.01,   // 10 г
-                            3 => 0.1,    // 100 г
-                            4 => 1.0,    // 1 кг
-                            _ => 0.001
-                        };
+                            _connected = true;
+                            SetStatus(2, error);
+                            return;
+                        }
 
-                        _weight = (decimal)(raw * stepKg);
-                        _stable = body[6] != 0;
+                        _weight = reading!.WeightKg;
+                        _divisionKg = reading.DivisionKg;
+                        _stable = reading.IsStable;
+                        _isNet = reading.IsNet;
+                        _isTerminalZero = reading.IsTerminalZero;
+                        _tareKg = reading.TareKg;
 
                         _scaleAlarm = false;
                         _connected = true;
+                        _hasFreshMeasurement = true;
                         SetStatus(0, "Ошибок нет");
                         return;
                     }
@@ -188,51 +206,138 @@ namespace Scalemon.SerialLink
             }
         }
 
-        public void SetToZero()
+        public ScaleCommandResult SetToZero(int timeoutMs) =>
+            ExecuteControlCommand(
+                command: 0x72,
+                payload: null,
+                successResponse: 0x27,
+                directRejectResponse: null,
+                operationName: "установке нуля",
+                timeoutMs);
+
+        public ScaleCommandResult SetTare(decimal tareKg, int timeoutMs)
+        {
+            int tareGrams;
+            try
+            {
+                tareGrams = decimal.ToInt32(decimal.Round(
+                    tareKg * 1000m,
+                    0,
+                    MidpointRounding.AwayFromZero));
+            }
+            catch (OverflowException)
+            {
+                return ScaleCommandResult.Rejected(0x0A, "Масса тары выходит за диапазон Int32");
+            }
+
+            if (tareGrams < 0)
+                return ScaleCommandResult.Rejected(0x0A, "Явная масса тары не может быть отрицательной");
+
+            return ExecuteControlCommand(
+                command: 0xA3,
+                payload: BitConverter.GetBytes(tareGrams),
+                successResponse: 0x12,
+                directRejectResponse: 0x15,
+                operationName: $"установке тары {tareKg:0.###} кг",
+                timeoutMs);
+        }
+
+        public ScaleCommandResult TareCurrentWeight(int timeoutMs) =>
+            ExecuteControlCommand(
+                command: 0xA3,
+                payload: new byte[4],
+                successResponse: 0x12,
+                directRejectResponse: 0x15,
+                operationName: "тарировании текущей нагрузки",
+                timeoutMs);
+
+        private ScaleCommandResult ExecuteControlCommand(
+            byte command,
+            byte[]? payload,
+            byte successResponse,
+            byte? directRejectResponse,
+            string operationName,
+            int timeoutMs)
         {
             lock (_sync)
             {
-                EnsureOpen();
+                _hasFreshMeasurement = false;
+                var previousReadTimeout = ReadTimeoutMs;
+                var previousWriteTimeout = WriteTimeoutMs;
+
                 try
                 {
-                    WriteCommand(_sp!, 0x72, null);           // CMD_SET_ZERO
-                    var body = ReadFrame(_sp!);
-                    byte cmd = body[0];
+                    EnsureOpen();
+                    previousReadTimeout = _sp!.ReadTimeout;
+                    previousWriteTimeout = _sp.WriteTimeout;
+                    var commandTimeout = Math.Clamp(timeoutMs, 100, 3000);
+                    _sp.ReadTimeout = commandTimeout;
+                    _sp.WriteTimeout = commandTimeout;
 
-                    if (cmd == 0x27) // CMD_ACK_SET
+                    WriteCommand(_sp, command, payload);
+                    var body = ReadFrame(_sp);
+                    if (body.Length == 0)
                     {
                         _connected = true;
-                        SetStatus(0, "Установлен >0<");
-                        return;
+                        SetStatus(2, $"Пустой ответ при {operationName}");
+                        return ScaleCommandResult.Rejected(_lastResponseNum, _lastResponseText);
                     }
-                    if (cmd == 0x28)
+
+                    byte response = body[0];
+                    if (response == successResponse)
                     {
-                        byte err = body.Length > 1 ? body[1] : (byte)0xF0;
-                        _connected = err != 0x17;
-                        MapError(err); // 0x15 — «Установка >0< невозможна»
-                        return;
+                        _connected = true;
+                        SetStatus(0, $"Команда выполнена: {operationName}");
+                        return ScaleCommandResult.Success(response, _lastResponseText);
                     }
-                    if (cmd == 0xF0)
+
+                    if (directRejectResponse.HasValue && response == directRejectResponse.Value)
+                    {
+                        _connected = true;
+                        SetStatus(response, "Установка тары невозможна");
+                        return ScaleCommandResult.Rejected(_lastResponseNum, _lastResponseText);
+                    }
+
+                    if (response == 0x28)
+                    {
+                        byte error = body.Length > 1 ? body[1] : (byte)0xF0;
+                        _connected = error != 0x17;
+                        MapError(error);
+                        return error == 0x17
+                            ? ScaleCommandResult.TransportFailure(_lastResponseText)
+                            : ScaleCommandResult.Rejected(_lastResponseNum, _lastResponseText);
+                    }
+
+                    if (response == 0xF0)
                     {
                         _connected = true;
                         SetStatus(7, "Команда не поддерживается (NACK)");
-                        return;
+                        return ScaleCommandResult.Rejected(_lastResponseNum, _lastResponseText);
                     }
 
                     _connected = true;
-                    SetStatus(2, $"Неожиданный ответ на ZERO: 0x{cmd:X2}");
+                    SetStatus(2, $"Неожиданный ответ при {operationName}: 0x{response:X2}");
+                    return ScaleCommandResult.Rejected(_lastResponseNum, _lastResponseText);
                 }
                 catch (TimeoutException)
                 {
                     _connected = false;
-                    SetStatus(1, "Таймаут при установке >0<");
-                    throw;
+                    SetStatus(1, $"Тайм-аут при {operationName}");
+                    return ScaleCommandResult.TransportFailure(_lastResponseText);
                 }
                 catch (Exception ex)
                 {
                     _connected = false;
-                    SetStatus(2, $"Ошибка при установке >0<: {ex.Message}");
-                    throw;
+                    SetStatus(2, $"Ошибка обмена при {operationName}: {ex.Message}");
+                    return ScaleCommandResult.TransportFailure(_lastResponseText);
+                }
+                finally
+                {
+                    if (_sp?.IsOpen == true)
+                    {
+                        _sp.ReadTimeout = previousReadTimeout;
+                        _sp.WriteTimeout = previousWriteTimeout;
+                    }
                 }
             }
         }
@@ -290,6 +395,8 @@ namespace Scalemon.SerialLink
             int lenLo = sp.ReadByte();
             int lenHi = sp.ReadByte();
             int len = lenLo | (lenHi << 8);
+            if (len is < 1 or > 4096)
+                throw new InvalidOperationException($"Некорректная длина кадра: {len}");
 
             var body = new byte[len];
             ReadExact(sp, body, 0, len);

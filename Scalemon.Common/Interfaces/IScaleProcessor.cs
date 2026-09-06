@@ -2,16 +2,32 @@
 {
     public interface IScaleProcessor : IDisposable
     {
+        /// <summary>
+        /// Запускает фоновый опрос весового терминала.
+        /// </summary>
         void Start();
+
+        /// <summary>
+        /// Останавливает фоновый опрос весового терминала.
+        /// </summary>
         void Stop();
 
-        // События вместо Subscribe*/Unsubscribe*
-        event Func<decimal, Task>? WeightReceived;    // стабильный вес
-        event Func<Task>? Unstable;          // нестабильно после порога
-        event Func<Task>? Connected;         // связь появилась
-        event Func<Task>? Disconnected;      // связь пропала
-        event Func<Task>? ScaleAlarm;        // авария (перегруз и т.п.)
+        // Заменяем старые события на одно, более информативное
+        event Func<ScaleDataPoint, Task>? DataReceived;
 
-        Task ResetToZeroAsync(CancellationToken ct = default);
+        /// <summary>
+        /// Выполняет одну команду установки нуля.
+        /// </summary>
+        Task<ScaleCommandResult> ResetToZeroAsync(int timeoutMs, CancellationToken ct = default);
+
+        /// <summary>
+        /// Выполняет одну команду установки указанной массы тары.
+        /// </summary>
+        Task<ScaleCommandResult> SetTareAsync(decimal tareKg, int timeoutMs, CancellationToken ct = default);
+
+        /// <summary>
+        /// Выполняет одну команду тарирования текущей нагрузки.
+        /// </summary>
+        Task<ScaleCommandResult> TareCurrentWeightAsync(int timeoutMs, CancellationToken ct = default);
     }
 }

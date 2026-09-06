@@ -1,0 +1,147 @@
+@using System.Globalization
+@using static Scalemon.WebApp.Models.WeighingModels
+
+@inject DialogService DialogService
+
+<RadzenTemplateForm TItem="FormModel" Data="@Model" Submit="@OnValidSubmit">
+    <ChildContent>
+        <RadzenStack Orientation="Orientation.Vertical" class="rz-p-4" Gap="1.5rem">
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         AlignItems="AlignItems.End"
+                         Gap="1.5rem"
+                         Wrap="FlexWrap.NoWrap">
+                <RadzenStack Orientation="Orientation.Vertical"
+                             Gap="0.5rem">
+                    <RadzenLabel Text="Вес, кг" Component="Weight" />
+                    <RadzenNumeric Name="Weight"
+                                   TValue="decimal?"
+                                   @bind-Value="Model.Weight"
+                                   Culture="@CultureInfo.CurrentCulture"
+                                   Min=@((decimal)0.02)
+                                   Max=@((decimal)100)
+                                   Step="0.02"
+                                   class="rz-w-100" />
+                    <RadzenRequiredValidator Component="Weight"
+                                             Text="Укажите вес" Popup="false" />
+                    <RadzenNumericRangeValidator Component="Weight"
+                                                 Min="0.02" Max="100"
+                                                 Text="Вес должен быть в диапазоне 0,02…100 кг"
+                                                 Popup="false" />
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal"
+                             AlignItems="AlignItems.End"
+                             Gap="1rem"
+                             Wrap="FlexWrap.NoWrap">
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Hour"
+                                           TValue="int?"
+                                           @bind-Value="Model.Hour"
+                                           Min="0" Max="23"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="ч" Component="Hour" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Hour"
+                                                 Text="Укажите часы" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Hour"
+                                                     Min="0" Max="23" Text="0…23" Popup="false" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Minute"
+                                           TValue="int?"
+                                           @bind-Value="Model.Minute"
+                                           Min="0" Max="59"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="м" Component="Minute" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Minute"
+                                                 Text="Укажите минуты" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Minute"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenNumeric Name="Second"
+                                           TValue="int?"
+                                           @bind-Value="Model.Second"
+                                           Min="0" Max="59"
+                                           class="rz-w-100" />
+                            <RadzenLabel Text="с" Component="Second" />
+                        </RadzenStack>
+                        <RadzenRequiredValidator Component="Second"
+                                                 Text="Укажите секунды" Popup="false" />
+                        <RadzenNumericRangeValidator Component="Second"
+                                                     Min="0" Max="59" Text="0…59" Popup="false" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenStack>
+
+            <RadzenStack Orientation="Orientation.Horizontal"
+                         JustifyContent="JustifyContent.End"
+                         Gap="0.75rem">
+                <RadzenButton ButtonStyle="ButtonStyle.Primary"
+                              Icon="check"
+                              Text="ОК"
+                              ButtonType="ButtonType.Submit" />
+                <RadzenButton ButtonStyle="ButtonStyle.Light" Icon="close" Text="Отмена"
+                              Click="@(_ => DialogService.Close(null))" />
+            </RadzenStack>
+        </RadzenStack>
+    </ChildContent>
+</RadzenTemplateForm>
+
+@code {
+    // Параметры, которые передаёт вызывающая страница
+    [Parameter] public DateTime? BaseDate { get; set; }     // дата строки реестра
+    [Parameter] public decimal? InitialWeight { get; set; } // можно null
+
+    // Модель формы НЕ пересоздаём — только меняем свойства
+    private readonly FormModel Model = new();
+    private bool _initialized;
+
+    protected override void OnParametersSet()
+    {
+        if (_initialized) return;
+
+        var date = (BaseDate ?? DateTime.Today).Date;
+        var timeSeed = BaseDate.HasValue && BaseDate.Value.TimeOfDay != TimeSpan.Zero
+            ? BaseDate.Value
+            : DateTime.Now;
+
+        Model.Weight = InitialWeight;
+        Model.Hour   = timeSeed.Hour;
+        Model.Minute = timeSeed.Minute;
+        Model.Second = timeSeed.Second;
+
+        _initialized = true;
+    }
+
+    private void OnValidSubmit(FormModel _)
+    {
+        // Валидаторы уже гарантируют непустые и корректные значения
+        var d = (BaseDate ?? DateTime.Today).Date;
+        var ts = new DateTime(d.Year, d.Month, d.Day,
+                              Model.Hour!.Value, Model.Minute!.Value, Model.Second!.Value);
+
+        var weight = Math.Round(Model.Weight!.Value, WeightPrecisionDigits, MidpointRounding.AwayFromZero);
+
+        DialogService.Close(new WeighingInsertRequest(weight, ts));
+    }
+
+    public sealed class FormModel
+    {
+        public decimal? Weight { get; set; }
+        public int? Hour { get; set; }
+        public int? Minute { get; set; }
+        public int? Second { get; set; }
+    }
+
+    private const decimal WeightMin = 0.02m;
+    private const decimal WeightMax = 100m;
+    private const decimal WeightStep = 0.01m;
+    private static readonly string WeightMinText = WeightMin.ToString(CultureInfo.InvariantCulture);
+    private static readonly string WeightMaxText = WeightMax.ToString(CultureInfo.InvariantCulture);
+    private const int WeightPrecisionDigits = 2;
+}

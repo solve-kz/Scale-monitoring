@@ -16,8 +16,10 @@ namespace Scalemon.SqlDataAccess
     {
 
         private readonly ILogger<SqlDataAccess> _logger;
-        private readonly ConcurrentQueue<decimal> _retryQueue = new ConcurrentQueue<decimal>();
+        private readonly ConcurrentQueue<PendingWeighing> _retryQueue = new();
         private readonly IHostApplicationLifetime _lifetime;
+        private readonly ISlaughterModeState _slaughterModeState;
+        private readonly IWeighingModeStore _weighingModeStore;
         private readonly string _connString;
         private readonly string _tableName;
         private readonly int _maxQueueSize;
@@ -29,13 +31,25 @@ namespace Scalemon.SqlDataAccess
         public event DatabaseFailedEventHandler DatabaseFailed;
         public event DatabaseRestoredEventHandler DatabaseRestored;
 
-        public SqlDataAccess(ILogger<SqlDataAccess> logger, string connString, string tableName, int maxQueueSize, int alarmsize, IHostApplicationLifetime lifetime)
+        private sealed record PendingWeighing(decimal Weight, SlaughterMode Mode);
+
+        public SqlDataAccess(
+            ILogger<SqlDataAccess> logger,
+            string connString,
+            string tableName,
+            int maxQueueSize,
+            int alarmsize,
+            IHostApplicationLifetime lifetime,
+            ISlaughterModeState slaughterModeState,
+            IWeighingModeStore weighingModeStore)
         {
 
             _logger = logger;
             _connString = connString;
             _tableName = tableName;
             _lifetime = lifetime; // <-- Сохраняем зависимость
+            _slaughterModeState = slaughterModeState;
+            _weighingModeStore = weighingModeStore;
             _maxQueueSize = maxQueueSize;
             _alarmSize = alarmsize;
             StartRetryLoop(_lifetime.ApplicationStopping); // <-- Передаем токен отмены
@@ -57,15 +71,59 @@ namespace Scalemon.SqlDataAccess
             // нормально завершаемся
             // Финальная попытка сохранить оставшиеся данные
 
-            Task.Run(async () => { try { while (!cancellationToken.IsCancellationRequested) { await Task.Delay(TimeSpan.FromSeconds(30d), cancellationToken); var localList = new List<decimal>(); decimal w; while (_retryQueue.TryDequeue(out w)) localList.Add(w); foreach (var weight in localList) { try { await WriteToDatabaseAsync(weight); bool wasDown = false; lock (_syncLock) { if (_isDbDown) { _isDbDown = false; wasDown = true; } } if (wasDown) { DatabaseRestored?.Invoke(); } } catch { _retryQueue.Enqueue(weight); } } } } catch (TaskCanceledException ex) { } finally { var finalItems = new List<decimal>(); decimal w; while (_retryQueue.TryDequeue(out w)) finalItems.Add(w); foreach (var weight in finalItems) { try { using (var conn = new SqlConnection(_connString)) { conn.Open(); string sql = $"INSERT INTO {_tableName} (Weight, RecordedAt) VALUES (@weight, GETDATE());"; using (var cmd = new SqlCommand(sql, conn)) { cmd.Parameters.Add("@weight", SqlDbType.Decimal).Value = weight; cmd.ExecuteNonQuery(); } } } catch { _logger.LogError("Потеря данных при выключении: {weight}", weight); } } } });
+            Task.Run(async () => { 
+                try 
+                { 
+                    while (!cancellationToken.IsCancellationRequested) { 
+                        await Task.Delay(TimeSpan.FromSeconds(30d), cancellationToken); 
+                        var localList = new List<PendingWeighing>();
+                        while (_retryQueue.TryDequeue(out var pending)) localList.Add(pending);
+                        foreach (var item in localList) {
+                            try { 
+                                await WriteToDatabaseAsync(item);
+                                bool wasDown = false; 
+                                lock (_syncLock) { 
+                                    if (_isDbDown) { 
+                                        _isDbDown = false; 
+                                        wasDown = true; 
+                                    } 
+                                } 
+                                if (wasDown) { 
+                                    DatabaseRestored?.Invoke(); 
+                                } 
+                            } 
+                            catch { 
+                                _retryQueue.Enqueue(item);
+                            } 
+                        } 
+                    } 
+                } 
+                catch (TaskCanceledException ex) {
+                    _logger.LogError(ex, "Ошибка записи");
+                } 
+                finally { 
+                    var finalItems = new List<PendingWeighing>();
+                    while (_retryQueue.TryDequeue(out var pending)) finalItems.Add(pending);
+                    foreach (var item in finalItems) {
+                        try { 
+                            await WriteToDatabaseAsync(item);
+                        } 
+                        catch { 
+                            _logger.LogError("Потеря данных при выключении: {weight}, режим {mode}", item.Weight, item.Mode);
+                        } 
+                    } 
+                } 
+            });
         }
 
         public async Task SaveWeighingAsync(decimal weight)
         {
+            var mode = await _slaughterModeState.WaitUntilKnownAsync(_lifetime.ApplicationStopping);
+            var pending = new PendingWeighing(weight, mode);
             try
             {
                 // попытка записать сразу
-                await WriteToDatabaseAsync(weight);
+                await WriteToDatabaseAsync(pending);
                 lock (_syncLock)
                 {
                     _retryCount = 0m;
@@ -81,7 +139,7 @@ namespace Scalemon.SqlDataAccess
                 // ПРОВЕРКА ПЕРЕД ДОБАВЛЕНИЕМ В ОЧЕРЕДЬ
                 if (_retryQueue.Count < _maxQueueSize)
                 {
-                    _retryQueue.Enqueue(weight);
+                    _retryQueue.Enqueue(pending);
                 }
                 else
                 {
@@ -119,18 +177,49 @@ namespace Scalemon.SqlDataAccess
             }
         }
 
-        private async Task WriteToDatabaseAsync(decimal weight)
+        private async Task WriteToDatabaseAsync(PendingWeighing pending)
         {
-            using (var conn = new SqlConnection(_connString))
+            await using var conn = new SqlConnection(_connString);
+            await conn.OpenAsync();
+            await using var transaction = (SqlTransaction)await conn.BeginTransactionAsync();
+            try
             {
-                await conn.OpenAsync();
-                string sql = $"INSERT INTO {_tableName} (Weight, RecordedAt) VALUES (@weight, GETDATE());";
-                using (var cmd = new SqlCommand(sql, conn))
+                var sql = $"""
+                    INSERT INTO {_tableName} (Weight, RecordedAt)
+                    OUTPUT INSERTED.Id, INSERTED.RecordedAt
+                    VALUES (@weight, GETDATE());
+                    """;
+                await using var cmd = new SqlCommand(sql, conn, transaction);
+                var weightParameter = cmd.Parameters.Add("@weight", SqlDbType.Decimal);
+                weightParameter.Precision = 18;
+                weightParameter.Scale = 2;
+                weightParameter.Value = pending.Weight;
+
+                await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow);
+                if (!await reader.ReadAsync())
                 {
-                    cmd.Parameters.Add("@weight", SqlDbType.Decimal).Value = weight;
-                    await cmd.ExecuteNonQueryAsync();
-                    _logger.LogInformation("Записано взвешивание: {weight}", weight);
+                    throw new DataException("SQL Server не вернул идентификатор сохранённого взвешивания.");
                 }
+
+                var weighingId = reader.GetInt32(0);
+                var recordedAt = reader.GetDateTime(1);
+                await reader.CloseAsync();
+
+                await _weighingModeStore.UpsertAsync(
+                    weighingId,
+                    recordedAt,
+                    pending.Weight,
+                    pending.Mode);
+                await transaction.CommitAsync();
+                _logger.LogInformation(
+                    "Записано взвешивание: {weight}, режим {mode}",
+                    pending.Weight,
+                    pending.Mode);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
             }
         }
 

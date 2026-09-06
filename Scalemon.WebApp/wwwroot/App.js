@@ -72,6 +72,41 @@
             } catch (e) { }
         },
 
+        triggerFileDialog(element) {
+            if (element) {
+                element.click();
+            }
+        },
+        resetFileInput(element) {
+            if (element) {
+                element.value = "";
+            }
+        },
+        downloadFile(fileName, contentType, base64Data) {
+            try {
+                const link = document.createElement('a');
+                link.style.display = 'none';
+                link.download = fileName || 'download';
+
+                const dataUrl = `data:${contentType || 'application/octet-stream'};base64,${base64Data}`;
+                link.href = dataUrl;
+
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (e) {
+                console.error('downloadFile error', e);
+            }
+        },
+        downloadUrl(url) {
+            const link = document.createElement('a');
+            link.style.display = 'none';
+            link.href = url;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        },
         localTodayIso: function () {
             var d = new Date();
             var y = d.getFullYear();

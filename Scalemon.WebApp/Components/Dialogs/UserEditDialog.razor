@@ -1,0 +1,122 @@
+@using System
+@using System.Collections.Generic
+@using System.Linq
+@using System.Threading.Tasks
+@using Scalemon.WebApp.Models
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenTemplateForm TItem="UserEditModel" Data="@Model" Submit="@OnValidSubmit" InvalidSubmit="@OnInvalidSubmit">
+    <RadzenFieldset>
+        <RadzenStack Gap="12px">
+            <RadzenFormField Text="Логин" HelpText="Уникальный идентификатор пользователя">
+                <RadzenTextBox @bind-Value="Model.Login" Name="Login" Style="width:100%" Disabled="@(!IsNew)" />
+                <RadzenRequiredValidator Component="Login" Text="Укажите логин" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Отображаемое имя">
+                <RadzenTextBox @bind-Value="Model.DisplayName" Name="DisplayName" Style="width:100%" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Роль" HelpText="Выберите одну роль">
+                <RadzenRadioButtonList TValue="string"
+                                        Data="@RoleOptions"
+                                        @bind-Value="Model.SelectedRole"
+                                        Name="Roles" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Пароль" HelpText="Оставьте пустым, чтобы не изменять">
+                <RadzenPassword @bind-Value="Model.Password" Name="Password" Style="width:100%" />
+                <RadzenRequiredValidator Component="Password" Text="Пароль обязателен" Visible="@IsNew" />
+            </RadzenFormField>
+
+            <RadzenFormField Text="Подтверждение пароля">
+                <RadzenPassword @bind-Value="Model.ConfirmPassword" Name="Confirm" Style="width:100%" />
+            </RadzenFormField>
+        </RadzenStack>
+    </RadzenFieldset>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="8px" Style="margin-top:16px">
+        <RadzenButton Text="Сохранить" Icon="save" ButtonStyle="ButtonStyle.Primary" ButtonType="ButtonType.Submit" />
+        <RadzenButton Text="Отмена" Icon="cancel" Click="@Cancel" />
+    </RadzenStack>
+</RadzenTemplateForm>
+
+@code {
+    [Parameter] public UserEditModel Model { get; set; } = new();
+    [Parameter] public bool IsNew { get; set; }
+    [Parameter] public IReadOnlyList<string> RoleOptions { get; set; } = Array.Empty<string>();
+
+    protected override void OnParametersSet()
+    {
+        Model ??= new UserEditModel();
+        Model.Roles ??= new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(Model.SelectedRole))
+        {
+            Model.Roles = new List<string> { Model.SelectedRole };
+        }
+        else if (Model.Roles.Count > 0)
+        {
+            Model.SelectedRole = Model.Roles[0];
+            Model.Roles = new List<string> { Model.SelectedRole };
+        }
+    }
+
+    private Task OnValidSubmit(UserEditModel model)
+    {
+        var login = model.Login?.Trim();
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Логин обязателен");
+            return Task.CompletedTask;
+        }
+
+        var selectedRole = model.SelectedRole?.Trim();
+
+        if (string.IsNullOrWhiteSpace(selectedRole))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Выберите роль");
+            return Task.CompletedTask;
+        }
+
+        var roles = new List<string> { selectedRole };
+
+        var password = string.IsNullOrWhiteSpace(model.Password) ? null : model.Password;
+        var confirm = string.IsNullOrWhiteSpace(model.ConfirmPassword) ? null : model.ConfirmPassword;
+
+        if (!string.Equals(password, confirm, StringComparison.Ordinal))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароли не совпадают");
+            return Task.CompletedTask;
+        }
+
+        if (IsNew && string.IsNullOrEmpty(password))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Пароль обязателен для нового пользователя");
+            return Task.CompletedTask;
+        }
+
+        var result = new UserEditModel
+        {
+            Login = login,
+            DisplayName = model.DisplayName?.Trim() ?? string.Empty,
+            Roles = roles,
+            SelectedRole = selectedRole,
+            Password = password
+        };
+
+        DialogService.Close(result);
+        return Task.CompletedTask;
+    }
+
+    private void OnInvalidSubmit(FormInvalidSubmitEventArgs args)
+    {
+        NotificationService.Notify(NotificationSeverity.Warning, "Пользователи", "Исправьте ошибки формы");
+    }
+
+    private void Cancel()
+    {
+        DialogService.Close(null);
+    }
+}

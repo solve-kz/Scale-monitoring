@@ -1,6 +1,6 @@
 ﻿@using System.Globalization
 
-<RadzenCard class="rz-p-4 rz-w-100">
+<RadzenCard class="rz-p-4 rz-w-stretch">
         <div class="rz-text-align-center">
             <RadzenDatePicker @bind-Value="SelectedDate"
                               TValue="DateTime"
@@ -8,8 +8,7 @@
                               ShowTime="false"
                               DateRender="@OnDateRender"
                               CurrentDateChanged="@OnCurrentDateChanged"
-                              Change="@OnDateChanged"
-                              class="rz-w-100"/>
+                              Change="@OnDateChanged"/>
         </div>
 </RadzenCard>
 
