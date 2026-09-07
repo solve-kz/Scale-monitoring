@@ -1,3 +1,4 @@
+using Scalemon.Common.Updates;
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Scalemon.Common;
@@ -256,6 +257,7 @@ OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
 
     public async Task AdjustAsync(int id, decimal delta, string? userName, CancellationToken ct = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await EnsureConfiguredAsync(ct);
 
         await using var conn = NewConn();
@@ -333,6 +335,7 @@ OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;";
 
     private async Task<int> InsertNearAsync(int refId, decimal weight, TimeSpan offset, string? userName, DateTime? explicitTimestamp, CancellationToken ct)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await EnsureConfiguredAsync(ct);
 
         await using var conn = NewConn();
@@ -396,6 +399,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
 
     public async Task DeleteAsync(int id, string? userName, CancellationToken ct = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await EnsureConfiguredAsync(ct);
 
         await using var conn = NewConn();

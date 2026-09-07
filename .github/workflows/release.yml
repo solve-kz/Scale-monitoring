@@ -1,0 +1,65 @@
+name: Build Scalemon release
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without v (existing tag required)'
+        required: true
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-2022
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Validate version and prepare keys
+        shell: pwsh
+        env:
+          RELEASE_KEY: ${{ secrets.RELEASE_SIGNING_KEY_PEM }}
+          RELEASE_PUBLIC_KEY: ${{ vars.RELEASE_PUBLIC_KEY_PEM }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME.TrimStart('v') }
+          if ($version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$') { throw 'Invalid version' }
+          if (-not $env:RELEASE_KEY -or -not $env:RELEASE_PUBLIC_KEY) { throw 'Configure the release signing key and public key first' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          "RELEASE_CHANNEL=Test" >> $env:GITHUB_ENV
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/signing.pem", $env:RELEASE_KEY)
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/public.pem", $env:RELEASE_PUBLIC_KEY)
+      - name: Install NSIS
+        run: choco install nsis --version=3.11 -y --no-progress
+      - name: Unit tests (CI only)
+        run: |
+          dotnet test Scalemon.CSTests/Scalemon.CSTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test Scalemon.UpdateTests/Scalemon.UpdateTests.csproj -c Release
+      - name: Build signed offline installer and package
+        shell: pwsh
+        run: |
+          ./installer/Publish-Release.ps1 -Version $env:RELEASE_VERSION -Channel $env:RELEASE_CHANNEL -SigningKeyPath "$env:RUNNER_TEMP/signing.pem" -PublicKeyPath "$env:RUNNER_TEMP/public.pem" -OutputDirectory "$env:RUNNER_TEMP/release" -Makensis 'C:\Program Files (x86)\NSIS\makensis.exe'
+      - name: Create immutable draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v$env:RELEASE_VERSION" --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists: never overwrite published assets' }
+          $assets = Get-ChildItem "$env:RUNNER_TEMP/release" -File | ForEach-Object FullName
+          $extra = if ($env:RELEASE_CHANNEL -eq 'Test') { @('--prerelease') } else { @() }
+          gh release create "v$env:RELEASE_VERSION" @assets --repo $env:GITHUB_REPOSITORY --verify-tag --draft @extra --title "Scalemon $env:RELEASE_VERSION" --notes 'Requires Windows VM acceptance before publication. See docs/updates.md.'
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+      - name: Remove private key
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath "$env:RUNNER_TEMP/signing.pem" -ErrorAction SilentlyContinue

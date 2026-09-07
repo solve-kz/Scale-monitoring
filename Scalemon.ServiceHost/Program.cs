@@ -1,3 +1,4 @@
+using Scalemon.Common.Updates;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
@@ -34,7 +35,7 @@ using System.Net.Http.Headers;
 using System.Text;
 
 const long LogUploadLimitBytes = 256L * 1024 * 1024;
-const string PersistentSettingsPath = @"C:\Scalemon\Scalemon.settings.json";
+var PersistentSettingsPath = InstallationPaths.ResolveSettings();
 
 // --- 1. СОЗДАНИЕ УНИВЕРСАЛЬНОГО ПОСТРОИТЕЛЯ ПРИЛОЖЕНИЯ ---
 // WebApplication.CreateBuilder подходит и для служб, и для веб-серверов.
@@ -151,6 +152,12 @@ builder.Services.AddSingleton<IScaleStateMachine>(sp =>
 });
 
 // Главный фоновый сервис, который всё связывает
+builder.Services.AddSingleton<IDataWriteDrain>(sp => (IDataWriteDrain)sp.GetRequiredService<IDataAccess>());
+builder.Services.AddSingleton<ApplicationMaintenance>();
+builder.Services.AddSingleton<IMaintenanceCoordinator>(sp => sp.GetRequiredService<ApplicationMaintenance>());
+builder.Services.AddSingleton<IUpdateReadiness>(sp => sp.GetRequiredService<ApplicationMaintenance>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ApplicationMaintenance>());
+builder.Services.AddSingleton<IUpdaterClient, UpdaterPipeClient>();
 builder.Services.AddHostedService<ScalemonService>();
 
 // Добавляем сервис аутентификации для WebApp
@@ -279,7 +286,7 @@ builder.Services.AddSingleton<IWeightRegisterRecognizer, OpenAiWeightRegisterRec
 builder.Services.AddHostedService<WeightRegisterRecognitionWorker>();
 
 // Настройка для запуска в качестве службы Windows
-builder.Host.UseWindowsService();
+builder.Host.UseWindowsService(options => options.ServiceName = AtomicJson.Read<InstallationRecord>(InstallationPaths.Installation)?.ServiceName ?? "Scalemon");
 
 
 // --- 4. ПОСТРОЕНИЕ И КОНФИГУРАЦИЯ КОНВЕЙЕРА HTTP-ЗАПРОСОВ ---
@@ -313,9 +320,19 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseAntiforgery();
+app.Use(async (context, next) =>
+{
+    if (MaintenanceGate.Shared.IsClosed && context.Request.Path.StartsWithSegments("/api") &&
+        !context.Request.Path.StartsWithSegments("/api/updates") &&
+        context.Request.Method is not ("GET" or "HEAD" or "OPTIONS"))
+    { context.Response.StatusCode = 503; await context.Response.WriteAsync("Техническое обслуживание"); return; }
+    await next();
+});
 
 // Конечные точки (API и Blazor UI)
 app.MapControllers();
+app.MapGet("/health/ready", (IUpdateReadiness readiness) =>
+    readiness.Snapshot().Healthy ? Results.Ok(new { ready = true }) : Results.StatusCode(503)).AllowAnonymous();
 
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();

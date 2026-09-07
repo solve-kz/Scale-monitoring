@@ -41,7 +41,7 @@ public enum RegisterComparisonKind
 /// <summary>Настройки рабочего процесса сверки ручных реестров.</summary>
 public sealed class WeightRegisterReviewOptions
 {
-    public string StoragePath { get; set; } = @"C:\Scalemon\WeightRegisterReview";
+    public string StoragePath { get; set; } = Scalemon.Common.Updates.InstallationPaths.DataFile("WeightRegisterReview");
     public long MaxUploadBytes { get; set; } = 50L * 1024 * 1024;
     public decimal ComparisonToleranceKg { get; set; } = 0.04m;
     public WeightRegisterRecognitionOptions Recognition { get; set; } = new();

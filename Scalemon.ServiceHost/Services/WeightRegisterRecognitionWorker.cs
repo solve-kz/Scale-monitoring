@@ -1,3 +1,4 @@
+using Scalemon.Common.Updates;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -58,10 +59,13 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
         _reviewService.ReportRecognitionWorkerHeartbeat("Исполнитель распознавания запущен.");
         while (!stoppingToken.IsCancellationRequested)
         {
+            if (MaintenanceGate.Shared.IsClosed) { await Task.Delay(pollInterval, stoppingToken); continue; }
+            IDisposable? maintenanceOperation = null;
             WeightRegisterProject? project = null;
             CancellationTokenSource? jobCancellation = null;
             try
             {
+                maintenanceOperation = MaintenanceGate.Shared.Enter();
                 _reviewService.ReportRecognitionWorkerHeartbeat("Проверка очереди распознавания.");
                 project = await _reviewService.TryClaimRecognitionAsync(stoppingToken);
                 if (project is null)
@@ -130,6 +134,7 @@ public sealed class WeightRegisterRecognitionWorker : BackgroundService
             }
             finally
             {
+                maintenanceOperation?.Dispose();
                 if (project is not null && jobCancellation is not null)
                 {
                     _cancellationRegistry.Unregister(project.Id, jobCancellation);

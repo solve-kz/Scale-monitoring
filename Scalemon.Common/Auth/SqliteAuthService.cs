@@ -1,3 +1,4 @@
+using Scalemon.Common.Updates;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -31,7 +32,8 @@ public sealed class SqliteAuthService : IAuthService, IUsersStore
         var path = _settings.UsersDatabasePath;
         if (string.IsNullOrWhiteSpace(path))
         {
-            path = Path.Combine(AppContext.BaseDirectory, "users.db");
+            var legacy = Path.Combine(AppContext.BaseDirectory, "users.db");
+            path = File.Exists(legacy) ? legacy : InstallationPaths.DataFile("users.db");
         }
 
         var directory = Path.GetDirectoryName(path);
@@ -105,6 +107,7 @@ public sealed class SqliteAuthService : IAuthService, IUsersStore
 
     public bool TryAdd(string login, string password, string displayName, IReadOnlyCollection<string> roles)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         EnsureInitialized();
 
         using var connection = new SqliteConnection(_connectionString);
@@ -140,6 +143,7 @@ public sealed class SqliteAuthService : IAuthService, IUsersStore
 
     public bool TryUpdate(string login, string? password, string? displayName, IReadOnlyCollection<string>? roles)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         EnsureInitialized();
 
         using var connection = new SqliteConnection(_connectionString);
@@ -194,6 +198,7 @@ public sealed class SqliteAuthService : IAuthService, IUsersStore
 
     public bool Remove(string login)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         EnsureInitialized();
 
         using var connection = new SqliteConnection(_connectionString);
