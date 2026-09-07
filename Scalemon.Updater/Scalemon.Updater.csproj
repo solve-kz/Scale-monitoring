@@ -7,7 +7,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.9" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.9" />
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
     <EmbeddedResource Include="release-public-key.pem" Condition="Exists('release-public-key.pem')" />
   </ItemGroup>

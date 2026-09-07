@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.9" />
     <PackageReference Include="System.IO.Ports" Version="9.0.9" />
   </ItemGroup>
 </Project>
