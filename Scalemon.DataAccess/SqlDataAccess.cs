@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
@@ -8,11 +8,12 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
+using Scalemon.Common.Updates;
 
 namespace Scalemon.SqlDataAccess
 {
 
-    public class SqlDataAccess : IDataAccess, IDisposable
+    public class SqlDataAccess : IDataAccess, IDataWriteDrain, IDisposable
     {
 
         private readonly ILogger<SqlDataAccess> _logger;
@@ -27,11 +28,45 @@ namespace Scalemon.SqlDataAccess
         private decimal _retryCount;
         private int _alarmSize;
         private readonly object _syncLock = new object();
+        private readonly SemaphoreSlim _retryGate = new(1, 1);
+        private readonly CancellationTokenSource _retryStop = new();
+        private readonly Task _retryTask;
+        private readonly PendingWriteRegistry _pendingWrites = new();
+        public int PendingWrites => _pendingWrites.Count;
+        public bool DatabaseAvailable { get { lock (_syncLock) return !_isDbDown; } }
+        /// <inheritdoc />
+        public async Task DrainAsync(CancellationToken cancellationToken)
+        {
+            while (PendingWrites != 0)
+            {
+                await RetryOnceAsync(cancellationToken);
+                if (PendingWrites != 0) await Task.Delay(250, cancellationToken);
+            }
+            await using var connection = new SqlConnection(_connString);
+            await connection.OpenAsync(cancellationToken);
+            await using (var command = new SqlCommand($"SELECT TOP (0) Id, Weight, RecordedAt FROM {_tableName}; SELECT HAS_PERMS_BY_NAME(@table, 'OBJECT', 'INSERT');", connection))
+            {
+                command.Parameters.AddWithValue("@table", _tableName);
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                await reader.NextResultAsync(cancellationToken);
+                if (!await reader.ReadAsync(cancellationToken) || reader.GetInt32(0) != 1)
+                    throw new UnauthorizedAccessException("Учётная запись службы не имеет права INSERT в таблицу взвешиваний.");
+            }
+            await _weighingModeStore.EnsureInitializedAsync(cancellationToken);
+            lock (_syncLock) _isDbDown = false;
+        }
+        /// <inheritdoc />
+        public async Task StopWritesAsync(CancellationToken cancellationToken)
+        {
+            _retryStop.Cancel();
+            await _retryTask.WaitAsync(cancellationToken);
+            await DrainAsync(cancellationToken);
+        }
 
         public event DatabaseFailedEventHandler DatabaseFailed;
         public event DatabaseRestoredEventHandler DatabaseRestored;
 
-        private sealed record PendingWeighing(decimal Weight, SlaughterMode Mode);
+        private sealed record PendingWeighing(decimal Weight, SlaughterMode Mode, PendingWriteRegistry.Ticket Ticket);
 
         public SqlDataAccess(
             ILogger<SqlDataAccess> logger,
@@ -52,85 +87,66 @@ namespace Scalemon.SqlDataAccess
             _weighingModeStore = weighingModeStore;
             _maxQueueSize = maxQueueSize;
             _alarmSize = alarmsize;
-            StartRetryLoop(_lifetime.ApplicationStopping); // <-- Передаем токен отмены
+            _retryTask = RetryLoopAsync(_retryStop.Token);
         }
 
-        private void StartRetryLoop(CancellationToken cancellationToken)
+        private async Task RetryLoopAsync(CancellationToken ct)
         {
-            // Цикл работает, пока не поступит запрос на остановку
-            // Ждем 30 секунд, но прерываем ожидание, если пришел сигнал остановки
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), ct);
+                    await RetryOnceAsync(ct);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        }
 
-            // убираем из очереди всё, что накопилось
-
-            // ѕытаемс¤ снова
-            // ЕСЛИ МЫ ЗДЕСЬ, ЗНАЧИТ ЗАПИСЬ ПРОШЛА УСПЕШНО
-            // ПРОВЕРЯЕМ, БЫЛИ ЛИ МЫ В СОСТОЯНИИ СБОЯ
-
-            // если не получилось, возвращаем в очередь
-
-            // нормально завершаемся
-            // Финальная попытка сохранить оставшиеся данные
-
-            Task.Run(async () => { 
-                try 
-                { 
-                    while (!cancellationToken.IsCancellationRequested) { 
-                        await Task.Delay(TimeSpan.FromSeconds(30d), cancellationToken); 
-                        var localList = new List<PendingWeighing>();
-                        while (_retryQueue.TryDequeue(out var pending)) localList.Add(pending);
-                        foreach (var item in localList) {
-                            try { 
-                                await WriteToDatabaseAsync(item);
-                                bool wasDown = false; 
-                                lock (_syncLock) { 
-                                    if (_isDbDown) { 
-                                        _isDbDown = false; 
-                                        wasDown = true; 
-                                    } 
-                                } 
-                                if (wasDown) { 
-                                    DatabaseRestored?.Invoke(); 
-                                } 
-                            } 
-                            catch { 
-                                _retryQueue.Enqueue(item);
-                            } 
-                        } 
-                    } 
-                } 
-                catch (TaskCanceledException ex) {
-                    _logger.LogError(ex, "Ошибка записи");
-                } 
-                finally { 
-                    var finalItems = new List<PendingWeighing>();
-                    while (_retryQueue.TryDequeue(out var pending)) finalItems.Add(pending);
-                    foreach (var item in finalItems) {
-                        try { 
-                            await WriteToDatabaseAsync(item);
-                        } 
-                        catch { 
-                            _logger.LogError("Потеря данных при выключении: {weight}, режим {mode}", item.Weight, item.Mode);
-                        } 
-                    } 
-                } 
-            });
+        private async Task RetryOnceAsync(CancellationToken ct)
+        {
+            await _retryGate.WaitAsync(ct);
+            try
+            {
+                var count = _retryQueue.Count;
+                for (var i = 0; i < count && _retryQueue.TryDequeue(out var pending); i++)
+                {
+                    try
+                    {
+                        await WriteToDatabaseAsync(pending);
+                        pending.Ticket.Complete();
+                        bool restored;
+                        lock (_syncLock) { restored = _isDbDown; _isDbDown = false; }
+                        if (restored) NotifyRestored();
+                    }
+                    catch
+                    {
+                        _retryQueue.Enqueue(pending);
+                        lock (_syncLock) _isDbDown = true;
+                    }
+                    ct.ThrowIfCancellationRequested();
+                }
+            }
+            finally { _retryGate.Release(); }
         }
 
         public async Task SaveWeighingAsync(decimal weight)
         {
+            using var operation = MaintenanceGate.Shared.Enter();
             var mode = await _slaughterModeState.WaitUntilKnownAsync(_lifetime.ApplicationStopping);
-            var pending = new PendingWeighing(weight, mode);
+            var pending = new PendingWeighing(weight, mode, _pendingWrites.Begin());
             try
             {
                 // попытка записать сразу
                 await WriteToDatabaseAsync(pending);
+                pending.Ticket.Complete();
                 lock (_syncLock)
                 {
                     _retryCount = 0m;
                     if (_isDbDown)
                     {
                         _isDbDown = false;
-                        DatabaseRestored?.Invoke();
+                        NotifyRestored();
                     }
                 }
             }
@@ -223,8 +239,15 @@ namespace Scalemon.SqlDataAccess
             }
         }
 
+        private void NotifyRestored()
+        {
+            try { DatabaseRestored?.Invoke(); }
+            catch (Exception ex) { _logger.LogError(ex, "Ошибка подписчика восстановления БД; запись уже сохранена"); }
+        }
+
         public async Task DeleteLastWeighingAsync()
         {
+            using var operation = MaintenanceGate.Shared.Enter();
             using (var conn = new SqlConnection(_connString))
             {
                 await conn.OpenAsync();

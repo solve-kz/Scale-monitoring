@@ -401,3 +401,8 @@ __vm/
 /Анализ_*.md
 /Отчёт_*.md
 /Проверка_*.md
+
+# Release signing inputs are injected by the protected release environment
+/Scalemon.Updater/release-public-key.pem
+*.private.pem
+/installer/artifacts/

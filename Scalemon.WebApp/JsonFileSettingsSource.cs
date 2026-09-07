@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Hosting;
+using Scalemon.Common.Updates;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Scalemon.Common; // ServiceSettings и разделы
@@ -19,7 +20,7 @@ namespace Scalemon.WebApp
         public sealed class WebAppOptions
         {
             public string SettingsSource { get; set; } = "Api";
-            public string? SettingsFilePath { get; set; } = @"C:\Scalemon\Scalemon.settings.json";
+            public string? SettingsFilePath { get; set; } = null;
         }
 
         public JsonFileSettingsSource(
@@ -34,7 +35,7 @@ namespace Scalemon.WebApp
 
         private string ResolvePath()
         {
-            var path = _opts.SettingsFilePath ?? @"C:\Scalemon\Scalemon.settings.json";
+            var path = InstallationPaths.ResolveSettings(_opts.SettingsFilePath);
             return Path.IsPathRooted(path)
                 ? path
                 : Path.GetFullPath(Path.Combine(_env.ContentRootPath, path));
@@ -63,6 +64,7 @@ namespace Scalemon.WebApp
 
         public async Task SaveAsync(SettingsDto dto, CancellationToken ct = default)
         {
+            using var maintenanceOperation = MaintenanceGate.Shared.Enter();
             var full = ResolvePath();
             var directory = Path.GetDirectoryName(full)
                 ?? throw new InvalidOperationException("Не удалось определить каталог файла настроек.");

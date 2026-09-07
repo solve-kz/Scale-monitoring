@@ -237,3 +237,7 @@ dotnet test Scalemon.CSTests/Scalemon.CSTests.csproj -c Release
 
 Использованные официальные паттерны Radzen: [Upload](https://blazor.radzen.com/docs/api/Radzen.Blazor.RadzenUpload), [DataGrid](https://blazor.radzen.com/datagrid), [Dialog](https://blazor.radzen.com/dialog), [Slider](https://blazor.radzen.com/slider).
 
+
+## Установщик и обновления
+
+Исходники установщика NSIS, службы обновлений, локального обслуживания и страницы `/updates` описаны в [руководстве по обновлениям](docs/updates.md). В нём приведены настройка подписанных GitHub Releases, локальные команды сборки и обязательная приёмка на Windows VM. В production этот функционал включается после проверки установочного выпуска; merge сам по себе не публикует обновление.

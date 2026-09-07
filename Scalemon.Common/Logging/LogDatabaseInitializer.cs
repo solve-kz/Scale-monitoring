@@ -11,7 +11,7 @@ public static class LogDatabaseInitializer
     {
         if (string.IsNullOrWhiteSpace(configuredPath))
         {
-            var directory = Path.Combine(AppContext.BaseDirectory, "logs");
+            var directory = Path.Combine(Scalemon.Common.Updates.InstallationPaths.Root, "Logs");
             Directory.CreateDirectory(directory);
             return Path.Combine(directory, "mainlogs.db");
         }

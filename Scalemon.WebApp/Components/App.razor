@@ -29,6 +29,19 @@
     <script src="_content/Scalemon.WebApp/App.js?v=@(typeof(App).Assembly.GetName().Version)-stream-export-v1"></script>
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+<div id="components-reconnect-modal" class="components-reconnect-hide">
+    Соединение со Scalemon прервано. Если выполняется обновление, страница восстановится автоматически.
+</div>
+<style>
+    #components-reconnect-modal { display: none; }
+    #components-reconnect-modal.components-reconnect-show,
+    #components-reconnect-modal.components-reconnect-failed,
+    #components-reconnect-modal.components-reconnect-rejected {
+        display: block; position: fixed; inset: 0; z-index: 10000;
+        padding: 25vh 10vw; background: #fff; color: #222; font-size: 1.25rem;
+    }
+</style>
+<script src="_content/Scalemon.WebApp/scalemon-reconnect.js"></script>
 </body>
 
 @code {

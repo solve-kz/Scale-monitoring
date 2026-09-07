@@ -1,4 +1,5 @@
-﻿namespace Scalemon.Common
+using Scalemon.Common.Updates;
+namespace Scalemon.Common
 {
     // «Корневой» класс, в который будет биндиться весь JSON
     public class ServiceSettings
@@ -59,13 +60,13 @@
 
     public class LogFilePathSettings
     {
-        public string MainLogPath { get; set; } = @"C:\Logs\main.log";
-        public string DetailedLogPath { get; set; } = @"C:\Logs\detailed.log";
+        public string MainLogPath { get; set; } = InstallationPaths.LogFile("main.log");
+        public string DetailedLogPath { get; set; } = InstallationPaths.LogFile("detailed.log");
     }
 
     public class LogDatabaseSettings
     {
-        public string MainDatabasePath { get; set; } = @"C:\Logs\mainlogs.db";
+        public string MainDatabasePath { get; set; } = InstallationPaths.LogFile("mainlogs.db");
     }
 
     public class DatabaseSettings
@@ -78,7 +79,7 @@
         /// <summary>
         /// Путь к локальному SQLite-журналу режима «общий/санитарный».
         /// </summary>
-        public string WeighingModeDatabasePath { get; set; } = @"C:\Scalemon\weighing-modes.db";
+        public string WeighingModeDatabasePath { get; set; } = InstallationPaths.DataFile("weighing-modes.db");
     }
 
     public class ScaleSettings
@@ -201,7 +202,7 @@
 
     public class WeightRegisterReviewSettings
     {
-        public string StoragePath { get; set; } = @"C:\Scalemon\WeightRegisterReview";
+        public string StoragePath { get; set; } = InstallationPaths.DataFile("WeightRegisterReview");
         public long MaxUploadBytes { get; set; } = 50L * 1024 * 1024;
         public decimal ComparisonToleranceKg { get; set; } = 0.04m;
         public WeightRegisterRecognitionSettings Recognition { get; set; } = new WeightRegisterRecognitionSettings();
