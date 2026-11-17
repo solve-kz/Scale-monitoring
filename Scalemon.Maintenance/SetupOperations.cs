@@ -159,8 +159,14 @@ internal static class SetupOperations
             }
             MigrateLocalData(settings, legacyDir, priorRecord is null && legacyDir is not null);
             AtomicJson.Write(InstallationPaths.Settings, settings);
-            if (!repair) { CopyTree(Path.Combine(source, "Application"), target); VersionInventory.Create(target); }
-            else VersionInventory.Verify(target);
+            var candidateApplication = Path.Combine(source, "Application");
+            if (!repair) { CopyTree(candidateApplication, target); VersionInventory.Create(target); }
+            else
+            {
+                VersionInventory.Verify(target);
+                if (!VersionInventory.Matches(target, candidateApplication))
+                    throw new InvalidOperationException($"Версия {version} уже установлена, но новый комплект содержит другие файлы. Выпустите изменения с новым номером версии.");
+            }
             infrastructureReplaced = true;
             ReplaceInfrastructure(Path.Combine(source, "Infrastructure"), installedInfrastructure);
             if (!Exists(name))

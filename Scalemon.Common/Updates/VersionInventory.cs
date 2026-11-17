@@ -26,6 +26,18 @@ public static class VersionInventory
             if (!actual.TryGetValue(name, out var file) || new FileInfo(file).Length != entry.Length || !Hash(file).Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Сохранённый комплект повреждён: " + name);
     }
+    /// <summary>Сравнивает два комплекта программы без учёта служебных файлов контроля.</summary>
+    public static bool Matches(string directory, string candidateDirectory)
+    {
+        var current = Snapshot(directory);
+        var candidate = Snapshot(candidateDirectory);
+        if (current.Count != candidate.Count) return false;
+        return current.All(pair => candidate.TryGetValue(pair.Key, out var entry) && entry == pair.Value);
+    }
+    private static Dictionary<string, Entry> Snapshot(string directory) => Files(directory).ToDictionary(
+        file => Path.GetRelativePath(directory, file),
+        file => new Entry(new FileInfo(file).Length, Hash(file)),
+        StringComparer.OrdinalIgnoreCase);
     private static string Hash(string file) { using var stream = File.OpenRead(file); return Convert.ToHexString(SHA256.HashData(stream)); }
     private static IEnumerable<string> Files(string directory)
     {

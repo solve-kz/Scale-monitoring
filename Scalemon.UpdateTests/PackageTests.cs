@@ -45,6 +45,19 @@ public sealed class PackageTests : IDisposable
         Assert.Throws<InvalidDataException>(() => VersionInventory.Verify(_root));
     }
     [Fact]
+    public void InventoryDistinguishesDifferentBuildsWithSameVersion()
+    {
+        var current = Path.Combine(_root, "current");
+        var candidate = Path.Combine(_root, "candidate");
+        Directory.CreateDirectory(current);
+        Directory.CreateDirectory(candidate);
+        File.WriteAllText(Path.Combine(current, "Scalemon.ServiceHost.exe"), "one");
+        File.WriteAllText(Path.Combine(candidate, "Scalemon.ServiceHost.exe"), "one");
+        Assert.True(VersionInventory.Matches(current, candidate));
+        File.WriteAllText(Path.Combine(candidate, "Scalemon.ServiceHost.exe"), "two");
+        Assert.False(VersionInventory.Matches(current, candidate));
+    }
+    [Fact]
     public void AtomicJournalRoundTripPreservesRecoveryTarget()
     {
         var path = Path.Combine(_root, "operation.json");
