@@ -9,8 +9,11 @@ Unicode true
 !ifndef PAYLOAD
   !error "PAYLOAD required"
 !endif
+!ifndef OUTPUT
+  !error "OUTPUT required"
+!endif
 Name "Scalemon"
-OutFile "ScalemonSetup-${VERSION}-win-x64.exe"
+OutFile "${OUTPUT}\ScalemonSetup-${VERSION}-win-x64.exe"
 InstallDir "$PROGRAMFILES64\Scalemon"
 RequestExecutionLevel admin
 ShowInstDetails show
@@ -152,7 +155,7 @@ Section "Scalemon"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Scalemon" "DisplayName" "Scalemon"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Scalemon" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Scalemon" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Scalemon" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 SectionEnd
 
 Section "Uninstall"
