@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36221.1
@@ -50,6 +50,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.Common", "Scalemon
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.WebApp", "Scalemon.WebApp\Scalemon.WebApp.csproj", "{4FAE6182-EF24-1305-6DA1-9B9AE60A9B87}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.Updater", "Scalemon.Updater\Scalemon.Updater.csproj", "{1B605314-E67B-5088-B9AA-A07004A1876A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.Maintenance", "Scalemon.Maintenance\Scalemon.Maintenance.csproj", "{7ED324C4-8549-52E5-A982-C106E7DD0712}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Scalemon.UpdateTests", "Scalemon.UpdateTests\Scalemon.UpdateTests.csproj", "{C9829526-4421-520D-B171-7763F6DD5667}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		ArduinoController|Any CPU = ArduinoController|Any CPU
@@ -69,6 +75,96 @@ Global
 		ServiceRelease|x86 = ServiceRelease|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|Any CPU.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|Any CPU.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|ARM.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|ARM.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|ARM64.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|ARM64.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|x64.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|x64.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|x86.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ArduinoController|x86.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|Any CPU.Build.0 = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|ARM.ActiveCfg = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|ARM.Build.0 = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|ARM64.ActiveCfg = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|ARM64.Build.0 = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|x64.ActiveCfg = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|x64.Build.0 = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|x86.ActiveCfg = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceDebug|x86.Build.0 = Debug|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|Any CPU.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|ARM.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|ARM.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|ARM64.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|ARM64.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|x64.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|x64.Build.0 = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|x86.ActiveCfg = Release|Any CPU
+		{C9829526-4421-520D-B171-7763F6DD5667}.ServiceRelease|x86.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|Any CPU.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|Any CPU.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|ARM.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|ARM.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|ARM64.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|ARM64.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|x64.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|x64.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|x86.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ArduinoController|x86.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|Any CPU.Build.0 = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|ARM.ActiveCfg = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|ARM.Build.0 = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|ARM64.ActiveCfg = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|ARM64.Build.0 = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|x64.ActiveCfg = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|x64.Build.0 = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|x86.ActiveCfg = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceDebug|x86.Build.0 = Debug|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|Any CPU.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|ARM.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|ARM.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|ARM64.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|ARM64.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|x64.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|x64.Build.0 = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|x86.ActiveCfg = Release|Any CPU
+		{7ED324C4-8549-52E5-A982-C106E7DD0712}.ServiceRelease|x86.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|Any CPU.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|Any CPU.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|ARM.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|ARM.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|ARM64.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|ARM64.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|x64.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|x64.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|x86.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ArduinoController|x86.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|Any CPU.Build.0 = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|ARM.ActiveCfg = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|ARM.Build.0 = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|ARM64.ActiveCfg = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|ARM64.Build.0 = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|x64.ActiveCfg = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|x64.Build.0 = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|x86.ActiveCfg = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceDebug|x86.Build.0 = Debug|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|Any CPU.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|ARM.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|ARM.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|ARM64.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|ARM64.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|x64.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|x64.Build.0 = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|x86.ActiveCfg = Release|Any CPU
+		{1B605314-E67B-5088-B9AA-A07004A1876A}.ServiceRelease|x86.Build.0 = Release|Any CPU
 		{1890F85D-9B15-465A-8A66-1D80727F435C}.ArduinoController|Any CPU.ActiveCfg = Debug|Any CPU
 		{1890F85D-9B15-465A-8A66-1D80727F435C}.ArduinoController|ARM.ActiveCfg = ArduinoController|Any CPU
 		{1890F85D-9B15-465A-8A66-1D80727F435C}.ArduinoController|ARM.Build.0 = ArduinoController|Any CPU

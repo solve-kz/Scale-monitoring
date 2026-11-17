@@ -31,6 +31,7 @@
         <RadzenPanelMenu DisplayStyle="@(Collapsed? MenuItemDisplayStyle.Icon: MenuItemDisplayStyle.IconAndText)"
                          ShowArrow="false">
 			<RadzenPanelMenuItem Text="О программе" Icon="help" Path="/about" />
+            <RadzenPanelMenuItem Text="Обновления" Icon="system_update" Path="/updates" Visible="@CanSee(3)" />
             <RadzenPanelMenuItem Text="Настройки" Icon="settings" Path="/settings" />            
         </RadzenPanelMenu>
 

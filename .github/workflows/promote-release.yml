@@ -1,0 +1,33 @@
+name: Promote tested Scalemon release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tested release version without v (VM acceptance required)'
+        required: true
+permissions:
+  contents: read
+jobs:
+  promote:
+    runs-on: windows-2022
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Promote unchanged tested archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KEY: ${{ secrets.RELEASE_SIGNING_KEY_PEM }}
+          RELEASE_PUBLIC_KEY: ${{ vars.RELEASE_PUBLIC_KEY_PEM }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if (-not $env:RELEASE_KEY -or -not $env:RELEASE_PUBLIC_KEY) { throw 'Configure signing keys' }
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/signing.pem", $env:RELEASE_KEY)
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/public.pem", $env:RELEASE_PUBLIC_KEY)
+          ./installer/Promote-Release.ps1 -Version $env:RELEASE_VERSION -SigningKeyPath "$env:RUNNER_TEMP/signing.pem" -PublicKeyPath "$env:RUNNER_TEMP/public.pem" -WorkDirectory "$env:RUNNER_TEMP/promote"
+      - name: Remove private key
+        if: always()
+        shell: pwsh
+        run: Remove-Item -LiteralPath "$env:RUNNER_TEMP/signing.pem" -ErrorAction SilentlyContinue

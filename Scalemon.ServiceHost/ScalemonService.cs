@@ -1,3 +1,5 @@
+using Scalemon.Common.Updates;
+using Scalemon.ServiceHost.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Scalemon.Common;
@@ -19,6 +21,8 @@ public class ScalemonService : BackgroundService
     private readonly ISlaughterModeState _slaughterModeState;
     private readonly IProductionIndicatorState _indicatorState;
 
+    private readonly ApplicationMaintenance _maintenance;
+
     private readonly SemaphoreSlim _fsmGate = new(1, 1);
 
     // Поле для хранения последнего отправленного сигнала
@@ -31,7 +35,8 @@ public class ScalemonService : BackgroundService
             IDataAccess db,
             ISignalBus arduino,
             ISlaughterModeState slaughterModeState,
-            IProductionIndicatorState indicatorState)
+            IProductionIndicatorState indicatorState,
+            ApplicationMaintenance maintenance)
     {
         _logger = logger;
         _scale = scale;
@@ -40,6 +45,7 @@ public class ScalemonService : BackgroundService
         _arduino = arduino;
         _slaughterModeState = slaughterModeState;
         _indicatorState = indicatorState;
+        _maintenance = maintenance;
     }
 
     private void HandleSlaughterModeChanged(SlaughterMode mode)
@@ -105,9 +111,12 @@ public class ScalemonService : BackgroundService
 
     private async Task HandleDataAsync(ScaleDataPoint data)
     {
-        if (!_fsmGate.Wait(0)) return;
+        _maintenance.Observe(data);
+        if (MaintenanceGate.Shared.IsClosed || !_fsmGate.Wait(0)) return;
         try
         {
+            if (MaintenanceGate.Shared.IsClosed) return;
+            using var operation = MaintenanceGate.Shared.Enter();
             await _fsm.SetConnectionAsync(data.IsConnected);
             await _fsm.SetAlarmAsync(data.IsAlarm);
 
@@ -159,15 +168,57 @@ public class ScalemonService : BackgroundService
         }
     }
 
+    private async Task HandleButtonAsync()
+    {
+        await _fsmGate.WaitAsync();
+        try
+        {
+            if (MaintenanceGate.Shared.IsClosed) return;
+            using var operation = MaintenanceGate.Shared.Enter();
+            await _fsm.OnButtonPressedAsync();
+        }
+        finally { _fsmGate.Release(); }
+    }
+
+    private async void HandleDatabaseFailed(Exception exception)
+    {
+        IDisposable? operation = null;
+        try
+        {
+            operation = MaintenanceGate.Shared.Enter();
+            await _fsmGate.WaitAsync();
+            try { await _fsm.OnDatabaseFailedAsync(exception); }
+            finally { _fsmGate.Release(); }
+        }
+        catch (InvalidOperationException) when (MaintenanceGate.Shared.IsClosed) { }
+        catch (Exception ex) { _logger.LogError(ex, "Не удалось передать FSM состояние ошибки БД"); }
+        finally { operation?.Dispose(); }
+    }
+
+    private async void HandleDatabaseRestored()
+    {
+        IDisposable? operation = null;
+        try
+        {
+            operation = MaintenanceGate.Shared.Enter();
+            await _fsmGate.WaitAsync();
+            try { await _fsm.OnDatabaseRestoredAsync(); }
+            finally { _fsmGate.Release(); }
+        }
+        catch (InvalidOperationException) when (MaintenanceGate.Shared.IsClosed) { }
+        catch (Exception ex) { _logger.LogError(ex, "Не удалось передать FSM восстановление БД"); }
+        finally { operation?.Dispose(); }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _scale.DataReceived += HandleDataAsync;
-        _arduino.SubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+        _arduino.SubscribeButtonPressed(HandleButtonAsync);
         _arduino.SlaughterModeChanged += HandleSlaughterModeChanged;
         _arduino.ConnectionEstablished += HandleArduinoConnected;
         _arduino.ConnectionLost += HandleArduinoDisconnected;
-        _db.DatabaseFailed += async ex => await _fsm.OnDatabaseFailedAsync(ex);
-        _db.DatabaseRestored += async () => await _fsm.OnDatabaseRestoredAsync();
+        _db.DatabaseFailed += HandleDatabaseFailed;
+        _db.DatabaseRestored += HandleDatabaseRestored;
 
         _arduino.Start();
         _scale.Start();
@@ -175,16 +226,21 @@ public class ScalemonService : BackgroundService
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("ScalemonService: остановка службы.");
         _scale.DataReceived -= HandleDataAsync;
-        _arduino.UnsubscribeButtonPressed(_fsm.OnButtonPressedAsync);
+        _arduino.UnsubscribeButtonPressed(HandleButtonAsync);
         _arduino.SlaughterModeChanged -= HandleSlaughterModeChanged;
         _arduino.ConnectionEstablished -= HandleArduinoConnected;
         _arduino.ConnectionLost -= HandleArduinoDisconnected;
+        _db.DatabaseFailed -= HandleDatabaseFailed;
+        _db.DatabaseRestored -= HandleDatabaseRestored;
         _scale.Stop();
         _arduino.Stop();
-        return base.StopAsync(cancellationToken);
+        MaintenanceGate.Shared.Close();
+        await MaintenanceGate.Shared.WaitAsync(cancellationToken);
+        await ((IDataWriteDrain)_db).StopWritesAsync(cancellationToken);
+        await base.StopAsync(cancellationToken);
     }
 }
