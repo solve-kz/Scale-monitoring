@@ -5,11 +5,34 @@ param(
     [Parameter(Mandatory)][string]$SigningKeyPath,
     [Parameter(Mandatory)][string]$PublicKeyPath,
     [Parameter(Mandatory)][string]$OutputDirectory,
-    [string]$Makensis = 'makensis.exe',
+    [string]$Makensis,
     [string]$Notes = ''
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
+
+if ($Makensis) {
+    $makensisCommand = Get-Command $Makensis -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $makensisCommand -and (Test-Path -LiteralPath $Makensis -PathType Leaf)) {
+        $Makensis = [IO.Path]::GetFullPath($Makensis)
+    } elseif ($makensisCommand) {
+        $Makensis = $makensisCommand.Source
+    } else {
+        throw "NSIS compiler was not found at '$Makensis'. Pass -Makensis with the full path to makensis.exe."
+    }
+} else {
+    $makensisCommand = Get-Command 'makensis.exe' -CommandType Application -ErrorAction SilentlyContinue
+    $makensisCandidates = @(
+        $makensisCommand.Source
+        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)) 'NSIS\makensis.exe')
+        (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)) 'NSIS\makensis.exe')
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
+    $Makensis = $makensisCandidates | Select-Object -First 1
+    if (-not $Makensis) {
+        throw 'NSIS compiler was not found. Install NSIS or pass -Makensis with the full path to makensis.exe.'
+    }
+}
+
 $releaseRoot = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $releaseRoot) { throw 'Use a new empty output directory for each immutable release.' }
 New-Item -ItemType Directory -Path $releaseRoot | Out-Null
