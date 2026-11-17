@@ -190,7 +190,7 @@ internal static class SetupOperations
                 while (!check.IsCancellationRequested)
                 {
                     try { reply = await LocalUpdatePipe.CallAsync(LocalUpdatePipe.Application, new("dependencies"), check.Token); if (reply.Success) break; }
-                    catch (IOException) { } catch (TimeoutException) { }
+                    catch (IOException) { } catch (System.TimeoutException) { }
                     await Task.Delay(1000, check.Token);
                 }
                 if (reply?.Success != true) throw new InvalidOperationException("Проверка SQL и локальных данных от имени службы не прошла.");
