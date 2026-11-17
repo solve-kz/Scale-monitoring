@@ -385,11 +385,16 @@ appsettings.*.Local.json
 __vm/
 *.bak
 
-# Local Codex analysis and document-generation workspaces
+# AI agent workspace: scratch scripts, analysis, generated documents, data exports
+/.ai-workspace/
+
+# Safety net: agent and data leftovers accidentally created at repository root
+/.agents/
+/.work/
 /.codex_analysis_*/
 /.codex_report/
-
-# Local diagnostics and production-data exports kept at repository root
+/Claude outputs/
+/output/
 /logs*.csv
 /weighings*.xlsx
 /*_compared.xlsx
