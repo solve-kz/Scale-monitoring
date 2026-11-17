@@ -55,8 +55,18 @@ jobs:
           gh release view "v$env:RELEASE_VERSION" --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) { throw 'Release already exists: never overwrite published assets' }
           $assets = Get-ChildItem "$env:RUNNER_TEMP/release" -File | ForEach-Object FullName
-          $extra = if ($env:RELEASE_CHANNEL -eq 'Test') { @('--prerelease') } else { @() }
-          gh release create "v$env:RELEASE_VERSION" @assets --repo $env:GITHUB_REPOSITORY --verify-tag --draft @extra --title "Scalemon $env:RELEASE_VERSION" --notes 'Requires Windows VM acceptance before publication. See docs/updates.md.'
+          $releaseArgs = @(
+            "v$env:RELEASE_VERSION",
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--verify-tag',
+            '--draft',
+            '--title', "Scalemon $env:RELEASE_VERSION",
+            '--notes', 'Requires Windows VM acceptance before publication. See docs/updates.md.'
+          )
+          if ($env:RELEASE_CHANNEL -eq 'Test') { $releaseArgs += '--prerelease' }
+          $releaseArgs += '--'
+          $releaseArgs += $assets
+          gh release create @releaseArgs
           if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
       - name: Remove private key
         if: always()
