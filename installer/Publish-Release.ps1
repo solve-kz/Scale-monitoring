@@ -90,7 +90,9 @@ try {
     } finally { $key.Dispose() }
     Push-Location $releaseRoot
     try {
-        & $Makensis "/DVERSION=$Version" "/DPAYLOAD=$payload" "/DOUTPUT=$releaseRoot" (Join-Path $PSScriptRoot 'Scalemon.nsi')
+        # Scalemon.nsi хранится в UTF-8 без BOM. Без явного указания кодировки
+        # makensis трактует такой файл как ACP и портит русские строки интерфейса.
+        & $Makensis '/INPUTCHARSET' 'UTF8' "/DVERSION=$Version" "/DPAYLOAD=$payload" "/DOUTPUT=$releaseRoot" (Join-Path $PSScriptRoot 'Scalemon.nsi')
         if ($LASTEXITCODE -ne 0) { throw 'NSIS compilation failed' }
         $setupPath = Join-Path $releaseRoot "ScalemonSetup-$Version-win-x64.exe"
         if (-not (Test-Path -LiteralPath $setupPath)) { throw "NSIS did not create the expected installer: $setupPath" }
