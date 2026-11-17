@@ -58,52 +58,50 @@ FunctionEnd
 Function SettingsPage
   nsDialogs::Create 1018
   Pop $Dialog
-  ${NSD_CreateLabel} 0 0 100% 20u "Весы должны быть выключены. Для подключения существующей установки укажите имя её службы; учётная запись и данные сохраняются."
+  ${NSD_CreateLabel} 0 0 38% 12u "Имя службы Windows"
   Pop $Value
-  ${NSD_CreateLabel} 0 24u 38% 12u "Имя службы Windows"
-  Pop $Value
-  ${NSD_CreateText} 40% 22u 60% 13u "Scalemon"
+  ${NSD_CreateText} 40% 0 60% 13u "Scalemon"
   Pop $ServiceInput
   ReadINIStr $Value "$PLUGINSDIR\discovered.ini" "Setup" "Service"
   ${If} $Value != ""
     ${NSD_SetText} $ServiceInput "$Value"
   ${EndIf}
-  ${NSD_CreateLabel} 0 41u 38% 12u "SQL: строка подключения"
+  ${NSD_CreateLabel} 0 17u 38% 12u "SQL: строка подключения"
   Pop $Value
-  ${NSD_CreatePassword} 40% 39u 60% 13u ""
+  ${NSD_CreatePassword} 40% 17u 60% 13u ""
   Pop $ConnectionInput
-  ${NSD_CreateLabel} 0 58u 38% 12u "COM весов / Arduino"
+  ${NSD_CreateLabel} 0 34u 38% 12u "COM весов / Arduino"
   Pop $Value
-  ${NSD_CreateText} 40% 56u 25% 13u "COM2"
+  ${NSD_CreateText} 40% 34u 25% 13u "COM2"
   Pop $ScaleInput
   ReadINIStr $Value "$PLUGINSDIR\discovered.ini" "Setup" "ScalePort"
   ${If} $Value != ""
     ${NSD_SetText} $ScaleInput "$Value"
   ${EndIf}
-  ${NSD_CreateText} 70% 56u 30% 13u "COM3"
+  ${NSD_CreateText} 70% 34u 30% 13u "COM3"
   Pop $PlcInput
   ReadINIStr $Value "$PLUGINSDIR\discovered.ini" "Setup" "PlcPort"
   ${If} $Value != ""
     ${NSD_SetText} $PlcInput "$Value"
   ${EndIf}
-  ${NSD_CreateLabel} 0 75u 38% 12u "Порт веб-интерфейса"
+  ${NSD_CreateLabel} 0 51u 38% 12u "Порт веб-интерфейса"
   Pop $Value
-  ${NSD_CreateText} 40% 73u 25% 13u "5000"
+  ${NSD_CreateText} 40% 51u 25% 13u "5000"
   Pop $PortInput
   ReadINIStr $Value "$PLUGINSDIR\discovered.ini" "Setup" "Port"
   ${If} $Value != ""
     ${NSD_SetText} $PortInput "$Value"
   ${EndIf}
-  ${NSD_CreateLabel} 0 92u 38% 12u "Пароль admin (новая установка)"
+  ${NSD_CreateLabel} 0 68u 38% 12u "Пароль admin (новая установка)"
   Pop $Value
-  ${NSD_CreatePassword} 40% 90u 60% 13u ""
+  ${NSD_CreatePassword} 40% 68u 60% 13u ""
   Pop $PasswordInput
-  ${NSD_CreateCheckbox} 0 102u 100% 12u "Автоустановка Stable с 22:00 до 05:00 при отключённых весах"
+  ${NSD_CreateCheckbox} 0 86u 100% 12u "Автоустановка Stable с 22:00 до 05:00 при отключённых весах"
   Pop $AutoInput
   ${NSD_Check} $AutoInput
-  ${NSD_CreateCheckbox} 0 118u 100% 12u "Разрешить доступ к веб-интерфейсу из частной/доменной сети"
+  ${NSD_CreateCheckbox} 0 102u 100% 12u "Разрешить доступ к веб-интерфейсу из частной/доменной сети"
   Pop $FirewallInput
-  ${NSD_CreateCheckbox} 0 134u 100% 12u "Весы выключены, работа участка остановлена, текущие записи сохранены"
+  ${NSD_CreateCheckbox} 0 118u 100% 12u "Весы выключены, работа участка остановлена, текущие записи сохранены"
   Pop $ConfirmInput
   nsDialogs::Show
 FunctionEnd
