@@ -98,15 +98,13 @@ Function SettingsPage
   Pop $Value
   ${NSD_CreatePassword} 40% 90u 60% 13u ""
   Pop $PasswordInput
-  ${NSD_CreateCheckbox} 0 110u 100% 12u "Автоустановка Stable с 22:00 до 05:00 при отключённых весах"
+  ${NSD_CreateCheckbox} 0 102u 100% 12u "Автоустановка Stable с 22:00 до 05:00 при отключённых весах"
   Pop $AutoInput
   ${NSD_Check} $AutoInput
-  ${NSD_CreateCheckbox} 0 128u 100% 12u "Разрешить доступ к веб-интерфейсу из частной/доменной сети"
+  ${NSD_CreateCheckbox} 0 118u 100% 12u "Разрешить доступ к веб-интерфейсу из частной/доменной сети"
   Pop $FirewallInput
-  ${NSD_CreateCheckbox} 0 146u 100% 12u "Весы выключены, работа участка остановлена, текущие записи сохранены"
+  ${NSD_CreateCheckbox} 0 134u 100% 12u "Весы выключены, работа участка остановлена, текущие записи сохранены"
   Pop $ConfirmInput
-  ${NSD_CreateLabel} 0 165u 100% 24u "При повторной установке пустая строка SQL сохраняет существующее подключение. SQL Server и драйверы должны быть установлены заранее."
-  Pop $Value
   nsDialogs::Show
 FunctionEnd
 
