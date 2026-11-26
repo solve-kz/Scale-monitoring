@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Scalemon.Common.Updates;
@@ -12,6 +14,39 @@ public sealed class PackageTests : IDisposable
     public PackageTests() => Directory.CreateDirectory(_root);
     private static ReleaseManifest Manifest => new() { Version = "1.0.1", GitSha = new string('a', 40),
         Archive = "Scalemon-1.0.1-win-x64.zip", Size = 100, ExpandedSize = 10000, Sha256 = new string('b', 64), BackwardCompatible = true };
+
+    [Theory]
+    [InlineData("W/\"releases\"")]
+    [InlineData("\"releases\"")]
+    public async Task RepeatedReleaseCheckSendsOriginalETag(string etag)
+    {
+        using var packages = new SignedPackages(new ReleaseListHandler(etag));
+
+        Assert.Null(await packages.FindAsync("Test", CancellationToken.None));
+        Assert.Null(await packages.FindAsync("Stable", CancellationToken.None));
+    }
+
+    private sealed class ReleaseListHandler(string etag) : HttpMessageHandler
+    {
+        private int _requests;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (_requests++ == 0)
+            {
+                Assert.Empty(request.Headers.IfNoneMatch);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Headers = { ETag = EntityTagHeaderValue.Parse(etag) },
+                    Content = new StringContent("[]")
+                });
+            }
+
+            Assert.Equal(etag, Assert.Single(request.Headers.IfNoneMatch).ToString());
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotModified));
+        }
+    }
+
     [Fact]
     public void SignatureRejectsChangedManifestAndDifferentKey()
     {

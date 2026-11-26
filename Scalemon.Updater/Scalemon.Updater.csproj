@@ -10,5 +10,6 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.9" />
     <ProjectReference Include="..\Scalemon.Common\Scalemon.Common.csproj" />
     <EmbeddedResource Include="release-public-key.pem" Condition="Exists('release-public-key.pem')" />
+    <InternalsVisibleTo Include="Scalemon.UpdateTests" />
   </ItemGroup>
 </Project>
