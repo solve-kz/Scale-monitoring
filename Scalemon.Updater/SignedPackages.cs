@@ -12,23 +12,30 @@ namespace Scalemon.Updater;
 public sealed class SignedPackages : IDisposable
 {
     private const string Repository = "solve-kz/Scale-monitoring";
-    private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = true }) { Timeout = TimeSpan.FromMinutes(30) };
-    private string? _etag;
+    private readonly HttpClient _http;
+    private EntityTagHeaderValue? _etag;
     private JsonElement[] _releases = [];
     /// <summary>Создаёт клиент публичного GitHub API без токена участка.</summary>
-    public SignedPackages() { _http.DefaultRequestHeaders.UserAgent.ParseAdd("Scalemon-Updater/1.0"); }
+    public SignedPackages() : this(new HttpClientHandler { AllowAutoRedirect = true }) { }
+
+    internal SignedPackages(HttpMessageHandler handler)
+    {
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(30) };
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("Scalemon-Updater/1.0");
+    }
+
     /// <summary>Находит последний подписанный выпуск выбранного канала.</summary>
     public async Task<(ReleaseManifest Manifest, Uri Archive)?> FindAsync(string channel, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repository}/releases?per_page=100");
-        if (_etag is not null) request.Headers.IfNoneMatch.Add(new EntityTagHeaderValue(_etag));
+        if (_etag is not null) request.Headers.IfNoneMatch.Add(_etag);
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         if (response.StatusCode != HttpStatusCode.NotModified)
         {
             response.EnsureSuccessStatusCode();
             using var json = JsonDocument.Parse(await BoundedAsync(response, 2 * 1024 * 1024, ct));
             _releases = json.RootElement.EnumerateArray().Select(x => x.Clone()).ToArray();
-            _etag = response.Headers.ETag?.ToString();
+            _etag = response.Headers.ETag;
         }
         var ordered = _releases.Where(r => !r.GetProperty("draft").GetBoolean() &&
             (channel == "Test" || !r.GetProperty("prerelease").GetBoolean()))
