@@ -1,5 +1,6 @@
 @page "/about"
 @attribute [Authorize]
+@using Scalemon.Common.Updates
 <RadzenStack AlignItems="AlignItems.Stretch" Gap="24px" Class="rz-mx-auto rz-my-8 rz-px-4" Style="max-width: 960px;">
     <RadzenHeading Size="HeadingSize.H1" TextAlign="TextAlign.Left">
         О программно-аппаратном комплексе "Scalemon"
@@ -92,7 +93,7 @@
 
     <RadzenStack Gap="8px" AlignItems="AlignItems.Start">
         <RadzenText TextStyle="TextStyle.Subtitle1">Программно-аппаратный комплекс "Scalemon"</RadzenText>
-        <RadzenText>Версия 1.0.0</RadzenText>
+        <RadzenText>Версия @InstallationPaths.Version</RadzenText>
         <RadzenText>© 2025. Все права защищены.</RadzenText>
     </RadzenStack>
 </RadzenStack>

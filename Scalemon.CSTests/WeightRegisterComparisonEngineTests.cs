@@ -225,7 +225,12 @@ public sealed class WeightRegisterComparisonEngineTests
 
     private static WeightRegisterProject ProjectWithValues(params decimal[] values)
     {
-        var sheet = new WeightRegisterSheet { Id = "sheet-1", Name = "Лист 1" };
+        var sheet = new WeightRegisterSheet
+        {
+            Id = "sheet-1",
+            Name = "Лист 1",
+            IsRecognitionComplete = true
+        };
         for (var index = 0; index < values.Length; index++)
         {
             sheet.Cells.Add(new RegisterReviewCell

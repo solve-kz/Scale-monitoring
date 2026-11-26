@@ -1,3 +1,4 @@
+using Scalemon.Common.Updates;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -262,6 +263,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         IReadOnlyList<RegisterUploadFile> files,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count == 0)
         {
@@ -364,6 +366,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         IReadOnlyList<RegisterUploadFile> files,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count == 0)
         {
@@ -464,6 +467,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         IReadOnlyList<string> sheetIds,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         ArgumentNullException.ThrowIfNull(sheetIds);
         await _writeGate.WaitAsync(cancellationToken);
         try
@@ -502,6 +506,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         RegisterTableCalibration calibration,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         ValidateCalibration(calibration);
         await _writeGate.WaitAsync(cancellationToken);
         try
@@ -531,6 +536,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
     /// <inheritdoc />
     public async Task QueueRecognitionAsync(string projectId, CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
@@ -617,6 +623,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
     public async Task<WeightRegisterProject?> TryClaimRecognitionAsync(
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
@@ -759,6 +766,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string? currentSheet,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
@@ -799,6 +807,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string projectId,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         var cancelRunning = false;
         await _writeGate.WaitAsync(cancellationToken);
         try
@@ -838,6 +847,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         int direction,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         if (direction != -1 && direction != 1)
         {
             throw new ArgumentOutOfRangeException(nameof(direction));
@@ -900,6 +910,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string projectId,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
@@ -922,6 +933,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string message,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
@@ -971,6 +983,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         bool allowProcessing,
         CancellationToken cancellationToken)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         if (recognized.SchemaVersion is < 1 or > 2 || recognized.Sheets is null || recognized.Sheets.Count == 0)
         {
             throw new JsonException("Ожидался проект WeightRegisterReviewApp schema v1/v2 с непустым массивом sheets.");
@@ -1310,6 +1323,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string? editedBy,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         if (correctedValue.HasValue
             && (correctedValue.Value <= 0m
                 || correctedValue.Value > 100m
@@ -1378,6 +1392,7 @@ public sealed class JsonWeightRegisterReviewService : IWeightRegisterReviewServi
         string? editedBy,
         CancellationToken cancellationToken = default)
     {
+        using var maintenanceOperation = MaintenanceGate.Shared.Enter();
         if (correctedValue.HasValue
             && (correctedValue.Value <= 0m
                 || correctedValue.Value > 10000m

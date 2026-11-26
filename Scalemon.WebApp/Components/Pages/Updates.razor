@@ -1,0 +1,119 @@
+@page "/updates"
+@attribute [Authorize(Roles = "Admin")]
+@implements IAsyncDisposable
+@using Scalemon.Common.Updates
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IUpdaterClient Updater
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>Обновления Scalemon</PageTitle>
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H4">Обновления</RadzenText>
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info">@_message</RadzenAlert>
+    }
+    @if (_status is { } status)
+    {
+        <RadzenCard>
+            <p>Установлена: <strong>@status.Current</strong>. Предыдущая: @(status.Previous ?? "нет").</p>
+            <p>@status.Message</p>
+            @if (status.Readiness is { } readiness)
+            {
+                <p>@(readiness.Connected ? "Весы подключены" : "Нет связи с весами"). Операций: @readiness.ActiveOperations; несохранённых записей: @readiness.PendingWrites.</p>
+            }
+            @if (status.Available is { } release)
+            {
+                <p>Доступна версия <strong>@release.Version</strong>. Загружено: @(status.DownloadedBytes / 1048576) МБ из @(release.Size / 1048576) МБ.</p>
+                <p style="white-space:pre-wrap">@release.Notes</p>
+            }
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Проверить" Icon="refresh" Disabled="@_busy" Click="@(() => SendAsync(new UpdateRequest("check")))" />
+                <RadzenButton Text="Установить" Icon="system_update" Disabled="@(_busy || status.Available is null)" Click="@(() => SendAsync(new UpdateRequest("install", _status?.Available?.Version)))" />
+                <RadzenButton Text="Отменить ожидание" ButtonStyle="ButtonStyle.Light" Disabled="@_busy" Click="@(() => SendAsync(new UpdateRequest("cancel")))" />
+                <RadzenButton Text="Вернуть предыдущую версию" Icon="undo" ButtonStyle="ButtonStyle.Warning" Disabled="@(_busy || status.Previous is null)" Click="@(() => SendAsync(new UpdateRequest("rollback")))" />
+            </RadzenStack>
+            <p>Установка и возврат разрешены только после 10 минут отключения весов и сохранения всех записей. Ручная команда может выполняться вне ночного окна.</p>
+        </RadzenCard>
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.H6">Автоматические обновления</RadzenText>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenCheckBox TValue="bool" @bind-Value="_download" Name="downloadUpdates" />
+                    <RadzenLabel Text="Загружать автоматически" Component="downloadUpdates" />
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenCheckBox TValue="bool" @bind-Value="_install" Name="installUpdates" />
+                    <RadzenLabel Text="Устанавливать автоматически" Component="installUpdates" />
+                </RadzenStack>
+                <RadzenDropDown TValue="string" Data="@(new[] { "Stable", "Test" })" @bind-Value="_channel" Style="width:200px" />
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <span>По местному времени компьютера, с</span>
+                    <RadzenNumeric TValue="int" @bind-Value="_start" Min="@(0m)" Max="@(23m)" Style="width:90px" />
+                    <span>до</span>
+                    <RadzenNumeric TValue="int" @bind-Value="_end" Min="@(0m)" Max="@(23m)" Style="width:90px" />
+                </RadzenStack>
+                <RadzenButton Text="Сохранить настройки" Disabled="@_busy" Click="SaveAsync" Style="width:220px" />
+            </RadzenStack>
+        </RadzenCard>
+        <RadzenCard>
+            <RadzenText TextStyle="TextStyle.H6">Последние операции</RadzenText>
+            @foreach (var entry in status.History.Reverse()) { <p>@entry</p> }
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _poll;
+    private UpdateStatus? _status;
+    private string? _message;
+    private bool _busy;
+    private bool _loaded;
+    private bool _download = true, _install = true;
+    private string _channel = "Stable";
+    private int _start = 22, _end = 5;
+    protected override async Task OnInitializedAsync()
+    { await RefreshAsync(); _poll = PollAsync(); }
+    private async Task EnsureAdminAsync()
+    {
+        if (!(await Authentication.GetAuthenticationStateAsync()).User.IsInRole("Admin"))
+            throw new UnauthorizedAccessException("Требуется роль Admin.");
+    }
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            await EnsureAdminAsync();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token); timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            var reply = await Updater.SendAsync(new("status"), timeout.Token);
+            _status = reply.Status;
+            if (!_loaded && _status is { } s)
+            { _download = s.Settings.AutoDownload; _install = s.Settings.AutoInstall; _channel = s.Settings.Channel; _start = s.Settings.StartHour; _end = s.Settings.EndHour; _loaded = true; }
+        }
+        catch (Exception) when (!_stop.IsCancellationRequested)
+        { _message = "Служба обновлений недоступна. Если выполняется установка, соединение восстановится автоматически. Локальное обслуживание доступно через ярлык Scalemon."; }
+    }
+    private Task SaveAsync() => SendAsync(new("settings", Settings: new() { AutoDownload = _download, AutoInstall = _install, Channel = _channel, StartHour = _start, EndHour = _end }));
+    private async Task SendAsync(UpdateRequest request)
+    {
+        _busy = true;
+        try
+        {
+            await EnsureAdminAsync();
+            var actor = (await Authentication.GetAuthenticationStateAsync()).User.Identity?.Name;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var reply = await Updater.SendAsync(request with { Actor = actor }, timeout.Token);
+            _message = reply.Message;
+        }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _busy = false; }
+        await RefreshAsync();
+    }
+    private async Task PollAsync()
+    {
+        try { while (!_stop.IsCancellationRequested) { await Task.Delay(5000, _stop.Token); await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); }); } }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync() { _stop.Cancel(); if (_poll is not null) await _poll; _stop.Dispose(); }
+}

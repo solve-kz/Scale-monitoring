@@ -32,7 +32,7 @@
 
         <RadzenFieldset Text="Аутентификация и навигация">
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Логин (Basic)" HelpText="Логин для базовой аутентификации API (если используется)">
                 
                   <RadzenTextBox @bind-Value="Model.AuthenticationSettings.Basic.Username"
@@ -42,7 +42,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Пароль (Basic)" HelpText="Пароль для базовой аутентификации API (если используется)">
                 
                   <RadzenPassword @bind-Value="Model.AuthenticationSettings.Basic.Password"
@@ -52,7 +52,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Открывать после авторизации"
                                HelpText="Страница, на которую перенаправлять пользователя после успешного входа">
                 
@@ -63,7 +63,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Язык интерфейса"
                                HelpText="Выбор языка/локали UI (перезагрузка страницы может потребоваться)">
                 
@@ -76,14 +76,14 @@
           </RadzenRow>
 
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Тема оформления"
                                HelpText="Переключение визуальной темы Radzen">  
                   <ThemeSwitcher/> 
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Запомнить дату последнего просмотра"
                                HelpText="При входе автоматически открывать последний использованный день на страницах мониторинга">
                 
@@ -92,7 +92,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Порт API"
                                HelpText="TCP-порт, на котором доступен API службы">
                 
@@ -103,7 +103,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Имя службы"
                                HelpText="Системное имя Windows-службы Scalemon">
                 
@@ -122,12 +122,12 @@
         <RadzenFieldset Text="Видеоархив регистратора" Visible="@CanSee(3)">
           <p>Изменения применяются после перезапуска службы.</p>
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Включить видеоархив" HelpText="Включать только после настройки конкретной модели регистратора">
                 <RadzenCheckBox @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.Enabled" TriState="false" />
               </RadzenFormField>
             </RadzenColumn>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Начинать раньше, сек" HelpText="Сколько секунд добавить перед временем выбранного взвешивания">
                 <RadzenNumeric TValue="int"
                                @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.PreRollSeconds"
@@ -139,7 +139,7 @@
                 <RadzenNumericRangeValidator Component="VideoPreRoll" Min="0" Max="60" Text="Допустимо 0..60 секунд" />
               </RadzenFormField>
             </RadzenColumn>
-            <RadzenColumn Size="6" SizeSm="12">
+            <RadzenColumn Size="6" SizeSM="12">
               <RadzenFormField Text="Шаблон URL архива" HelpText="Поддерживаются {weighingId}, {start}, {timestamp}">
                 <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.VideoArchive.UrlTemplate"
                                Name="VideoUrlTemplate"
@@ -152,26 +152,26 @@
         <RadzenFieldset Text="Распознавание ручных реестров" Visible="@CanSee(3)">
           <p>Ключ хранится только в переменной окружения Windows. Изменения применяются после перезапуска службы.</p>
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Включить AI-распознавание" HelpText="При выключении остаются скачивание задания и ручной импорт JSON">
                 <RadzenCheckBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.Enabled" TriState="false" />
               </RadzenFormField>
             </RadzenColumn>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Модель" HelpText="Модель Responses API с поддержкой изображений и Structured Outputs">
                 <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.Model"
                                Name="RecognitionModel"
                                Style="width:100%" />
               </RadzenFormField>
             </RadzenColumn>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Переменная API-ключа" HelpText="Например OPENAI_API_KEY; само значение в JSON не записывается">
                 <RadzenTextBox @bind-Value="Model.WeightRegisterReviewSettings.Recognition.ApiKeyEnvironmentVariable"
                                Name="RecognitionApiKeyVariable"
                                Style="width:100%" />
               </RadzenFormField>
             </RadzenColumn>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Тайм-аут листа, сек" HelpText="Предельное время одного запроса распознавания">
                 <RadzenNumeric TValue="int"
                                @bind-Value="Model.WeightRegisterReviewSettings.Recognition.RequestTimeoutSeconds"
@@ -206,7 +206,7 @@
 
         <RadzenFieldset Text="Опрос весов">
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="3">
+            <RadzenColumn Size="3" SizeSM="3">
               <RadzenFormField Text="COM-порт весов" HelpText="Последовательный порт подключения индикатора весов">
                 
                   <RadzenDropDown Data="@SerialPorts" @bind-Value="Model.ScaleSettings.PortName" Name="ScalePort" Style="width:100%" />
@@ -215,7 +215,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="3">
+            <RadzenColumn Size="3" SizeSM="3">
               <RadzenFormField Text="Интервал опроса, мс" HelpText="Как часто считывать показания с весов">
                 
                   <RadzenNumeric @bind-Value="Model.ScaleSettings.PollingIntervalMs" Name="PollMs" Min="1" Step="1" Style="width:100%" />
@@ -234,7 +234,7 @@
         <RadzenFieldset Text="Логика фиксации">
           <p>Изменения этого раздела применяются после перезапуска службы.</p>
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Мин. вес продукции, кг" HelpText="Минимальное значение для начала фиксации взвешивания">
                 
                   <RadzenNumeric TValue="double" @bind-Value="Model.SystemSettings.MinWeight" Name="MinW" Min="@(0.01m)" Step="0.01" Style="width:100%" />
@@ -243,7 +243,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Максимум ZERO, кг" HelpText="До этого остатка включительно сначала отправляется команда ZERO">
                 
                   <RadzenNumeric TValue="decimal" @bind-Value="Model.SystemSettings.ZeroResidualMaxKg" Name="ZeroResidualMax" Min="@(0.001m)" Step="0.01" Style="width:100%" />
@@ -252,7 +252,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Допуск TARE, %" HelpText="На сколько процентов остаток может превышать максимум ZERO для прямого TARE">
                 
                   <RadzenNumeric TValue="decimal" @bind-Value="Model.SystemSettings.TareAllowancePercent" Name="TareAllowance" Min="0" Max="1000" Step="1" Style="width:100%" />
@@ -261,7 +261,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Верхняя граница TARE, кг" HelpText="Вычисляется из максимума ZERO и процентного допуска">
                   <RadzenNumeric TValue="decimal" Value="@Model.SystemSettings.TareMaxKg" Disabled="true" Style="width:100%" />
               </RadzenFormField>
@@ -269,35 +269,35 @@
           </RadzenRow>
 
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Стабильных измерений плато" HelpText="Сколько стабильных ответов требуется перед записью веса">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.PlateauStableSamples" Name="PlateauSamples" Min="2" Max="20" Step="1" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="PlateauSamples" Min="2" Max="20" Text="Допустимо 2..20" />
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Окно плато, кг" HelpText="Максимальный разброс стабильных измерений одного плато">
                   <RadzenNumeric TValue="decimal" @bind-Value="Model.SystemSettings.PlateauWindowKg" Name="PlateauWindow" Min="@(0.001m)" Step="0.01" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="PlateauWindow" Min="0.001" Text="Значение должно быть больше нуля" />
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Измерений остатка" HelpText="Сколько стабильных ответов подтверждают остаток перед ZERO или TARE">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.UnloadStableSamples" Name="UnloadSamples" Min="2" Max="20" Step="1" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="UnloadSamples" Min="2" Max="20" Text="Допустимо 2..20" />
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Тайм-аут команды, мс" HelpText="Ожидание ответа на каждую попытку ZERO или TARE">
                   <RadzenNumeric TValue="int" @bind-Value="Model.SystemSettings.CommandTimeoutMs" Name="CommandTimeout" Min="100" Max="3000" Step="50" Style="width:100%" />
                   <RadzenNumericRangeValidator Component="CommandTimeout" Min="100" Max="3000" Text="Допустимо 100..3000 мс" />
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Неблокирующая коррекция" HelpText="Записывать валидный груз при красной ошибке; красный сигнал и запрет автокоррекции сохраняются">
                   <RadzenCheckBox @bind-Value="Model.SystemSettings.EnableNonBlockingCorrection" TriState="false" />
               </RadzenFormField>
@@ -305,7 +305,7 @@
           </RadzenRow>
 
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Попыток ZERO" HelpText="Общее число попыток команды ZERO, включая первую">
                   <RadzenNumeric TValue="int"
                                  @bind-Value="Model.SystemSettings.ZeroCommandMaxAttempts"
@@ -318,7 +318,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Попыток TARE" HelpText="Общее число попыток команды TARE, включая первую">
                   <RadzenNumeric TValue="int"
                                  @bind-Value="Model.SystemSettings.TareCommandMaxAttempts"
@@ -331,7 +331,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Максимум авто-ZERO" HelpText="Успешных автоматических ZERO между подтверждёнными грузами">
                   <RadzenNumeric TValue="int"
                                  @bind-Value="Model.SystemSettings.MaxAutomaticZeroApplications"
@@ -344,7 +344,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Максимум авто-TARE" HelpText="Успешных автоматических TARE между подтверждёнными грузами">
                   <RadzenNumeric TValue="int"
                                  @bind-Value="Model.SystemSettings.MaxAutomaticTareApplications"
@@ -361,7 +361,7 @@
 
         <RadzenFieldset Text="PLC / Arduino">
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="COM-порт PLC" HelpText="Последовательный порт контроллера сигнализации">
                 
                   <RadzenDropDown Data="@SerialPorts" @bind-Value="Model.PlcSettings.PortName" Name="PlcPort" Style="width:100%" />
@@ -370,7 +370,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Скорость, бод" HelpText="Скорость обмена с PLC/Arduino">
                 
                   <RadzenNumeric @bind-Value="Model.PlcSettings.BaudRate" Name="Baud" Min="1" Step="1" Style="width:100%" />
@@ -379,7 +379,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Реконнект, мс" HelpText="Интервал повторного подключения">
                 
                   <RadzenNumeric @bind-Value="Model.PlcSettings.ReconnectIntervalMs" Name="PlcRe" Min="0" Step="1" Style="width:100%" />
@@ -396,7 +396,7 @@
 
         <RadzenFieldset Text="Логи (уровень)">
           <RadzenRow>
-            <RadzenColumn Size="3" SizeSm="12">
+            <RadzenColumn Size="3" SizeSM="12">
               <RadzenFormField Text="Уровень логирования"
                                HelpText="Включается немедленно без перезапуска службы">
                 
@@ -433,7 +433,7 @@
 
         <RadzenFieldset Text="База данных">
           <RadzenRow>
-            <RadzenColumn Size="12" SizeSm="12">
+            <RadzenColumn Size="12" SizeSM="12">
                             <RadzenFormField Text="Строка подключения" HelpText="Например, LocalDB или SQL Express на мини-ПК" Style="width:100%;max-width:none">
                 
                   <RadzenTextBox @bind-Value="Model.DatabaseSettings.ConnectionString"
@@ -443,7 +443,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="12" SizeSm="12">
+            <RadzenColumn Size="12" SizeSM="12">
               <RadzenFormField Text="Имя таблицы" HelpText="Таблица с результатами взвешиваний">
                 
                   <RadzenTextBox @bind-Value="Model.DatabaseSettings.TableName"
@@ -455,7 +455,7 @@
           </RadzenRow>
 
           <RadzenRow>
-            <RadzenColumn Size="12" SizeSm="12">
+            <RadzenColumn Size="12" SizeSM="12">
               <RadzenFormField Text="Очередь повторов, шт"
                                HelpText="Макс. объём буфера повторных попыток записи">
                 
@@ -466,7 +466,7 @@
               </RadzenFormField>
             </RadzenColumn>
 
-            <RadzenColumn Size="12" SizeSm="12">
+            <RadzenColumn Size="12" SizeSM="12">
               <RadzenFormField Text="Порог тревоги, шт"
                                HelpText="Размер очереди, при превышении которого выдаётся предупреждение">
                 
@@ -485,7 +485,7 @@
 
         <RadzenFieldset Text="Логи (файл)">
           <RadzenRow>
-            <RadzenColumn Size="12" SizeSm="12">
+            <RadzenColumn Size="12" SizeSM="12">
               <RadzenFormField Text="Путь к файлу лога"
                                HelpText="Единственный файл лога службы (второй файл убран)">
                 

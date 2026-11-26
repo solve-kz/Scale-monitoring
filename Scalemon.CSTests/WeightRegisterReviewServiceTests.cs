@@ -20,7 +20,7 @@ public sealed class WeightRegisterReviewServiceTests
             var service = new JsonWeightRegisterReviewService(Options.Create(new WeightRegisterReviewOptions
             {
                 StoragePath = storagePath
-            }));
+            }), new WeightRegisterRecognitionCancellationRegistry());
             await using var image = new MemoryStream(Convert.FromBase64String(OnePixelPng));
             var project = await service.CreateProjectAsync(
                 new DateOnly(2026, 8, 12),
@@ -100,7 +100,7 @@ public sealed class WeightRegisterReviewServiceTests
             var service = new JsonWeightRegisterReviewService(Options.Create(new WeightRegisterReviewOptions
             {
                 StoragePath = storagePath
-            }));
+            }), new WeightRegisterRecognitionCancellationRegistry());
             await using var image = new MemoryStream(Convert.FromBase64String(OnePixelPng));
             await using var invalid = new MemoryStream(new byte[] { 1, 2, 3 });
 
